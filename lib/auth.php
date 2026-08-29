@@ -634,8 +634,17 @@ function trax_external_auth_check(string $path): array
  */
 function trax_external_auth_run(): void
 {
-    trax_ensure_session();
-    require_once TRAX_AUTH_INCLUDE;
+    /*
+     * The actual include is deliberately executed at TOP LEVEL at the end of
+     * this file. Requiring another application's auth bootstrap from inside
+     * this function would give that file function-local variable scope. Many
+     * shared auth systems create a PDO/config/auth object in their bootstrap
+     * and later functions expect that object in $GLOBALS; function-scoping the
+     * include can therefore turn a valid login into an HTTP 500.
+     */
+    if (!($GLOBALS['TRAX_EXTERNAL_AUTH_RAN'] ?? false)) {
+        throw new RuntimeException('External authentication bootstrap did not run.');
+    }
 }
 
 /**
@@ -794,42 +803,16 @@ function trax_require_login(string $mode = 'html'): void
     }
 
     if (trax_auth_mode() === 'external') {
+        /*
+         * The configured include IS the authentication gate. An unauthenticated
+         * request is its responsibility to redirect/deny/exit. If the include
+         * returns normally, access has been granted. Do not impose a second
+         * application-specific session-variable test here: existing auth systems
+         * are free to use user_id, group_id, a nested user object, or another
+         * representation entirely.
+         */
         trax_external_auth_run();
-
-        if (trax_external_identity() !== '') {
-            return;
-        }
-
-        // The include returned without signing anyone in and without ending the
-        // request. Sending the visitor to login.php here would be a loop —
-        // login.php bounces straight back in external mode — so this says what
-        // happened instead.
-        if ($isApi) {
-            http_response_code(401);
-            header('Content-Type: application/json; charset=utf-8');
-            header('X-Content-Type-Options: nosniff');
-            header('Cache-Control: no-store');
-            echo json_encode(['ok' => false, 'code' => 'unauthenticated']);
-            exit;
-        }
-
-        http_response_code(403);
-        header('Content-Type: text/html; charset=utf-8');
-        header('X-Content-Type-Options: nosniff');
-        header('Cache-Control: no-store');
-        header('X-Robots-Tag: noindex, nofollow');
-        echo "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
-            . "<meta name=\"robots\" content=\"noindex, nofollow\">"
-            . "<title>Not signed in</title></head><body>"
-            . "<h1>External auth did not sign you in</h1>"
-            . "<p>This installation hands sign-in to an external include, and that"
-            . " include let the request through without setting an identity in the"
-            . " session.</p>"
-            . "<p>Fix it in <code>lib/config.local.php</code>: correct"
-            . " <code>TRAX_AUTH_INCLUDE</code>, or delete the"
-            . " <code>TRAX_AUTH_MODE</code> line to return to the built-in login.</p>"
-            . "</body></html>\n";
-        exit;
+        return;
     }
 
     if (trax_current_user() !== null) {
@@ -874,7 +857,46 @@ function trax_actor(): string
                 return substr($_SESSION['user'][$key], 0, 120);
             }
         }
+        foreach (['id', 'user_id', 'uid'] as $key) {
+            if (isset($_SESSION['user'][$key]) && (is_int($_SESSION['user'][$key]) || is_string($_SESSION['user'][$key]))) {
+                $id = trim((string)$_SESSION['user'][$key]);
+                if ($id !== '') {
+                    return substr('user#' . $id, 0, 120);
+                }
+            }
+        }
+    }
+
+    // Existing host-wide login systems often keep only a numeric user id in
+    // the session. It is still useful as an audit actor even when no display
+    // name is exposed to the included application.
+    foreach (['user_id', 'uid', 'userid'] as $key) {
+        if (isset($_SESSION[$key]) && (is_int($_SESSION[$key]) || is_string($_SESSION[$key]))) {
+            $id = trim((string)$_SESSION[$key]);
+            if ($id !== '') {
+                return substr('user#' . $id, 0, 120);
+            }
+        }
     }
 
     return '';
 }
+
+// ---------------------------------------------------------------------------
+// External-auth bootstrap — MUST remain at file/global scope
+// ---------------------------------------------------------------------------
+
+/*
+ * Do not move this require into trax_external_auth_run(). PHP includes inherit
+ * the scope they are executed in. The host-wide check_auth.php is an application
+ * bootstrap, so it must execute in global scope just as it does on the rest of
+ * the website. It also gets first ownership of session_start()/session_name().
+ *
+ * install.php is intentionally exempt: an incomplete installation must remain
+ * repairable even if external auth has already been written to config.local.php.
+ */
+if (trax_auth_mode() === 'external' && basename((string)($_SERVER['SCRIPT_NAME'] ?? '')) !== 'install.php') {
+    require_once TRAX_AUTH_INCLUDE;
+    $GLOBALS['TRAX_EXTERNAL_AUTH_RAN'] = true;
+}
+
