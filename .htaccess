@@ -1,0 +1,72 @@
+# ============================================================
+# Inventory Management - Apache protection / routing
+# ============================================================
+
+Options -Indexes
+Options -MultiViews
+
+RewriteEngine On
+
+
+# ============================================================
+# SECURITY: Never expose runtime/user data
+# ============================================================
+
+<IfModule mod_authz_core.c>
+    <FilesMatch "^(data\.json|data\.json\.bak|checkout\.json|users\.json|\.trax\.lock|\.trax-update\.json|\.trax-update\.lock|config\.local\.php)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+
+# Apache 2.2 fallback
+<IfModule !mod_authz_core.c>
+    <FilesMatch "^(data\.json|data\.json\.bak|checkout\.json|users\.json|\.trax\.lock|\.trax-update\.json|\.trax-update\.lock|config\.local\.php)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
+
+
+# ============================================================
+# SECURITY: Block internal application directories
+# PHP require/include still works - this only blocks HTTP access
+# ============================================================
+
+RewriteRule ^lib(?:/|$) - [F,L,NC]
+
+# Documents should only be served through the application's
+# authenticated download endpoint.
+RewriteRule ^documents(?:/|$) - [F,L,NC]
+
+
+# ============================================================
+# SECURITY: Block repository/config files
+# ============================================================
+
+RewriteRule ^\.git(?:/|$) - [F,L,NC]
+RewriteRule ^\.svn(?:/|$) - [F,L,NC]
+
+<FilesMatch "^(\.env|\.gitignore|composer\.lock)$">
+    Require all denied
+</FilesMatch>
+
+
+# ============================================================
+# CLEAN URLS
+# ============================================================
+
+# /admin -> /admin.php
+RewriteRule ^admin/?$ admin.php [L,QSA]
+
+# Optional other clean URLs
+RewriteRule ^login/?$ login.php [L,QSA]
+RewriteRule ^logout/?$ logout.php [L,QSA]
+RewriteRule ^booking/?$ booking.php [L,QSA]
+RewriteRule ^view/?$ view.php [L,QSA]
+
+
+# ============================================================
+# Default document
+# ============================================================
+
+DirectoryIndex index.php
