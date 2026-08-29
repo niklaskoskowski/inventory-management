@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<!--
+  Scanner instrument — standalone, measurement only.
+
+  Purpose: report, from the actual phone, what the QR decode pipeline is doing.
+  Nothing here imports from app/, reads data.json, or writes anything anywhere.
+  The only capability it uses is the camera.
+
+  Two decoders run against the camera, one at a time (see the note in the UI for
+  why they are mutually exclusive):
+
+    A — vendor/qr.min.js (html5-qrcode + zxing-js) configured exactly as
+        app/components/ScanDrawer.js configures it today: fps 10, qrbox = the
+        whole viewfinder clamped to >= 50px, plus the same "supersample" pin of
+        the <video>'s CSS box to the stream width (capped at 1280) with a
+        transform scaling it back for the eye. The CSS rules below that affect
+        decode geometry are copied from app/app.css as of today.
+
+    B — a plain loop of our own: getUserMedia -> drawImage into a canvas we
+        control -> jsQR (vendor/jsqr.min.js), at a resolution and ROI you pick.
+
+  Nothing in app/ is modified or loaded by this file.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scan debug</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14181d;
+    --line: #2a3038;
+    --ink: #e8edf2;
+    --dim: #9aa7b4;
+    --ok: #45d67a;
+    --warn: #ffb020;
+    --bad: #ff5d5d;
+    --accent: #4aa3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  body { padding: 12px 12px 64px; }
+  h1 { font-size: 20px; margin: 4px 0 10px; }
+  h2 { font-size: 15px; margin: 0 0 8px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,.05);
+  }
+  .row:last-child { border-bottom: 0; }
+  .k { font-size: 15px; color: var(--dim); flex: 0 0 auto; }
+  .v {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 19px;
+    font-weight: 600;
+    text-align: right;
+    word-break: break-all;
+  }
+  .v.small { font-size: 15px; font-weight: 500; }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--bad); }
+  .hero {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 54px;
+    font-weight: 700;
+    line-height: 1.05;
+    text-align: center;
+    padding: 6px 0 2px;
+  }
+  .hero small { display: block; font-size: 14px; font-weight: 500; color: var(--dim); letter-spacing: .1em; }
+  .hit {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 17px;
+    text-align: center;
+    color: var(--ok);
+    word-break: break-all;
+    min-height: 22px;
+  }
+  button {
+    font: inherit;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+    background: #1e2630;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 12px;
+    width: 100%;
+    -webkit-appearance: none;
+  }
+  button:active { background: #2a3644; }
+  button[disabled] { opacity: .4; }
+  button.go { background: #14406b; border-color: #24629f; }
+  button.stop { background: #4a1f1f; border-color: #7a3030; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .btns .wide { grid-column: 1 / -1; }
+  .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0 10px; }
+  .seg button { padding: 12px 4px; font-size: 16px; }
+  .seg button.on { background: #14406b; border-color: var(--accent); color: #fff; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0 2px; }
+  .two button.on { background: #14406b; border-color: var(--accent); }
+  .note { font-size: 13px; color: var(--dim); line-height: 1.45; margin: 8px 0 0; }
+  pre {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--dim);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 240px;
+    overflow: auto;
+    margin: 8px 0 0;
+    background: #0e1216;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Copied from app/app.css as of today, because decoder A's decode
+   * geometry is decided by this CSS. Changing it here would mean the
+   * numbers no longer describe what he runs in the app.
+   * ------------------------------------------------------------------ */
+  .trax-scanner {
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 4 / 3;
+    min-height: 220px;
+    position: relative;
+  }
+  .trax-scanner .trax-scan-region {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .trax-scanner video {
+    max-width: 100%;
+    max-height: 100%;
+    flex: none;
+  }
+  /* ------------------------------------------------------------------ */
+
+  #stage { width: 100%; height: 100%; }
+  #bview { width: 100%; display: block; background: #000; border-radius: 10px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<h1>Scan debug</h1>
+
+<div class="panel">
+  <div class="hero" id="ttfd">--.-<small>SECONDS TO FIRST DECODE</small></div>
+  <div class="hit" id="hitText">&nbsp;</div>
+  <div class="row"><span class="k">reads so far</span><span class="v" id="hitCount">0</span></div>
+</div>
+
+<div class="btns">
+  <button class="go" id="startA">Start A · app decoder</button>
+  <button class="go" id="startB">Start B · jsQR</button>
+  <button class="stop wide" id="stopBtn" disabled>Stop</button>
+  <button id="resetBtn">Reset stopwatch</button>
+  <button id="copyBtn">Copy report</button>
+</div>
+
+<div class="panel">
+  <h2>Viewfinder</h2>
+  <div class="trax-scanner mb-2" id="stage"><div id="trax-scan-region" class="trax-scan-region" style="width:100%;height:100%"></div></div>
+  <video id="bview" class="hidden" playsinline muted autoplay></video>
+  <p class="note" id="modeNote">Idle. Tap a Start button — the camera only opens on a tap.</p>
+</div>
+
+<div class="panel">
+  <h2>Stream truth</h2>
+  <div class="row"><span class="k">videoWidth×Height</span><span class="v" id="sStream">--</span></div>
+  <div class="row"><span class="k">video client box</span><span class="v" id="sClient">--</span></div>
+  <div class="row"><span class="k">track w×h @ fps</span><span class="v" id="sTrack">--</span></div>
+  <div class="row"><span class="k">facingMode</span><span class="v small" id="sFacing">--</span></div>
+  <div class="row"><span class="k">deviceId</span><span class="v small" id="sDevice">--</span></div>
+  <div class="row"><span class="k">sharpness (varLap)</span><span class="v" id="sSharp">--</span></div>
+  <div class="row"><span class="k">sharpness cost</span><span class="v small" id="sSharpCost">--</span></div>
+</div>
+
+<div class="panel">
+  <h2>A · app decoder (html5-qrcode)</h2>
+  <div class="row"><span class="k">decode canvas</span><span class="v" id="aCanvas">--</span></div>
+  <div class="row"><span class="k">library qrRegion</span><span class="v small" id="aRegion">--</span></div>
+  <div class="row"><span class="k">supersample override</span><span class="v" id="aOverride">--</span></div>
+  <div class="row"><span class="k">stream px ÷ decode px</span><span class="v" id="aRatio">--</span></div>
+  <div class="row"><span class="k">frame cycles/s</span><span class="v" id="aFps">--</span></div>
+  <div class="row"><span class="k">ms/cycle mean · p95</span><span class="v" id="aMs">--</span></div>
+  <div class="row"><span class="k">decode calls/s</span><span class="v" id="aCalls">--</span></div>
+  <div class="row"><span class="k">ms per zxing call</span><span class="v" id="aInner">--</span></div>
+  <div class="row"><span class="k">frames processed</span><span class="v" id="aCount">0</span></div>
+  <div class="two">
+    <button id="aFlipOn" class="on">flip retry ON (app)</button>
+    <button id="aFlipOff">flip retry OFF</button>
+  </div>
+  <p class="note">
+    A cycle is one loop turn: html5-qrcode decodes, and on failure decodes the
+    mirrored canvas too, then sleeps 1000/fps = 100&nbsp;ms before the next turn.
+    "decode calls/s" counts every zxing call, "frame cycles/s" counts loop turns
+    (a call more than 50&nbsp;ms after the previous one starts a new turn), and
+    "ms per zxing call" is the gap inside a pair — the mirrored decode, i.e. the
+    cost of one zxing pass on this phone with no sleep in it. ms/cycle minus
+    that minus 100&nbsp;ms is roughly the first decode plus the drawImage.
+    Flip retry OFF is <em>not</em> what the app does today — it is here to price
+    the second decode.
+  </p>
+</div>
+
+<div class="panel">
+  <h2>B · jsQR direct loop</h2>
+  <div class="seg" id="segRes">
+    <button data-w="320">320</button>
+    <button data-w="640" class="on">640</button>
+    <button data-w="960">960</button>
+    <button data-w="1280">1280</button>
+  </div>
+  <div class="two" id="segRoi">
+    <button data-roi="full" class="on">full frame</button>
+    <button data-roi="centre">centre ROI</button>
+  </div>
+  <div class="row"><span class="k">decode canvas</span><span class="v" id="bCanvas">--</span></div>
+  <div class="row"><span class="k">source crop</span><span class="v small" id="bCrop">--</span></div>
+  <div class="row"><span class="k">stream px ÷ decode px</span><span class="v" id="bRatio">--</span></div>
+  <div class="row"><span class="k">attempts/s</span><span class="v" id="bFps">--</span></div>
+  <div class="row"><span class="k">ms/attempt mean · p95</span><span class="v" id="bMs">--</span></div>
+  <div class="row"><span class="k">draw ms mean</span><span class="v small" id="bDraw">--</span></div>
+  <div class="row"><span class="k">frames processed</span><span class="v" id="bCount">0</span></div>
+  <p class="note">
+    Settings can be changed while B runs; the timers reset on every change, so
+    each number describes the setting shown. Canvas dimensions are snapped to a
+    multiple of 8 — jsQR's binarizer is measurably slower (≈2.8× on this Mac at
+    960×540 vs 960×544) when a dimension is not a multiple of 8.
+  </p>
+</div>
+
+<div class="panel">
+  <h2>Focus / exposure</h2>
+  <div class="row"><span class="k">focusMode</span><span class="v small" id="fMode">--</span></div>
+  <div class="row"><span class="k">focusDistance</span><span class="v small" id="fDist">--</span></div>
+  <div class="row"><span class="k">exposureMode</span><span class="v small" id="fExp">--</span></div>
+  <div class="row"><span class="k">torch / zoom</span><span class="v small" id="fTorch">--</span></div>
+  <p class="note">Safari on iOS exposes very little here; "not reported" is itself the answer.</p>
+</div>
+
+<div class="panel">
+  <h2>Environment</h2>
+  <div class="row"><span class="k">secure context</span><span class="v" id="eSecure">--</span></div>
+  <div class="row"><span class="k">mediaDevices</span><span class="v" id="eMedia">--</span></div>
+  <div class="row"><span class="k">libraries</span><span class="v small" id="eLibs">--</span></div>
+  <div class="row"><span class="k">screen · dpr</span><span class="v small" id="eScreen">--</span></div>
+  <p class="note" id="eUa"></p>
+</div>
+
+<div class="panel">
+  <h2>Report (also on the Copy button)</h2>
+  <pre id="reportOut">--</pre>
+</div>
+
+<script src="vendor/qr.min.js"></script>
+<script src="vendor/jsqr.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  /* @pure-begin
+   * Everything between these markers is pure: no DOM, no camera, no globals
+   * beyond what is passed in. The jsc harness extracts exactly this text out of
+   * this file and drives it, so the arithmetic in the report is tested as
+   * shipped rather than as re-typed.
+   */
+
+  /** Rolling window of durations. Fixed cap so a long run cannot grow forever. */
+  function Stats(cap) {
+    this.cap = cap || 300;
+    this.buf = [];
+    this.total = 0;
+  }
+  Stats.prototype.push = function (ms) {
+    if (!(ms >= 0)) return;
+    this.buf.push(ms);
+    if (this.buf.length > this.cap) this.buf.shift();
+    this.total += 1;
+  };
+  Stats.prototype.reset = function () { this.buf = []; this.total = 0; };
+  Stats.prototype.mean = function () {
+    if (!this.buf.length) return null;
+    var s = 0;
+    for (var i = 0; i < this.buf.length; i++) s += this.buf[i];
+    return s / this.buf.length;
+  };
+  /** Nearest-rank p95 over the window. */
+  Stats.prototype.p95 = function () {
+    if (!this.buf.length) return null;
+    var a = this.buf.slice().sort(function (x, y) { return x - y; });
+    var rank = Math.ceil(0.95 * a.length) - 1;
+    return a[Math.min(Math.max(rank, 0), a.length - 1)];
+  };
+
+  /** events over a wall-clock window -> events per second. */
+  function rate(count, elapsedMs) {
+    if (!(elapsedMs > 0) || !(count >= 0)) return null;
+    return (count * 1000) / elapsedMs;
+  }
+
+  /** Canvas dimensions jsQR is fastest on; see the note in the B panel. */
+  function snap8(n) {
+    var v = Math.round(Number(n) || 0);
+    v = v - (v % 8);
+    return v < 8 ? 8 : v;
+  }
+
+  /**
+   * The source rectangle decoder B copies out of the frame, and the canvas it
+   * copies into. 'full' takes the whole frame; 'centre' takes the middle half
+   * (by linear size, i.e. a quarter of the area) so each canvas pixel carries
+   * twice the detail at the cost of field of view. The canvas keeps the crop's
+   * aspect ratio, so nothing is squashed.
+   */
+  function roi(videoW, videoH, targetW, mode) {
+    var vw = Math.round(Number(videoW) || 0);
+    var vh = Math.round(Number(videoH) || 0);
+    if (!(vw > 0) || !(vh > 0)) return null;
+    var f = mode === 'centre' ? 0.5 : 1;
+    var sw = Math.round(vw * f);
+    var sh = Math.round(vh * f);
+    var sx = Math.round((vw - sw) / 2);
+    var sy = Math.round((vh - sh) / 2);
+    // Never upscale: decoding more pixels than the camera produced buys nothing
+    // and costs the difference.
+    var cw = snap8(Math.min(Number(targetW) || 0, sw));
+    var ch = snap8((cw * sh) / sw);
+    return { sx: sx, sy: sy, sw: sw, sh: sh, cw: cw, ch: ch };
+  }
+
+  /** How many stream pixels get averaged into one decoded pixel. */
+  function pixelRatio(videoW, videoH, canvasW, canvasH) {
+    var a = (Number(videoW) || 0) * (Number(videoH) || 0);
+    var b = (Number(canvasW) || 0) * (Number(canvasH) || 0);
+    if (!(a > 0) || !(b > 0)) return null;
+    return a / b;
+  }
+
+  /**
+   * Did ScanDrawer's supersample() actually land?
+   *
+   * The override is refused (silently, in the app) when the library has already
+   * cut its scan region out of a smaller client box — supersample() returns
+   * null in that case and the run continues at whatever the library measured.
+   * This spells that out: what the library measured, what we wanted, and
+   * whether they agree.
+   */
+  function overrideVerdict(streamW, wantCap, regionW) {
+    var s = Math.round(Number(streamW) || 0);
+    var r = Math.round(Number(regionW) || 0);
+    if (!(s > 0)) return { state: 'unknown', target: null, measured: r || null };
+    var target = Math.min(s, Number(wantCap) || s);
+    if (!(r > 0)) return { state: 'unknown', target: target, measured: null };
+    if (r === target) return { state: 'applied', target: target, measured: r };
+    return { state: 'refused', target: target, measured: r };
+  }
+
+  /**
+   * Loop turns, from the timestamps of individual decode calls. html5-qrcode
+   * decodes the mirrored canvas immediately after a failure, so calls arrive in
+   * bursts of 1-2 separated by the fps sleep; a gap over `gapMs` starts a turn.
+   */
+  var CYCLE_GAP_MS = 50;
+  function cycles(stamps, gapMs) {
+    var gap = Number(gapMs) || CYCLE_GAP_MS;
+    var n = 0;
+    for (var i = 0; i < stamps.length; i++) {
+      if (i === 0 || (stamps[i] - stamps[i - 1]) > gap) n += 1;
+    }
+    return n;
+  }
+
+  /**
+   * Calls, turns and the wall clock they happened in, all from one window, so
+   * that calls/s and cycles/s are divided by the same number and their ratio
+   * means something (2.0 = every frame is being decoded twice).
+   */
+  function cycleStats(stamps, gapMs) {
+    var span = stamps.length > 1 ? (stamps[stamps.length - 1] - stamps[0]) : 0;
+    return { calls: stamps.length, cycles: cycles(stamps, gapMs), span: span };
+  }
+
+  function fmt(n, digits) {
+    if (n === null || n === undefined || !isFinite(n)) return '--';
+    return Number(n).toFixed(digits === undefined ? 1 : digits);
+  }
+
+  /** Variance of the Laplacian over a grayscale byte block. Higher = sharper. */
+  function varLaplacian(gray, w, h) {
+    if (!(w > 2) || !(h > 2)) return null;
+    var sum = 0, sumSq = 0, n = 0;
+    for (var y = 1; y < h - 1; y++) {
+      for (var x = 1; x < w - 1; x++) {
+        var i = y * w + x;
+        var v = (4 * gray[i]) - gray[i - 1] - gray[i + 1] - gray[i - w] - gray[i + w];
+        sum += v;
+        sumSq += v * v;
+        n += 1;
+      }
+    }
+    if (!n) return null;
+    var mean = sum / n;
+    return (sumSq / n) - (mean * mean);
+  }
+
+  /** The whole measurement, as plain text. m is the model object below. */
+  function buildReport(m) {
+    var L = [];
+    L.push('Scan debug — ' + m.when);
+    L.push('page: ' + m.href);
+    L.push('UA: ' + m.ua);
+    L.push('secure context: ' + m.secure + ' · mediaDevices: ' + m.hasMedia
+      + ' · Html5Qrcode: ' + m.hasA + ' · jsQR: ' + m.hasB);
+    L.push('screen: ' + m.screen + ' · dpr ' + m.dpr);
+    L.push('');
+    L.push('TIME TO FIRST DECODE: ' + (m.ttfd === null ? 'none yet' : fmt(m.ttfd / 1000, 2) + ' s')
+      + ' (mode ' + (m.ttfdMode || '-') + ')');
+    L.push('decoded: ' + (m.hitText === null ? '(nothing yet)' : JSON.stringify(m.hitText)));
+    L.push('reads: ' + m.hitCount);
+    L.push('');
+    L.push('STREAM');
+    L.push('  videoWidth×Height : ' + m.streamW + '×' + m.streamH);
+    L.push('  video client box  : ' + m.clientW + '×' + m.clientH);
+    L.push('  track settings    : ' + m.trackSettings);
+    L.push('  capabilities      : ' + m.trackCaps);
+    L.push('  sharpness varLap  : ' + fmt(m.sharp, 0) + ' (cost ' + fmt(m.sharpCost, 2) + ' ms/sample)');
+    L.push('');
+    L.push('A · html5-qrcode (as ScanDrawer configures it: fps 10, qrbox = full viewfinder)');
+    L.push('  flip retry        : ' + (m.aFlip ? 'ON (app default)' : 'OFF (experiment)'));
+    L.push('  decode canvas     : ' + m.aCanvas);
+    L.push('  library qrRegion  : ' + m.aRegion);
+    L.push('  supersample       : ' + m.aOverride);
+    L.push('  stream÷decode px  : ' + fmt(m.aRatio, 2) + '×');
+    L.push('  frame cycles/s    : ' + fmt(m.aFps, 2));
+    L.push('  ms/cycle mean·p95 : ' + fmt(m.aMean) + ' · ' + fmt(m.aP95));
+    L.push('  decode calls/s    : ' + fmt(m.aCalls, 2));
+    L.push('  ms per zxing call : ' + fmt(m.aInnerMean) + ' · ' + fmt(m.aInnerP95) + ' p95');
+    L.push('  frames processed  : ' + m.aCount + ' over ' + fmt(m.aElapsed / 1000, 1) + ' s');
+    L.push('');
+    L.push('B · jsQR direct loop');
+    L.push('  setting           : ' + m.bWidth + ' px wide, ' + m.bRoi);
+    L.push('  decode canvas     : ' + m.bCanvas);
+    L.push('  source crop       : ' + m.bCrop);
+    L.push('  stream÷decode px  : ' + fmt(m.bRatio, 2) + '×');
+    L.push('  attempts/s        : ' + fmt(m.bFps, 2));
+    L.push('  ms/attempt mn·p95 : ' + fmt(m.bMean) + ' · ' + fmt(m.bP95));
+    L.push('  draw ms mean      : ' + fmt(m.bDraw, 2));
+    L.push('  frames processed  : ' + m.bCount + ' over ' + fmt(m.bElapsed / 1000, 1) + ' s');
+    if (m.bTable && m.bTable.length) {
+      L.push('  per-setting log (every setting tried this session):');
+      for (var i = 0; i < m.bTable.length; i++) {
+        var t = m.bTable[i];
+        L.push('    ' + t.label + ' -> ' + fmt(t.mean) + ' ms mean, ' + fmt(t.p95)
+          + ' ms p95, ' + fmt(t.fps, 2) + '/s, ' + t.count + ' frames, '
+          + t.hits + ' reads');
+      }
+    }
+    L.push('');
+    L.push('notes: ' + (m.notes.length ? m.notes.join(' | ') : 'none'));
+    return L.join('\n');
+  }
+
+  var PURE = {
+    Stats: Stats, rate: rate, snap8: snap8, roi: roi, pixelRatio: pixelRatio,
+    overrideVerdict: overrideVerdict, cycles: cycles, cycleStats: cycleStats, fmt: fmt,
+    varLaplacian: varLaplacian, buildReport: buildReport,
+    CYCLE_GAP_MS: CYCLE_GAP_MS,
+  };
+  /* @pure-end */
+
+  if (typeof window === 'undefined') { return; }
+  window.SCANDEBUG_PURE = PURE;
+
+  // ---------------------------------------------------------------- DOM ----
+
+  var $ = function (id) { return document.getElementById(id); };
+  var text = function (id, s, cls) {
+    var el = $(id);
+    if (!el) return;
+    el.textContent = s;
+    el.className = el.className.replace(/\s*(ok|warn|bad)\b/g, '') + (cls ? ' ' + cls : '');
+  };
+
+  // ScanDrawer's own constants, repeated so A is configured identically.
+  var REGION_ID = 'trax-scan-region';
+  var MIN_QR_BOX_SIZE = 50;
+  var MAX_DECODE_WIDTH = 1280;
+  var FPS = 10;
+
+  var mode = null;             // null | 'A' | 'B'
+  var runId = 0;
+  var notes = [];
+  var addNote = function (s) { if (notes.indexOf(s) < 0) notes.push(s); };
+
+  // stopwatch
+  var startedAt = null;
+  var ttfd = null;
+  var ttfdMode = null;
+  var hitText = null;
+  var hitCount = 0;
+
+  // A
+  var scanner = null;
+  var aVideo = null;
+  var aDecodeBox = null;
+  var aFlip = true;            // disableFlip=false is the app's behaviour
+  var aStamps = [];            // decode-call timestamps, windowed
+  var aStats = new Stats(300); // ms between loop turns
+  var aInner = new Stats(300); // ms between the two calls of one turn
+  var aCount = 0;
+  var aStart = 0;
+  var aLastCycle = null;
+
+  // B
+  var bStream = null;
+  var bVideo = null;
+  var bCanvas = document.createElement('canvas');
+  var bCtx = bCanvas.getContext('2d', { willReadFrequently: true });
+  var bWidth = 640;
+  var bRoiMode = 'full';
+  var bStats = new Stats(300);
+  var bDraw = new Stats(300);
+  var bCount = 0;
+  var bStartTime = 0;
+  var bHits = 0;
+  var bLoop = null;
+  var bTable = [];
+  var bLastRect = null;
+
+  // sharpness
+  var sharpCanvas = document.createElement('canvas');
+  sharpCanvas.width = 128;
+  sharpCanvas.height = 128;
+  var sharpCtx = sharpCanvas.getContext('2d', { willReadFrequently: true });
+  var sharpValue = null;
+  var sharpCost = null;
+  var sharpTimer = null;
+
+  var track = function () {
+    var s = null;
+    if (mode === 'B' && bStream) s = bStream;
+    else if (aVideo && aVideo.srcObject) s = aVideo.srcObject;
+    if (!s || !s.getVideoTracks) return null;
+    var t = s.getVideoTracks();
+    return t && t.length ? t[0] : null;
+  };
+
+  var liveVideo = function () {
+    if (mode === 'B') return bVideo;
+    return aVideo;
+  };
+
+  // ------------------------------------------------------------ helpers ----
+
+  function safeJson(o) {
+    try { return JSON.stringify(o); } catch (e) { return '(unserialisable)'; }
+  }
+
+  function settingsOf(t) {
+    if (!t || !t.getSettings) return null;
+    try { return t.getSettings(); } catch (e) { return null; }
+  }
+
+  function capsOf(t) {
+    if (!t || !t.getCapabilities) return null;
+    try { return t.getCapabilities(); } catch (e) { return null; }
+  }
+
+  function sampleSharpness() {
+    var v = liveVideo();
+    if (!v || !v.videoWidth || !v.videoHeight) return;
+    var t0 = performance.now();
+    var sx = Math.max(0, Math.round((v.videoWidth - 128) / 2));
+    var sy = Math.max(0, Math.round((v.videoHeight - 128) / 2));
+    try {
+      // 1:1 centre crop: no resampling, so the number is the real focus of the
+      // real pixels rather than of a smoothed copy.
+      sharpCtx.drawImage(v, sx, sy, 128, 128, 0, 0, 128, 128);
+      var d = sharpCtx.getImageData(0, 0, 128, 128).data;
+      var gray = new Uint8Array(128 * 128);
+      for (var i = 0, j = 0; i < d.length; i += 4, j++) {
+        gray[j] = (d[i] * 77 + d[i + 1] * 151 + d[i + 2] * 28) >> 8;
+      }
+      sharpValue = varLaplacian(gray, 128, 128);
+    } catch (e) {
+      sharpValue = null;
+      addNote('sharpness sample failed: ' + (e && e.message ? e.message : e));
+    }
+    sharpCost = performance.now() - t0;
+  }
+
+  function onHit(t) {
+    hitCount += 1;
+    hitText = t;
+    if (ttfd === null && startedAt !== null) {
+      ttfd = performance.now() - startedAt;
+      ttfdMode = mode;
+    }
+    if (mode === 'B') bHits += 1;
+  }
+
+  // ------------------------------------------------------------ decoder A --
+
+  function regionSize(el) {
+    var r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+    return {
+      width: Math.round(el.clientWidth || (r ? r.width : 0) || 0),
+      height: Math.round(el.clientHeight || (r ? r.height : 0) || 0),
+    };
+  }
+
+  /** ScanDrawer.rescale(), verbatim in behaviour. */
+  function rescale(el) {
+    if (!el || !el.style || !aDecodeBox) return null;
+    var region = $(REGION_ID);
+    var box = region ? regionSize(region) : { width: 0, height: 0 };
+    if (!(box.width > 0) || !(box.height > 0)) return null;
+    var scale = Math.min(box.width / aDecodeBox.width, box.height / aDecodeBox.height);
+    el.style.transform = 'scale(' + scale + ')';
+    return scale;
+  }
+
+  /** ScanDrawer.supersample(), verbatim in behaviour — including its refusals. */
+  function supersample(el) {
+    if (!el || !el.style) return null;
+    var sw = Number(el.videoWidth || 0);
+    var sh = Number(el.videoHeight || 0);
+    if (!(sw > 0) || !(sh > 0)) return null;
+    var width = Math.min(sw, MAX_DECODE_WIDTH);
+    var height = Math.round((width * sh) / sw);
+    if (scanner && scanner.qrRegion && Math.round(scanner.qrRegion.width) !== width) {
+      addNote('supersample refused: library had already measured '
+        + Math.round(scanner.qrRegion.width) + 'px, wanted ' + width + 'px');
+      return null;
+    }
+    var region = $(REGION_ID);
+    var box = region ? regionSize(region) : { width: 0, height: 0 };
+    if (!(box.width > 0) || !(box.height > 0)) return null;
+    el.style.maxWidth = 'none';
+    el.style.maxHeight = 'none';
+    el.style.width = width + 'px';
+    el.style.height = 'auto';
+    el.style.transformOrigin = 'center center';
+    aDecodeBox = { width: width, height: height };
+    rescale(el);
+    return aDecodeBox;
+  }
+
+  function startA() {
+    if (!window.Html5Qrcode) {
+      text('modeNote', 'vendor/qr.min.js did not load — decoder A cannot run.', 'bad');
+      return;
+    }
+    stopAll();
+    mode = 'A';
+    runId += 1;
+    var token = runId;
+    aStamps = [];
+    aStats.reset();
+    aInner.reset();
+    aCount = 0;
+    aLastCycle = null;
+    aDecodeBox = null;
+    aStart = performance.now();
+    if (startedAt === null) startedAt = performance.now();
+    $('bview').classList.add('hidden');
+    setButtons();
+    text('modeNote', 'A running: html5-qrcode, fps ' + FPS + ', qrbox = whole viewfinder.');
+
+    var region = $(REGION_ID);
+    // Capture phase on the region, exactly as ScanDrawer does, so the pin lands
+    // before the library measures.
+    var sizeToStream = function (e) {
+      var v = e && e.target;
+      if (!v || v.tagName !== 'VIDEO') return;
+      supersample(v);
+    };
+    region.addEventListener('loadedmetadata', sizeToStream, true);
+    region.addEventListener('playing', sizeToStream, true);
+    region._sizeToStream = sizeToStream;
+
+    scanner = new window.Html5Qrcode(REGION_ID, { verbose: false });
+    var cfg = {
+      fps: FPS,
+      qrbox: function (w, h) {
+        var box = function (value) {
+          var size = Math.floor(Number(value) || 0);
+          return Math.max(isFinite(size) ? size : 0, MIN_QR_BOX_SIZE);
+        };
+        return { width: box(w), height: box(h) };
+      },
+    };
+    if (!aFlip) cfg.disableFlip = true;
+
+    scanner.start(
+      { facingMode: 'environment' },
+      cfg,
+      function (decoded) {
+        if (token !== runId) return;
+        noteAttempt();
+        onHit(String(decoded));
+      },
+      function () {
+        // Fires once per settled zxing call, which is the only evidence from
+        // outside that the loop is turning at all.
+        if (token !== runId) return;
+        noteAttempt();
+      }
+    ).then(function () {
+      // A Stop (or a restart) while getUserMedia was still open must not adopt
+      // the video of a run that no longer exists.
+      if (token !== runId) return;
+      aVideo = region.querySelector('video');
+      if (aVideo) {
+        supersample(aVideo);
+        var p = aVideo.play ? aVideo.play() : null;
+        if (p && p.catch) p.catch(function (err) {
+          addNote('A play() refused: ' + (err && err.name ? err.name : err));
+          text('modeNote', 'A: the picture was refused autoplay — tap the preview.', 'warn');
+        });
+      }
+    }).catch(function (err) {
+      if (token !== runId) return;
+      text('modeNote', 'A failed to start: ' + (err && err.message ? err.message : err), 'bad');
+      addNote('A start failed: ' + (err && err.message ? err.message : err));
+      mode = null;
+      setButtons();
+    });
+  }
+
+  /** One zxing call settled (success or failure). */
+  function noteAttempt() {
+    var now = performance.now();
+    if (aLastCycle === null || (now - aLastCycle) > CYCLE_GAP_MS) {
+      if (aLastCycle !== null) aStats.push(now - aLastCycle);
+      aLastCycle = now;
+      aCount += 1;
+    } else if (aStamps.length) {
+      // Inside a turn: this call is the mirrored retry, so the gap since the
+      // previous call is one zxing pass with nothing else in it.
+      aInner.push(now - aStamps[aStamps.length - 1]);
+    }
+    aStamps.push(now);
+    if (aStamps.length > 400) aStamps.shift();
+  }
+
+  function stopA() {
+    var region = $(REGION_ID);
+    if (region && region._sizeToStream) {
+      region.removeEventListener('loadedmetadata', region._sizeToStream, true);
+      region.removeEventListener('playing', region._sizeToStream, true);
+      region._sizeToStream = null;
+    }
+    if (scanner) {
+      try {
+        scanner.stop().then(function () {
+          try { scanner.clear(); } catch (e) { /* nothing to clear */ }
+          scanner = null;
+        }).catch(function () { scanner = null; });
+      } catch (e) { scanner = null; }
+    }
+    aVideo = null;
+  }
+
+  // ------------------------------------------------------------ decoder B --
+
+  function startB() {
+    if (typeof window.jsQR !== 'function') {
+      text('modeNote', 'vendor/jsqr.min.js did not load — decoder B cannot run.', 'bad');
+      return;
+    }
+    stopAll();
+    mode = 'B';
+    runId += 1;
+    var token = runId;
+    resetB();
+    if (startedAt === null) startedAt = performance.now();
+    setButtons();
+    text('modeNote', 'B starting: asking for the rear camera at 1280×720 ideal…');
+
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    }).then(function (stream) {
+      if (token !== runId) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      bStream = stream;
+      bVideo = $('bview');
+      bVideo.classList.remove('hidden');
+      bVideo.setAttribute('playsinline', '');
+      bVideo.muted = true;
+      bVideo.srcObject = stream;
+      var p = bVideo.play ? bVideo.play() : null;
+      if (p && p.catch) p.catch(function (err) {
+        addNote('B play() refused: ' + (err && err.name ? err.name : err));
+        text('modeNote', 'B: autoplay refused — tap the picture to start it.', 'warn');
+      });
+      text('modeNote', 'B running: jsQR at ' + bWidth + ' px, ' + bRoiMode + '.');
+      bStartTime = performance.now();
+      pump(token);
+    }).catch(function (err) {
+      text('modeNote', 'B: getUserMedia refused — ' + (err && err.name ? err.name : err)
+        + ' ' + (err && err.message ? err.message : ''), 'bad');
+      addNote('B getUserMedia failed: ' + (err && err.name ? err.name : err));
+      mode = null;
+      setButtons();
+    });
+  }
+
+  function pump(token) {
+    if (token !== runId || mode !== 'B') return;
+    var v = bVideo;
+    if (v && v.videoWidth > 0 && v.readyState >= 2) {
+      var r = roi(v.videoWidth, v.videoHeight, bWidth, bRoiMode);
+      if (r) {
+        bLastRect = r;
+        if (bCanvas.width !== r.cw || bCanvas.height !== r.ch) {
+          bCanvas.width = r.cw;
+          bCanvas.height = r.ch;
+        }
+        var t0 = performance.now();
+        bCtx.drawImage(v, r.sx, r.sy, r.sw, r.sh, 0, 0, r.cw, r.ch);
+        var img = bCtx.getImageData(0, 0, r.cw, r.ch);
+        var t1 = performance.now();
+        var res = null;
+        try {
+          res = window.jsQR(img.data, r.cw, r.ch, { inversionAttempts: 'dontInvert' });
+        } catch (e) {
+          addNote('jsQR threw: ' + (e && e.message ? e.message : e));
+        }
+        var t2 = performance.now();
+        bDraw.push(t1 - t0);
+        bStats.push(t2 - t1);
+        bCount += 1;
+        if (res && res.data) onHit(String(res.data));
+      }
+    }
+    // Next frame only once this one has settled — the same cadence rule
+    // html5-qrcode uses, minus its 100 ms sleep, so this measures the ceiling.
+    bLoop = requestAnimationFrame(function () { pump(token); });
+  }
+
+  function resetB() {
+    if (bCount > 0) {
+      bTable.push({
+        label: bWidth + 'px ' + bRoiMode + (bLastRect ? ' (' + bLastRect.cw + '×' + bLastRect.ch + ')' : ''),
+        mean: bStats.mean(),
+        p95: bStats.p95(),
+        fps: rate(bCount, performance.now() - bStartTime),
+        count: bCount,
+        hits: bHits,
+      });
+      if (bTable.length > 20) bTable.shift();
+    }
+    bStats.reset();
+    bDraw.reset();
+    bCount = 0;
+    bHits = 0;
+    bStartTime = performance.now();
+  }
+
+  function stopB() {
+    if (bLoop) { cancelAnimationFrame(bLoop); bLoop = null; }
+    resetB();
+    if (bStream) {
+      bStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) { /* gone */ } });
+      bStream = null;
+    }
+    if (bVideo) {
+      bVideo.srcObject = null;
+      bVideo.classList.add('hidden');
+    }
+    bVideo = null;
+  }
+
+  function stopAll() {
+    runId += 1;
+    stopA();
+    stopB();
+    mode = null;
+    setButtons();
+  }
+
+  function setButtons() {
+    $('startA').disabled = mode === 'A';
+    $('startB').disabled = mode === 'B';
+    $('stopBtn').disabled = mode === null;
+  }
+
+  // ------------------------------------------------------------- render ----
+
+  function model() {
+    var v = liveVideo();
+    var t = track();
+    var s = settingsOf(t);
+    var c = capsOf(t);
+    var streamW = v ? Number(v.videoWidth || 0) : 0;
+    var streamH = v ? Number(v.videoHeight || 0) : 0;
+    var canvasEl = document.getElementById('qr-canvas');
+    var aCw = canvasEl ? canvasEl.width : 0;
+    var aCh = canvasEl ? canvasEl.height : 0;
+    var reg = scanner && scanner.qrRegion ? scanner.qrRegion : null;
+    var verdict = overrideVerdict(streamW, MAX_DECODE_WIDTH, reg ? reg.width : 0);
+    var aElapsed = mode === 'A' ? (performance.now() - aStart) : 0;
+    var aTurns = cycleStats(aStamps, CYCLE_GAP_MS);
+    var bElapsed = mode === 'B' ? (performance.now() - bStartTime) : 0;
+
+    return {
+      when: new Date().toISOString(),
+      href: location.href,
+      ua: navigator.userAgent,
+      secure: window.isSecureContext ? 'yes' : 'NO',
+      hasMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+      hasA: !!window.Html5Qrcode,
+      hasB: typeof window.jsQR === 'function',
+      screen: (screen.width + '×' + screen.height + ' css, window '
+        + window.innerWidth + '×' + window.innerHeight),
+      dpr: window.devicePixelRatio,
+      ttfd: ttfd,
+      ttfdMode: ttfdMode,
+      hitText: hitText,
+      hitCount: hitCount,
+      streamW: streamW,
+      streamH: streamH,
+      clientW: v ? v.clientWidth : 0,
+      clientH: v ? v.clientHeight : 0,
+      trackSettings: s ? safeJson(s) : '(no track)',
+      trackCaps: c ? safeJson(c) : '(not reported)',
+      sharp: sharpValue,
+      sharpCost: sharpCost,
+      aFlip: aFlip,
+      aCanvas: canvasEl ? (aCw + '×' + aCh) : '(no canvas yet)',
+      aRegion: reg ? (Math.round(reg.width) + '×' + Math.round(reg.height)
+        + ' at ' + Math.round(reg.x) + ',' + Math.round(reg.y)) : '(none)',
+      aOverride: verdict.state + ' (library measured '
+        + (verdict.measured === null ? '?' : verdict.measured)
+        + ', wanted ' + (verdict.target === null ? '?' : verdict.target) + ')',
+      aOverrideState: verdict.state,
+      aRatio: pixelRatio(streamW, streamH, aCw, aCh),
+      // Both rates come out of the same window and the same denominator, so
+      // their ratio is readable on its own: 2.0 means every frame is being
+      // decoded twice (the flip retry). Windowed rather than whole-run,
+      // because the whole run includes the second or so it took the camera to
+      // open, and that is not what "how often does it look" means.
+      aFps: rate(aTurns.cycles, aTurns.span),
+      aMean: aStats.mean(),
+      aP95: aStats.p95(),
+      aCalls: rate(aTurns.calls, aTurns.span),
+      aInnerMean: aInner.mean(),
+      aInnerP95: aInner.p95(),
+      aCount: aCount,
+      aElapsed: aElapsed,
+      bWidth: bWidth,
+      bRoi: bRoiMode,
+      bCanvas: bLastRect ? (bLastRect.cw + '×' + bLastRect.ch) : '(idle)',
+      bCrop: bLastRect ? (bLastRect.sw + '×' + bLastRect.sh + ' at '
+        + bLastRect.sx + ',' + bLastRect.sy) : '(idle)',
+      bRatio: bLastRect ? pixelRatio(bLastRect.sw, bLastRect.sh, bLastRect.cw, bLastRect.ch) : null,
+      bFps: rate(bCount, bElapsed),
+      bMean: bStats.mean(),
+      bP95: bStats.p95(),
+      bDraw: bDraw.mean(),
+      bCount: bCount,
+      bElapsed: bElapsed,
+      bTable: bTable,
+      notes: notes,
+      caps: c,
+      settings: s,
+    };
+  }
+
+  function render() {
+    var m = model();
+
+    var secs = ttfd !== null ? (ttfd / 1000)
+      : (startedAt !== null && mode !== null ? (performance.now() - startedAt) / 1000 : null);
+    $('ttfd').innerHTML = (secs === null ? '--.-' : secs.toFixed(1))
+      + '<small>SECONDS TO FIRST DECODE</small>';
+    $('ttfd').className = 'hero ' + (ttfd !== null ? 'ok' : (secs !== null && secs > 3 ? 'bad' : ''));
+    text('hitText', hitText === null ? ' ' : hitText);
+    text('hitCount', String(hitCount));
+
+    text('sStream', m.streamW + '×' + m.streamH);
+    text('sClient', m.clientW + '×' + m.clientH);
+    var st = m.settings || {};
+    text('sTrack', (st.width || '?') + '×' + (st.height || '?') + ' @ '
+      + (st.frameRate ? Number(st.frameRate).toFixed(0) : '?'));
+    text('sFacing', String(st.facingMode || '(not reported)'));
+    text('sDevice', String(st.deviceId || '(not reported)').slice(0, 24));
+    text('sSharp', fmt(m.sharp, 0));
+    text('sSharpCost', fmt(m.sharpCost, 2) + ' ms');
+
+    text('aCanvas', m.aCanvas);
+    text('aRegion', m.aRegion);
+    text('aOverride', m.aOverride,
+      m.aOverrideState === 'applied' ? 'ok' : (m.aOverrideState === 'refused' ? 'bad' : 'warn'));
+    text('aRatio', m.aRatio === null ? '--' : fmt(m.aRatio, 2) + '×');
+    text('aFps', fmt(m.aFps, 2));
+    text('aMs', fmt(m.aMean) + ' · ' + fmt(m.aP95));
+    text('aCalls', fmt(m.aCalls, 2));
+    text('aInner', fmt(m.aInnerMean) + ' · ' + fmt(m.aInnerP95));
+    text('aCount', String(m.aCount));
+
+    text('bCanvas', m.bCanvas);
+    text('bCrop', m.bCrop);
+    text('bRatio', m.bRatio === null ? '--' : fmt(m.bRatio, 2) + '×');
+    text('bFps', fmt(m.bFps, 2));
+    text('bMs', fmt(m.bMean) + ' · ' + fmt(m.bP95));
+    text('bDraw', fmt(m.bDraw, 2) + ' ms');
+    text('bCount', String(m.bCount));
+
+    var caps = m.caps || {};
+    text('fMode', caps.focusMode ? safeJson(caps.focusMode) + ' → ' + String(st.focusMode || '?')
+      : '(not reported)');
+    text('fDist', caps.focusDistance ? safeJson(caps.focusDistance) + ' → ' + String(st.focusDistance || '?')
+      : '(not reported)');
+    text('fExp', caps.exposureMode ? safeJson(caps.exposureMode) + ' → ' + String(st.exposureMode || '?')
+      : '(not reported)');
+    text('fTorch', (caps.torch === undefined ? 'torch: no' : 'torch: ' + safeJson(caps.torch))
+      + ' · ' + (caps.zoom === undefined ? 'zoom: no' : 'zoom: ' + safeJson(caps.zoom)));
+
+    text('eSecure', m.secure, m.secure === 'yes' ? 'ok' : 'bad');
+    text('eMedia', m.hasMedia ? 'present' : 'MISSING', m.hasMedia ? 'ok' : 'bad');
+    text('eLibs', 'Html5Qrcode ' + (m.hasA ? 'ok' : 'MISSING')
+      + ' · jsQR ' + (m.hasB ? 'ok' : 'MISSING'), (m.hasA && m.hasB) ? 'ok' : 'bad');
+    text('eScreen', m.screen + ' · dpr ' + m.dpr);
+    $('eUa').textContent = m.ua;
+
+    $('reportOut').textContent = buildReport(m);
+  }
+
+  // -------------------------------------------------------------- wiring ---
+
+  $('startA').addEventListener('click', startA);
+  $('startB').addEventListener('click', startB);
+  $('stopBtn').addEventListener('click', function () {
+    stopAll();
+    text('modeNote', 'Stopped. The camera is released.');
+  });
+  $('resetBtn').addEventListener('click', function () {
+    startedAt = mode === null ? null : performance.now();
+    ttfd = null;
+    ttfdMode = null;
+    hitText = null;
+    hitCount = 0;
+    aStats.reset(); aInner.reset(); aCount = 0; aStamps = []; aLastCycle = null;
+    aStart = performance.now();
+    resetB();
+    bTable = [];
+    render();
+  });
+  $('copyBtn').addEventListener('click', function () {
+    var txt = buildReport(model());
+    var done = function (okState) {
+      $('copyBtn').textContent = okState ? 'Copied ✓' : 'Copy failed — select the text below';
+      setTimeout(function () { $('copyBtn').textContent = 'Copy report'; }, 2500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () { done(true); }, function () { done(false); });
+    } else {
+      done(false);
+    }
+  });
+
+  var segRes = $('segRes');
+  segRes.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) return;
+    resetB();
+    bWidth = Number(b.getAttribute('data-w'));
+    Array.prototype.forEach.call(segRes.querySelectorAll('button'), function (x) {
+      x.className = x === b ? 'on' : '';
+    });
+    if (mode === 'B') text('modeNote', 'B running: jsQR at ' + bWidth + ' px, ' + bRoiMode + '.');
+  });
+
+  var segRoi = $('segRoi');
+  segRoi.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) return;
+    resetB();
+    bRoiMode = b.getAttribute('data-roi');
+    Array.prototype.forEach.call(segRoi.querySelectorAll('button'), function (x) {
+      x.className = x === b ? 'on' : '';
+    });
+    if (mode === 'B') text('modeNote', 'B running: jsQR at ' + bWidth + ' px, ' + bRoiMode + '.');
+  });
+
+  // scanner.stop() is asynchronous and tears the video out of the region, so a
+  // restart has to wait for it rather than construct a second Html5Qrcode over
+  // the same element.
+  function restartA() {
+    var wasRunning = mode === 'A';
+    stopAll();
+    if (!wasRunning) return;
+    text('modeNote', 'A restarting with flip retry ' + (aFlip ? 'ON' : 'OFF') + '…');
+    setTimeout(startA, 600);
+  }
+  $('aFlipOn').addEventListener('click', function () {
+    aFlip = true;
+    $('aFlipOn').className = 'on';
+    $('aFlipOff').className = '';
+    restartA();
+  });
+  $('aFlipOff').addEventListener('click', function () {
+    aFlip = false;
+    $('aFlipOff').className = 'on';
+    $('aFlipOn').className = '';
+    restartA();
+  });
+
+  // A tap on either picture retries play(), which is the only recovery iOS
+  // offers when it refuses autoplay.
+  ['stage', 'bview'].forEach(function (id) {
+    $(id).addEventListener('click', function () {
+      var v = liveVideo();
+      if (v && v.play) { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+    });
+  });
+
+  if (!window.isSecureContext) {
+    addNote('insecure context — iOS will not grant the camera here');
+    text('modeNote', 'This page is not in a secure context (https or localhost). '
+      + 'iOS will refuse the camera.', 'bad');
+  }
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+    addNote('navigator.mediaDevices.getUserMedia missing');
+  }
+
+  // The display refreshes on a timer, never per frame, so reading the numbers
+  // does not change them.
+  setInterval(render, 250);
+  sharpTimer = setInterval(sampleSharpness, 500);
+  render();
+}());
+</script>
+</body>
+</html>
