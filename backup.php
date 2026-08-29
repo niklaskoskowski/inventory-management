@@ -1,382 +1,170 @@
 <?php
 declare(strict_types=1);
 
-/**
- * Inventory Management daily backup
- *
- * Intended to be run from cron / CLI only.
- *
- * Backup destination:
- *   ./backup/YYYY-MM-DD/
- *
- * Persistent content backed up:
- *   - data.json
- *   - data.json.bak
- *   - checkout.json
- *   - users.json
- *   - lib/config.local.php
- *   - uploads/
- *   - documents/
- *   - logo.png
- *   - favicon.png
- *
- * If config.local.php defines TRAX_DATA_DIR, TRAX_UPLOAD_DIR or TRAX_DOC_DIR,
- * those locations are used where applicable.
- */
-
 date_default_timezone_set('Europe/Berlin');
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     header('Content-Type: text/plain; charset=UTF-8');
-    exit("Forbidden. This backup script may only be run from CLI/cron.\n");
+    exit("Forbidden. Run backup.php via CLI/cron only.\n");
 }
 
-$root = __DIR__;
-$backupRoot = $root . '/backup';
+$root = realpath(__DIR__) ?: __DIR__;
+$siteRoot = dirname($root);
+$backupRoot = $siteRoot . DIRECTORY_SEPARATOR . 'backup';
 $today = date('Y-m-d');
 $finalDir = $backupRoot . '/' . $today;
 $tempDir = $backupRoot . '/.tmp-' . $today . '-' . getmypid();
 $lockPath = $backupRoot . '/.backup.lock';
 
-function out(string $message): void
-{
+function out(string $message): void {
     fwrite(STDOUT, '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL);
 }
 
-function fail(string $message, int $code = 1): never
-{
+function fail(string $message, int $code = 1): never {
     fwrite(STDERR, '[' . date('Y-m-d H:i:s') . '] ERROR: ' . $message . PHP_EOL);
     exit($code);
 }
 
-function ensureDir(string $path, int $mode = 0750): void
-{
-    if (is_dir($path)) {
-        return;
-    }
-
+function ensureDir(string $path, int $mode = 0750): void {
+    if (is_dir($path)) return;
     if (!@mkdir($path, $mode, true) && !is_dir($path)) {
-        throw new RuntimeException('Could not create directory: ' . $path);
+        $parent = dirname($path);
+        $last = error_get_last();
+        throw new RuntimeException(
+            "Could not create directory: {$path}\n" .
+            "Parent: {$parent}\n" .
+            'Parent exists: ' . (is_dir($parent) ? 'yes' : 'no') . "\n" .
+            'Parent writable: ' . (is_writable($parent) ? 'yes' : 'no') . "\n" .
+            ($last && isset($last['message']) ? 'PHP error: ' . $last['message'] : '')
+        );
     }
 }
 
-function copyFileSafe(string $source, string $destination): int
-{
-    if (!is_file($source)) {
-        return 0;
-    }
-
+function copyFileSafe(string $source, string $destination): int {
+    if (!is_file($source)) return 0;
     ensureDir(dirname($destination));
-
     if (!@copy($source, $destination)) {
-        throw new RuntimeException('Could not copy file: ' . $source);
+        $last = error_get_last();
+        throw new RuntimeException('Could not copy file: ' . $source . ($last && isset($last['message']) ? "\n" . $last['message'] : ''));
     }
-
     @chmod($destination, 0640);
-
     return 1;
 }
 
-/**
- * Recursively copy a directory without following symlinks.
- *
- * @return array{files:int,dirs:int,skipped_symlinks:int}
- */
-function copyDirectorySafe(string $source, string $destination): array
-{
-    $stats = [
-        'files' => 0,
-        'dirs' => 0,
-        'skipped_symlinks' => 0,
-    ];
-
-    if (!is_dir($source)) {
-        return $stats;
-    }
-
+function copyDirectorySafe(string $source, string $destination): array {
+    $stats = ['files' => 0, 'dirs' => 0, 'skipped_symlinks' => 0];
+    if (!is_dir($source)) return $stats;
     ensureDir($destination);
     $stats['dirs']++;
-
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator(
-            $source,
-            FilesystemIterator::SKIP_DOTS
-        ),
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::SELF_FIRST
     );
-
-    foreach ($iterator as $item) {
+    foreach ($it as $item) {
         $sourcePath = $item->getPathname();
-        $relativePath = substr($sourcePath, strlen(rtrim($source, DIRECTORY_SEPARATOR)) + 1);
-        $destinationPath = $destination . DIRECTORY_SEPARATOR . $relativePath;
-
-        if ($item->isLink()) {
-            $stats['skipped_symlinks']++;
-            out('Skipping symlink: ' . $sourcePath);
-            continue;
-        }
-
-        if ($item->isDir()) {
-            ensureDir($destinationPath);
-            $stats['dirs']++;
-            continue;
-        }
-
+        $relative = substr($sourcePath, strlen(rtrim($source, DIRECTORY_SEPARATOR)) + 1);
+        $destinationPath = $destination . DIRECTORY_SEPARATOR . $relative;
+        if ($item->isLink()) { $stats['skipped_symlinks']++; continue; }
+        if ($item->isDir()) { ensureDir($destinationPath); $stats['dirs']++; continue; }
         if ($item->isFile()) {
             ensureDir(dirname($destinationPath));
-
-            if (!@copy($sourcePath, $destinationPath)) {
-                throw new RuntimeException('Could not copy file: ' . $sourcePath);
-            }
-
+            if (!@copy($sourcePath, $destinationPath)) throw new RuntimeException('Could not copy file: ' . $sourcePath);
             @chmod($destinationPath, 0640);
             $stats['files']++;
         }
     }
-
     return $stats;
 }
 
-function removeTree(string $path): void
-{
-    if (!file_exists($path)) {
-        return;
-    }
-
-    if (is_file($path) || is_link($path)) {
-        @unlink($path);
-        return;
-    }
-
-    $iterator = new RecursiveIteratorIterator(
+function removeTree(string $path): void {
+    if (!file_exists($path)) return;
+    if (is_file($path) || is_link($path)) { @unlink($path); return; }
+    $it = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::CHILD_FIRST
     );
-
-    foreach ($iterator as $item) {
-        if ($item->isDir() && !$item->isLink()) {
-            @rmdir($item->getPathname());
-        } else {
-            @unlink($item->getPathname());
-        }
+    foreach ($it as $item) {
+        if ($item->isDir() && !$item->isLink()) @rmdir($item->getPathname()); else @unlink($item->getPathname());
     }
-
     @rmdir($path);
 }
 
-function canonicalExistingPath(string $path): string
-{
-    $real = realpath($path);
-    return $real !== false ? $real : $path;
-}
-
 try {
+    out('Application root: ' . $root);
+    out('Backup root: ' . $backupRoot);
+    $parent = dirname($backupRoot);
+    out('Backup parent exists: ' . (is_dir($parent) ? 'yes' : 'no'));
+    out('Backup parent writable: ' . (is_writable($parent) ? 'yes' : 'no'));
+
+    if (!is_dir($parent)) throw new RuntimeException('Backup parent does not exist: ' . $parent);
+    if (!is_writable($parent) && !is_dir($backupRoot)) throw new RuntimeException('Backup parent is not writable: ' . $parent);
+
     ensureDir($backupRoot, 0750);
 
-    // Block all direct web access to backup contents.
-    $htaccess = $backupRoot . '/.htaccess';
-    if (!is_file($htaccess)) {
-        $rules = <<<HTACCESS
-Options -Indexes
+    $lock = @fopen($lockPath, 'c+');
+    if (!$lock) throw new RuntimeException('Could not open lock file: ' . $lockPath);
+    if (!flock($lock, LOCK_EX | LOCK_NB)) fail('Another backup is already running.', 2);
 
-<IfModule mod_authz_core.c>
-    Require all denied
-</IfModule>
-
-<IfModule !mod_authz_core.c>
-    Order allow,deny
-    Deny from all
-</IfModule>
-HTACCESS;
-
-        if (@file_put_contents($htaccess, $rules . PHP_EOL, LOCK_EX) === false) {
-            throw new RuntimeException('Could not create backup/.htaccess');
-        }
-        @chmod($htaccess, 0640);
-    }
-
-    $lockHandle = @fopen($lockPath, 'c+');
-    if ($lockHandle === false) {
-        throw new RuntimeException('Could not open backup lock file.');
-    }
-
-    if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
-        fclose($lockHandle);
-        fail('Another backup process is already running.', 2);
-    }
-
-    // A completed backup for today already exists: do nothing.
     if (is_dir($finalDir) && is_file($finalDir . '/backup-complete.json')) {
         out('Backup for ' . $today . ' already exists. Nothing to do.');
-        flock($lockHandle, LOCK_UN);
-        fclose($lockHandle);
-        exit(0);
+        flock($lock, LOCK_UN); fclose($lock); exit(0);
     }
 
-    // Clean up an incomplete backup from a previous failed run today.
-    if (is_dir($finalDir)) {
-        out('Removing incomplete backup directory from an earlier run today.');
-        removeTree($finalDir);
-    }
-
-    if (is_dir($tempDir)) {
-        removeTree($tempDir);
-    }
-
+    if (is_dir($finalDir)) removeTree($finalDir);
+    if (is_dir($tempDir)) removeTree($tempDir);
     ensureDir($tempDir, 0750);
 
-    // Read local path overrides without loading the complete application/auth stack.
     $localConfig = $root . '/lib/config.local.php';
-    if (is_file($localConfig)) {
-        require_once $localConfig;
+    if (is_file($localConfig)) require_once $localConfig;
+
+    $dataDir = defined('TRAX_DATA_DIR') && is_string(TRAX_DATA_DIR) && TRAX_DATA_DIR !== '' ? rtrim(TRAX_DATA_DIR, '/\\') : $root;
+    $uploadDir = defined('TRAX_UPLOAD_DIR') && is_string(TRAX_UPLOAD_DIR) && TRAX_UPLOAD_DIR !== '' ? rtrim(TRAX_UPLOAD_DIR, '/\\') : $root . '/uploads';
+    $docDir = defined('TRAX_DOC_DIR') && is_string(TRAX_DOC_DIR) && TRAX_DOC_DIR !== '' ? rtrim(TRAX_DOC_DIR, '/\\') : $root . '/documents';
+
+    $files = 0; $dirs = 0; $symlinks = 0;
+
+    foreach (['data.json','data.json.bak','checkout.json','users.json'] as $name) {
+        $src = $dataDir . '/' . $name;
+        if (!is_file($src) && $dataDir !== $root && is_file($root . '/' . $name)) $src = $root . '/' . $name;
+        if (is_file($src)) { out('Backing up: ' . $src); $files += copyFileSafe($src, $tempDir . '/data/' . $name); }
     }
 
-    $dataDir = defined('TRAX_DATA_DIR') && is_string(TRAX_DATA_DIR) && TRAX_DATA_DIR !== ''
-        ? rtrim(TRAX_DATA_DIR, '/\\')
-        : $root;
+    if (is_file($localConfig)) $files += copyFileSafe($localConfig, $tempDir . '/config/config.local.php');
 
-    $uploadDir = defined('TRAX_UPLOAD_DIR') && is_string(TRAX_UPLOAD_DIR) && TRAX_UPLOAD_DIR !== ''
-        ? rtrim(TRAX_UPLOAD_DIR, '/\\')
-        : $root . '/uploads';
-
-    $docDir = defined('TRAX_DOC_DIR') && is_string(TRAX_DOC_DIR) && TRAX_DOC_DIR !== ''
-        ? rtrim(TRAX_DOC_DIR, '/\\')
-        : $root . '/documents';
-
-    out('Starting daily backup.');
-    out('Destination: ' . $finalDir);
-
-    $filesCopied = 0;
-    $dirsCopied = 0;
-    $skippedSymlinks = 0;
-    $sources = [];
-
-    // JSON / runtime data.
-    $dataFiles = [
-        'data.json',
-        'data.json.bak',
-        'checkout.json',
-        'users.json',
-    ];
-
-    foreach ($dataFiles as $filename) {
-        $source = $dataDir . '/' . $filename;
-
-        // Compatibility: if a configured data directory does not contain a
-        // particular legacy file, also check the application root.
-        if (!is_file($source) && $dataDir !== $root && is_file($root . '/' . $filename)) {
-            $source = $root . '/' . $filename;
-        }
-
-        if (!is_file($source)) {
-            out('Not present, skipping: ' . $filename);
-            continue;
-        }
-
-        out('Backing up: ' . $source);
-        $filesCopied += copyFileSafe($source, $tempDir . '/data/' . $filename);
-        $sources[] = canonicalExistingPath($source);
+    foreach (['logo.png','favicon.png'] as $name) {
+        $src = $root . '/' . $name;
+        if (is_file($src)) $files += copyFileSafe($src, $tempDir . '/branding/' . $name);
     }
 
-    // Local installation configuration.
-    if (is_file($localConfig)) {
-        out('Backing up: ' . $localConfig);
-        $filesCopied += copyFileSafe($localConfig, $tempDir . '/config/config.local.php');
-        $sources[] = canonicalExistingPath($localConfig);
-    } else {
-        out('Not present, skipping: lib/config.local.php');
-    }
-
-    // Runtime branding.
-    foreach (['logo.png', 'favicon.png'] as $filename) {
-        $source = $root . '/' . $filename;
-        if (!is_file($source)) {
-            continue;
-        }
-
-        out('Backing up: ' . $source);
-        $filesCopied += copyFileSafe($source, $tempDir . '/branding/' . $filename);
-        $sources[] = canonicalExistingPath($source);
-    }
-
-    // User uploads.
     if (is_dir($uploadDir)) {
         out('Backing up uploads: ' . $uploadDir);
-        $stats = copyDirectorySafe($uploadDir, $tempDir . '/uploads');
-        $filesCopied += $stats['files'];
-        $dirsCopied += $stats['dirs'];
-        $skippedSymlinks += $stats['skipped_symlinks'];
-        $sources[] = canonicalExistingPath($uploadDir);
-    } else {
-        out('Upload directory not present, skipping: ' . $uploadDir);
+        $s = copyDirectorySafe($uploadDir, $tempDir . '/uploads');
+        $files += $s['files']; $dirs += $s['dirs']; $symlinks += $s['skipped_symlinks'];
     }
 
-    // User documents.
     if (is_dir($docDir)) {
         out('Backing up documents: ' . $docDir);
-        $stats = copyDirectorySafe($docDir, $tempDir . '/documents');
-        $filesCopied += $stats['files'];
-        $dirsCopied += $stats['dirs'];
-        $skippedSymlinks += $stats['skipped_symlinks'];
-        $sources[] = canonicalExistingPath($docDir);
-    } else {
-        out('Document directory not present, skipping: ' . $docDir);
+        $s = copyDirectorySafe($docDir, $tempDir . '/documents');
+        $files += $s['files']; $dirs += $s['dirs']; $symlinks += $s['skipped_symlinks'];
     }
 
     $manifest = [
         'backup_date' => $today,
         'created_at' => date(DATE_ATOM),
-        'application_root' => canonicalExistingPath($root),
-        'files_copied' => $filesCopied,
-        'directories_copied' => $dirsCopied,
-        'skipped_symlinks' => $skippedSymlinks,
-        'sources' => $sources,
-        'php_version' => PHP_VERSION,
-        'hostname' => gethostname() ?: null,
+        'application_root' => $root,
+        'backup_root' => $backupRoot,
+        'files_copied' => $files,
+        'directories_copied' => $dirs,
+        'skipped_symlinks' => $symlinks,
     ];
+    file_put_contents($tempDir . '/backup-complete.json', json_encode($manifest, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES) . PHP_EOL, LOCK_EX);
 
-    $manifestJson = json_encode(
-        $manifest,
-        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
-    );
+    if (!@rename($tempDir, $finalDir)) throw new RuntimeException('Could not finalize backup directory: ' . $finalDir);
 
-    if ($manifestJson === false) {
-        throw new RuntimeException('Could not encode backup manifest.');
-    }
-
-    if (@file_put_contents($tempDir . '/backup-complete.json', $manifestJson . PHP_EOL, LOCK_EX) === false) {
-        throw new RuntimeException('Could not write backup manifest.');
-    }
-
-    @chmod($tempDir . '/backup-complete.json', 0640);
-
-    // Atomic publish: incomplete backups remain hidden as .tmp-*.
-    if (!@rename($tempDir, $finalDir)) {
-        throw new RuntimeException('Could not finalize backup directory.');
-    }
-
-    out(
-        'Backup complete: '
-        . $filesCopied . ' file(s), '
-        . $dirsCopied . ' director'
-        . ($dirsCopied === 1 ? 'y' : 'ies')
-        . '.'
-    );
-
-    if ($skippedSymlinks > 0) {
-        out('Skipped symlink(s): ' . $skippedSymlinks);
-    }
-
-    flock($lockHandle, LOCK_UN);
-    fclose($lockHandle);
-    exit(0);
-
+    out('Backup complete: ' . $files . ' file(s).');
+    flock($lock, LOCK_UN); fclose($lock);
 } catch (Throwable $e) {
-    if (isset($tempDir) && is_dir($tempDir)) {
-        removeTree($tempDir);
-    }
-
+    if (isset($tempDir) && is_dir($tempDir)) removeTree($tempDir);
     fail($e->getMessage());
 }
-
