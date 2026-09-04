@@ -1,0 +1,1091 @@
+/**
+ * Theme layer.
+ *
+ * Bootstrap 5 supplies the grid, forms and utilities. This file supplies the
+ * tokens and the handful of components Bootstrap has no equivalent for
+ * (app shell, timeline grid, scanner). Colours are defined once, here.
+ */
+
+:root {
+  --trax-bg: #0c0f12;
+  --trax-surface: #12171d;
+  --trax-surface-2: #171e26;
+  --trax-surface-3: #1e2731;
+  --trax-border: #263039;
+  --trax-border-strong: #33414e;
+  --trax-text: #e6edf3;
+  --trax-muted: #8b98a5;
+  --trax-accent: #3b82f6;
+  --trax-accent-soft: rgba(59, 130, 246, 0.15);
+
+  --trax-free: #2ea043;
+  --trax-rsvd: #d29922;
+  --trax-unav: #e5534b;
+  --trax-lock: #6e7681;
+  --trax-partial: #3fb0c9;
+
+  --trax-sidebar-w: 208px;
+  --trax-radius: 10px;
+  --trax-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+  color-scheme: dark;
+}
+
+/* Bootstrap overrides, so its components inherit the palette. */
+[data-bs-theme='dark'] {
+  --bs-body-bg: var(--trax-bg);
+  --bs-body-color: var(--trax-text);
+  --bs-border-color: var(--trax-border);
+  --bs-secondary-color: var(--trax-muted);
+  --bs-emphasis-color: var(--trax-text);
+  --bs-primary: var(--trax-accent);
+  --bs-link-color-rgb: 96, 165, 250;
+}
+
+body {
+  background: var(--trax-bg);
+  color: var(--trax-text);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+  /* Kills the 300ms double-tap-to-zoom gesture without killing scrolling. */
+  touch-action: manipulation;
+}
+
+button,
+.btn,
+.trax-tab,
+[role='button'] {
+  touch-action: manipulation;
+}
+
+/* ---------------------------------------------------------------- Boot --- */
+
+.trax-boot {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.trax-boot-mark {
+  font-size: 1.6rem;
+  letter-spacing: 0.06em;
+  color: var(--trax-muted);
+}
+
+.trax-boot-mark b {
+  color: var(--trax-accent);
+}
+
+/* --------------------------------------------------------------- Shell --- */
+
+.trax-shell {
+  display: grid;
+  grid-template-columns: var(--trax-sidebar-w) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.trax-sidebar {
+  background: var(--trax-surface);
+  border-right: 1px solid var(--trax-border);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.trax-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.5rem 0.65rem 0.9rem;
+  color: var(--trax-text);
+  text-decoration: none;
+}
+
+.trax-brand b {
+  color: var(--trax-accent);
+}
+
+.trax-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  color: var(--trax-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.trax-nav-link:hover {
+  background: var(--trax-surface-2);
+  color: var(--trax-text);
+}
+
+.trax-nav-link.active {
+  background: var(--trax-accent-soft);
+  color: #cfe1ff;
+  font-weight: 500;
+}
+
+.trax-nav-link i {
+  font-size: 1rem;
+  width: 1.1rem;
+  text-align: center;
+}
+
+.trax-nav-count {
+  margin-left: auto;
+  font-size: 0.7rem;
+  background: var(--trax-surface-3);
+  color: var(--trax-muted);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+
+.trax-nav-count.alert-count {
+  background: rgba(229, 83, 75, 0.2);
+  color: #ff9a94;
+}
+
+.trax-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.trax-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(12, 15, 18, 0.88);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--trax-border);
+  padding: 0.6rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.trax-content {
+  padding: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.trax-page-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.trax-page-sub {
+  font-size: 0.78rem;
+  color: var(--trax-muted);
+  margin: 0;
+}
+
+/* --------------------------------------------------------------- Cards --- */
+
+.trax-card {
+  background: var(--trax-surface);
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius);
+}
+
+.trax-card-pad {
+  padding: 0.85rem 1rem;
+}
+
+/* Table cards scroll horizontally only; vertical wheel events chain to the page. */
+.trax-table-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.trax-kpi {
+  background: var(--trax-surface);
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius);
+  padding: 0.85rem 1rem;
+  height: 100%;
+}
+
+.trax-kpi-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--trax-muted);
+}
+
+.trax-kpi-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.trax-kpi-note {
+  font-size: 0.75rem;
+  color: var(--trax-muted);
+}
+
+/* --------------------------------------------------------------- Table --- */
+
+.trax-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+}
+
+.trax-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--trax-surface-2);
+  border-bottom: 1px solid var(--trax-border);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--trax-muted);
+  font-weight: 600;
+  padding: 0.5rem 0.6rem;
+  white-space: nowrap;
+}
+
+.trax-table tbody td {
+  border-bottom: 1px solid var(--trax-border);
+  padding: 0.5rem 0.6rem;
+  vertical-align: middle;
+}
+
+.trax-table tbody tr:hover td {
+  background: var(--trax-surface-2);
+}
+
+.trax-table tbody tr.is-selected td {
+  background: var(--trax-accent-soft);
+}
+
+.trax-table tbody tr.is-member td {
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.82rem;
+}
+
+.trax-table .sort-btn {
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+}
+
+.trax-table .sort-btn:hover {
+  color: var(--trax-text);
+}
+
+.trax-name-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--trax-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trax-name-btn:hover {
+  color: #8ab4ff;
+  text-decoration: underline;
+}
+
+.trax-density-compact .trax-table tbody td {
+  padding: 0.25rem 0.6rem;
+}
+
+/* -------------------------------------------------------------- Badges --- */
+
+.trax-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.trax-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.trax-badge.status-FREE { color: #7ee2a0; background: rgba(46, 160, 67, 0.15); border-color: rgba(46, 160, 67, 0.35); }
+.trax-badge.status-RSVD { color: #f0c674; background: rgba(210, 153, 34, 0.15); border-color: rgba(210, 153, 34, 0.35); }
+.trax-badge.status-UNAV { color: #ff9a94; background: rgba(229, 83, 75, 0.15); border-color: rgba(229, 83, 75, 0.35); }
+.trax-badge.status-LOCK { color: #b1bac4; background: rgba(110, 118, 129, 0.18); border-color: rgba(110, 118, 129, 0.4); }
+.trax-badge.status-PARTIAL { color: #8fd8e8; background: rgba(63, 176, 201, 0.15); border-color: rgba(63, 176, 201, 0.35); }
+
+.trax-kind-chip {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--trax-muted);
+  border: 1px solid var(--trax-border-strong);
+  border-radius: 4px;
+  padding: 0 0.3rem;
+}
+
+.trax-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--trax-surface-3);
+  flex: 0 0 auto;
+}
+
+.trax-thumb-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--trax-muted);
+  font-size: 0.9rem;
+}
+
+/* --------------------------------------------------------------- Cards --- */
+
+.trax-asset-card {
+  background: var(--trax-surface);
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius);
+  padding: 0.7rem;
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+
+.trax-asset-card.is-selected {
+  border-color: var(--trax-accent);
+  background: var(--trax-accent-soft);
+}
+
+/* -------------------------------------------------------------- Drawer --- */
+
+.trax-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1050;
+}
+
+.trax-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(520px, 100vw);
+  background: var(--trax-surface);
+  border-left: 1px solid var(--trax-border);
+  box-shadow: var(--trax-shadow);
+  z-index: 1055;
+  display: flex;
+  flex-direction: column;
+}
+
+.trax-drawer-wide {
+  width: min(860px, 100vw);
+}
+
+.trax-drawer-header {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--trax-border);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.trax-drawer-body {
+  padding: 1rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.trax-drawer-footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--trax-border);
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/*
+ * The sheet's tab bar. Five tabs at Bootstrap's default padding measure ~578px
+ * against a ~487px drawer, which clipped "History" off the right with nothing
+ * to show it was there. Tighter padding, a smaller label and smaller count
+ * badges bring the row under the drawer width; the nowrap/scroll rules stay as
+ * the fallback for viewports narrower than the sheet was designed for.
+ */
+
+.nav-tabs-sm {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.nav-tabs-sm .nav-link {
+  white-space: nowrap;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+.nav-tabs-sm .nav-link .badge {
+  font-size: 0.7em;
+  padding: 0.25em 0.45em;
+}
+
+/* -------------------------------------------------------------- Toasts --- */
+
+.trax-toasts {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 1080;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(400px, calc(100vw - 2rem));
+}
+
+.trax-toast {
+  background: var(--trax-surface-3);
+  border: 1px solid var(--trax-border-strong);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  box-shadow: var(--trax-shadow);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.trax-toast.kind-success { border-left-color: var(--trax-free); }
+.trax-toast.kind-danger  { border-left-color: var(--trax-unav); }
+.trax-toast.kind-warning { border-left-color: var(--trax-rsvd); }
+.trax-toast.kind-info    { border-left-color: var(--trax-accent); }
+
+/* ------------------------------------------------------------ Timeline --- */
+
+.trax-timeline-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius);
+  background: var(--trax-surface);
+}
+
+.trax-timeline {
+  display: grid;
+  gap: 1px;
+  align-items: start;
+  min-width: max-content;
+  background: var(--trax-border);
+}
+
+.trax-tl-corner,
+.trax-tl-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--trax-surface-2);
+  font-size: 0.65rem;
+  text-align: center;
+  padding: 0.25rem 0.1rem;
+  color: var(--trax-muted);
+}
+
+.trax-tl-corner {
+  left: 0;
+  z-index: 5;
+}
+
+.trax-tl-head.is-weekend { background: var(--trax-surface-3); }
+.trax-tl-head.is-today   { color: #cfe1ff; box-shadow: inset 0 -2px 0 var(--trax-accent); }
+
+.trax-tl-dow { display: block; opacity: 0.65; font-size: 0.58rem; }
+.trax-tl-dom { display: block; font-weight: 600; }
+
+.trax-tl-label {
+  grid-column: 1;
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--trax-surface-2);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.55rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: var(--trax-tl-label);
+  border-right: 1px solid var(--trax-border);
+}
+
+.trax-tl-cell {
+  background: var(--trax-bg);
+  z-index: 1;
+  min-height: 26px;
+}
+
+.trax-tl-cell.is-weekend { background: #0f141a; }
+.trax-tl-cell.is-today   { box-shadow: inset 1px 0 0 var(--trax-accent); }
+
+.trax-tl-band {
+  z-index: 2;
+  align-self: start;
+  height: calc(var(--trax-tl-lane) - 3px);
+  border: 0;
+  border-radius: 3px;
+  padding: 0 0.3rem;
+  font-size: 0.65rem;
+  line-height: calc(var(--trax-tl-lane) - 3px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  cursor: pointer;
+  margin-top: 3px;
+}
+
+.trax-tl-band.kind-reservation { background: var(--trax-rsvd); color: #1a1206; }
+.trax-tl-band.kind-checkout    { background: var(--trax-unav); color: #fff; }
+.trax-tl-band.kind-overdue     { background: repeating-linear-gradient(45deg, #e5534b 0 6px, #7d1f1a 6px 12px); color: #fff; }
+.trax-tl-band.kind-blocked     { background: var(--trax-lock); color: #e6edf3; }
+
+.trax-tl-band.clip-start { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.trax-tl-band.clip-end   { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+
+.trax-tl-key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+/* ------------------------------------------------------------- Scanner --- */
+
+/* The viewfinder.
+ *
+ * 4/3 only until the stream's real shape is known: ScanDrawer then sets
+ * aspect-ratio inline from videoWidth/videoHeight, because a 9:16 phone stream
+ * letterboxed into a 4/3 box drew a 164px strip in a 390px box — under half the
+ * width, on the one control the user aims with.
+ *
+ * The height cap is what keeps that from swallowing a phone screen: at 390px
+ * wide a 9:16 preview wants 693px of height, so it clamps and the picture
+ * letterboxes horizontally instead — the same graceful fallback as before, and
+ * still about three times the pixels the 4/3 box gave it. The overlay is
+ * measured from the video's real fitted rectangle either way, so it stays
+ * pinned through the clamp. */
+/* The stage is the scanner's layout switch, and it has exactly two positions.
+ *
+ * Here — every width above the mobile breakpoint — it and its two control bars
+ * are display:contents, so the mode buttons, the viewfinder, the status line,
+ * the camera picker and the manual entry box lay themselves out in the drawer
+ * body in source order, which is precisely the layout they had before the
+ * stage existed. The two controls that only make sense full-screen are hidden
+ * rather than absent, so the phone layout can never end up without them.
+ *
+ * The full-screen position is in the Mobile section at the bottom of this
+ * file; ScanDrawer asks matchMedia the same question to know which box it is
+ * measuring the overlay guides against. */
+.trax-scan-stage,
+.trax-scan-bar,
+.trax-scan-toprow {
+  display: contents;
+}
+
+.trax-scan-close,
+.trax-scan-actions {
+  display: none;
+}
+
+/* Bootstrap's mb-3 / mb-2, moved off the elements and into here: the utilities
+   carry !important, which the full-screen rules would have to fight. Same
+   values, so this layout is unchanged. */
+.trax-scan-modes {
+  margin-bottom: 1rem;
+}
+
+.trax-scanner {
+  border-radius: var(--trax-radius);
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 0.5rem;
+  aspect-ratio: 4 / 3;
+  /* Fallback height for engines without aspect-ratio (iOS Safari < 15): the
+     box would otherwise be 0 high and the camera would have nowhere to draw. */
+  min-height: 220px;
+  max-height: 60vh;
+  position: relative;
+}
+
+/* The scan region fills the box and is the overlay's positioning context. */
+.trax-scanner .trax-scan-region {
+  position: absolute;
+  inset: 0;
+}
+
+/* The preview is now only a preview.
+ *
+ * ScanDrawer draws the frames it decodes straight off the <video>'s intrinsic
+ * pixel grid into a canvas it owns, so nothing declared here can move, squash
+ * or shrink what the decoder sees. That was not true of the scanner library
+ * this replaced: it built its decode canvas at the video's CSS size and cropped
+ * the frame with videoWidth/clientWidth and videoHeight/clientHeight as two
+ * independent scales (@byte ~331050), which is why this block used to be a
+ * minefield of letterbox pins and `flex: none`.
+ *
+ * `contain` because the guides drawn over the picture have to be able to
+ * outline the whole decoded frame: `cover` would push part of what is scanned
+ * off the edge of the viewfinder and make the overlay a lie. */
+.trax-scanner .trax-scan-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* The framing overlay.
+ *
+ * Positioned in pixels by ScanDrawer's refitOverlay(), from the same letterbox
+ * arithmetic the passes are built from: this box IS the full-frame decode pass,
+ * every pixel of it, and there is nothing else drawn inside it. The dashed
+ * rectangle that used to mark the centre pass is gone — it marked where the
+ * second pass spends native pixels, and it read as a target to aim into when
+ * the whole frame is scanned either way. Nothing here may be sized by hand: an
+ * overlay that is not derived from the passes is an overlay that can lie. */
+.trax-scan-frame {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.trax-scan-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 3px solid rgb(255 255 255 / 85%);
+}
+
+.trax-scan-corner.tl { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+.trax-scan-corner.tr { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+.trax-scan-corner.bl { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+.trax-scan-corner.br { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+
+/* The iOS tap-to-start target: covers the viewfinder, over the guides. */
+.trax-scan-tap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  border: 0;
+  border-radius: 0;
+  padding: 1rem;
+  text-align: center;
+  z-index: 3;
+}
+
+.trax-scan-hits {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* --------------------------------------------------------------- Misc ---- */
+
+.trax-empty {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--trax-muted);
+}
+
+.trax-empty i {
+  font-size: 1.8rem;
+  display: block;
+  margin-bottom: 0.5rem;
+  opacity: 0.5;
+}
+
+.trax-selection-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 15;
+  background: var(--trax-surface-3);
+  border: 1px solid var(--trax-border-strong);
+  border-radius: var(--trax-radius);
+  padding: 0.55rem 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  box-shadow: var(--trax-shadow);
+  margin-top: 0.75rem;
+}
+
+.trax-mobile-nav { display: none; }
+
+/* ------------------------------------------------------------ Settings --- */
+
+/* Section switcher. Reads as the sidebar's nav does, laid on its side. */
+.trax-tabs {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--trax-border);
+  padding-bottom: 0.5rem;
+}
+
+.trax-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--trax-muted);
+  font-size: 0.85rem;
+  transition: background 0.12s, color 0.12s;
+}
+
+.trax-tab:hover {
+  background: var(--trax-surface-2);
+  color: var(--trax-text);
+}
+
+.trax-tab.active {
+  background: var(--trax-accent-soft);
+  color: #cfe1ff;
+  font-weight: 500;
+}
+
+/* The brand colour has to be visible on something, not just in a swatch. */
+.trax-brand-preview {
+  border-radius: var(--trax-radius);
+  padding: 1.5rem 1rem;
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--trax-border-strong);
+}
+
+kbd {
+  background: var(--trax-surface-3);
+  border: 1px solid var(--trax-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  font-size: 0.75rem;
+}
+
+.trax-meta-grid {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.trax-meta-grid dt { color: var(--trax-muted); font-weight: 400; }
+.trax-meta-grid dd { margin: 0; }
+
+/* -------------------------------------------------------------- Mobile --- */
+
+@media (max-width: 991.98px) {
+  .trax-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trax-sidebar {
+    display: none;
+  }
+
+  .trax-content {
+    padding: 0.75rem 0.75rem 5.5rem;
+  }
+
+  .trax-mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    background: rgba(18, 23, 29, 0.97);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--trax-border);
+    padding: 0.3rem 0.25rem calc(0.3rem + env(safe-area-inset-bottom));
+  }
+
+  .trax-mobile-nav button {
+    flex: 1;
+    background: none;
+    border: 0;
+    color: var(--trax-muted);
+    /* Six items now, and "Reservations" is the longest label of the set: at
+       0.62rem it alone claims ~80px of the ~367px row, squeezing the rest. */
+    font-size: 0.56rem;
+    padding: 0.35rem 0.1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    border-radius: 8px;
+  }
+
+  .trax-mobile-nav button i { font-size: 1.15rem; }
+  .trax-mobile-nav button.active { color: #cfe1ff; background: var(--trax-accent-soft); }
+
+  .trax-drawer { width: 100vw; }
+
+  /* ---- The scanner, full screen -------------------------------------------
+   *
+   * "Make scanner cover whole screen and move ui elements over the stream, so
+   * more is visible on phone." A block in the drawer body could never be more
+   * than a fraction of a phone screen — 60vh at the very best, with the mode
+   * buttons above it and the status line, the manual entry box and the drawer
+   * footer below. So the stage leaves that flow entirely and covers the
+   * viewport, the drawer's own header and footer included, and the controls
+   * float over the picture on two scrims.
+   *
+   * z-index 1060 clears .trax-drawer (1055), which is the element being
+   * covered. ScanDrawer asks matchMedia this same query so it knows which box
+   * it is fitting the overlay guides into. */
+  .trax-scan-stage {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1060;
+    background: #000;
+  }
+
+  /* The drawer's own header and footer end up underneath the stage, and both
+     are duplicated on the bars above. They are deliberately NOT hidden: the
+     Drawer focuses its header's close button on open and traps Tab against the
+     controls it can find, and a display:none button is focusable by neither.
+     Covered but present is the behaviour this drawer already had; changing it
+     belongs to Drawer.js, not here. */
+
+  /* The preview IS the screen here.
+   *
+   * width/height are stated explicitly because ScanDrawer still writes the
+   * stream's own aspect-ratio inline, and a ratio only applies to an automatic
+   * size: with both definite it cannot squash this box. The picture is
+   * letterboxed inside it by object-fit: contain instead — 720x1280 into
+   * 390x693 loses about a fifth of a pixel — which is what keeps the guides
+   * able to outline the whole of what is decoded.
+   *
+   * z-index 0 makes this a stacking context, so the guides (2) and the
+   * tap-to-start target (3) stay inside the picture instead of painting over
+   * the bars and burying the close button. */
+  .trax-scanner {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    margin-bottom: 0;
+    border-radius: 0;
+    z-index: 0;
+  }
+
+  /* The scrims. "Make bottom of scanner ui more transparent" — 0.86 was a wall
+     over the camera, and both bars now sit at 0.62, so 38% of the scene comes
+     through instead of 14%.
+     Legibility still comes from the scrim rather than from hoping the video is
+     dark, and the arithmetic is the reason the text colour moved with it. Over
+     a pure white ceiling, 0.62 of #05080b composites to about 13.2% relative
+     luminance, which leaves (all computed, not measured on a device):
+       #cbd5e1, the old muted text   3.89:1   fails the 4.5:1 floor
+       var(--trax-text) #e6edf3      4.89:1   passes, and is what is set below
+       #fff, buttons and icons       5.78:1
+     Against a dark floor every one of those is over 13:1. The blur and the text
+     shadow are belt and braces on a busy background; neither is counted above,
+     because a contrast ratio cannot count them. */
+  .trax-scan-bar {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    color: var(--trax-text);
+    background: rgba(5, 8, 11, 0.62);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+    padding-left: calc(0.75rem + env(safe-area-inset-left));
+    padding-right: calc(0.75rem + env(safe-area-inset-right));
+  }
+
+  /* Anything carrying its own background is already off the video; a shadow
+     inside a button or an input is just mud. */
+  .trax-scan-bar .btn,
+  .trax-scan-bar .form-control,
+  .trax-scan-bar .form-select,
+  .trax-scan-bar .alert {
+    text-shadow: none;
+  }
+
+  /* admin.php sets viewport-fit=cover, so these insets are real: without them
+     the mode buttons sit under the Dynamic Island and Done under the home
+     indicator. */
+  .trax-scan-bar-top {
+    top: 0;
+    padding-top: calc(0.5rem + env(safe-area-inset-top));
+    padding-bottom: 0.5rem;
+  }
+
+  .trax-scan-bar-bottom {
+    bottom: 0;
+    padding-top: 0.6rem;
+    padding-bottom: calc(0.6rem + env(safe-area-inset-bottom));
+    /* The alerts, the camera picker and the scanned list all live down here.
+       They scroll inside the bar instead of growing over the picture, and the
+       scroll stops here rather than chaining into the page behind. */
+    max-height: 46vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .trax-scan-toprow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .trax-scan-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 1px solid var(--trax-border-strong);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--trax-text);
+    font-size: 1.05rem;
+  }
+
+  .trax-scan-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.6rem;
+  }
+
+  .trax-scan-modes,
+  .trax-scan-hint {
+    margin-bottom: 0;
+  }
+
+  /* The touch target floor. btn-sm is 31px tall, which is not a thumb. */
+  .trax-scan-bar .btn,
+  .trax-scan-bar .form-control,
+  .trax-scan-bar .form-select {
+    min-height: 44px;
+  }
+
+  /* Bootstrap's colour utilities are !important by design, and --trax-muted
+     (#8b98a5) was picked against a solid panel: over a 0.62 scrim on a white
+     ceiling it is 1.96:1, and #cbd5e1 — what this said before the scrim was
+     thinned — is 3.89:1. Only the body text colour still clears 4.5:1, so the
+     muted tone is simply given up here. Size carries the hierarchy instead. */
+  .trax-scan-bar .text-secondary {
+    color: var(--trax-text) !important;
+  }
+
+  .trax-toasts {
+    bottom: 4.5rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    max-width: none;
+  }
+
+  .trax-meta-grid { grid-template-columns: 7rem minmax(0, 1fr); }
+
+  /*
+   * iOS Safari zooms the viewport whenever a focused control computes to less
+   * than 16px, and it has ignored user-scalable=no since iOS 10 — so the meta
+   * tag alone does not fix it. Bootstrap's -sm variants are 0.875rem (14px),
+   * which is exactly the trigger. Raise every focusable control to 16px, but
+   * only here, so desktop density is untouched.
+   *
+   * The class selectors are required: a bare `input` (0,0,1) loses to
+   * Bootstrap's `.form-control-sm` (0,1,0).
+   */
+  .form-control,
+  .form-control-sm,
+  .form-select,
+  .form-select-sm,
+  select,
+  textarea,
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='email'],
+  input[type='number'],
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='tel'],
+  input[type='password'],
+  input[type='file'] {
+    font-size: 16px;
+  }
+}
+
+@media print {
+  .trax-sidebar,
+  .trax-topbar,
+  .trax-mobile-nav,
+  .trax-selection-bar,
+  .trax-toasts { display: none !important; }
+
+  .trax-shell { grid-template-columns: 1fr; }
+  body { background: #fff; color: #000; }
+}

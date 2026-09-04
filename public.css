@@ -1,0 +1,655 @@
+/**
+ * Public pages — index.php (the target of every printed QR label) and
+ * view.php (the read-only inventory board).
+ *
+ * Self-contained on purpose. index.php used to pull Tailwind from
+ * cdn.tailwindcss.com and Manrope from fonts.googleapis.com, which broke the
+ * rule the rest of the folder keeps ("the folder must work as uploaded",
+ * admin.php:53): every label scan hit two third parties, and the page rendered
+ * unstyled if either was unreachable. Nothing here is fetched from anywhere but
+ * this folder — the type is a system stack, and the only other asset the pages
+ * load is vendor/bootstrap-icons.css, which is vendored with its own woff2.
+ *
+ * The tokens mirror app/app.css so the public side and the admin app read as
+ * one product; the status colours are the same five the admin badges use.
+ */
+
+:root {
+  --trax-bg: #0c0f12;
+  --trax-surface: #12171d;
+  --trax-surface-2: #171e26;
+  --trax-surface-3: #1e2731;
+  --trax-border: #263039;
+  --trax-border-strong: #33414e;
+  --trax-text: #e6edf3;
+  --trax-muted: #8b98a5;
+  --trax-accent: #3b82f6;
+
+  /* settings.branding.brandColor; index.php and view.php override this inline
+     from the stored value, and #1F2937 is what that setting defaults to. This
+     copy is only what a page that forgets to inject it falls back to. */
+  --trax-brand: #1F2937;
+  --trax-brand-ink: #ffffff;
+  --trax-brand-mark: #8fb6ff;
+
+  --trax-free: #2ea043;
+  --trax-rsvd: #d29922;
+  --trax-unav: #e5534b;
+  --trax-lock: #6e7681;
+  --trax-partial: #3fb0c9;
+
+  /* WhatsApp green, carrying near-black ink: 9.69:1. */
+  --trax-wa: #25d366;
+  --trax-wa-ink: #0c0f12;
+
+  --trax-radius: 12px;
+  --trax-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  --trax-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+/* ----------------------------------------------------------------- Base --- */
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--trax-bg);
+  color: var(--trax-text);
+  font-family: var(--trax-font);
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* Kills the 300ms double-tap-to-zoom gesture without killing scrolling. */
+  touch-action: manipulation;
+}
+
+button,
+.pub-btn,
+[role='button'] { touch-action: manipulation; }
+
+/* A found item is handled outdoors on a phone: keyboard and switch users need
+   to see where they are, and the ring has to survive a dark surface. */
+:focus-visible {
+  outline: 2px solid var(--trax-accent);
+  outline-offset: 2px;
+}
+
+.pub-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --------------------------------------------------------------- Shell --- */
+
+.pub-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.pub-top {
+  background: var(--trax-brand);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pub-top-inner {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0.8rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.pub-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.pub-wordmark {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--trax-brand-ink);
+  text-decoration: none;
+}
+
+.pub-wordmark b {
+  color: var(--trax-brand-mark);
+  font-weight: 600;
+}
+
+.pub-top-tag {
+  margin-left: auto;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--trax-brand-mark);
+}
+
+.pub-main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.15rem 1rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+/* The board is a list of many rows, so it gets more room than the single
+   asset page does. Still a cap, never a width: the element itself is 100%, so
+   320px never scrolls sideways. The compound selector keeps the header bar
+   aligned with the board under it without relying on source order. */
+.pub-main-wide { max-width: 880px; }
+.pub-top-inner.pub-main-wide { max-width: 880px; }
+
+.pub-foot {
+  border-top: 1px solid var(--trax-border);
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--trax-muted);
+}
+
+.pub-foot strong {
+  color: var(--trax-text);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- Cards --- */
+
+.pub-card {
+  background: var(--trax-surface);
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius);
+  padding: 1.1rem;
+}
+
+.pub-eyebrow,
+.pub-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--trax-muted);
+}
+
+/* Operator-entered names run long and contain part numbers; break them
+   rather than let one push the page sideways on a 320px screen. */
+.pub-title {
+  margin: 0;
+  font-size: 1.55rem;
+  line-height: 1.2;
+  font-weight: 600;
+  color: var(--trax-text);
+  overflow-wrap: anywhere;
+}
+
+.pub-sub {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: var(--trax-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.6rem;
+}
+
+.pub-id { font-family: var(--trax-mono); }
+
+.pub-chip {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--trax-muted);
+  border: 1px solid var(--trax-border-strong);
+  border-radius: 4px;
+  padding: 0 0.35rem;
+}
+
+.pub-notes {
+  margin-top: 1rem;
+}
+
+.pub-notes-body {
+  background: var(--trax-surface-2);
+  border: 1px solid var(--trax-border);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  font-size: 0.95rem;
+  color: var(--trax-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* -------------------------------------------------------------- Status --- */
+
+/*
+ * The old page pulsed a coloured box-shadow behind the status forever. It drew
+ * the eye away from the one thing this page is for — reaching the owner — and
+ * cost a repaint a second on a phone that is probably outdoors on battery. The
+ * state is carried by the word, the colour and a dot instead.
+ */
+.pub-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.pub-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.pub-status.status-FREE { color: #7ee2a0; background: rgba(46, 160, 67, 0.15); border-color: rgba(46, 160, 67, 0.35); }
+.pub-status.status-RSVD { color: #f0c674; background: rgba(210, 153, 34, 0.15); border-color: rgba(210, 153, 34, 0.35); }
+.pub-status.status-UNAV { color: #ff9a94; background: rgba(229, 83, 75, 0.15); border-color: rgba(229, 83, 75, 0.35); }
+.pub-status.status-LOCK { color: #b1bac4; background: rgba(110, 118, 129, 0.18); border-color: rgba(110, 118, 129, 0.4); }
+.pub-status.status-PARTIAL { color: #8fd8e8; background: rgba(63, 176, 201, 0.15); border-color: rgba(63, 176, 201, 0.35); }
+
+.pub-status-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--trax-muted);
+}
+
+/* ------------------------------------------------------------- Recovery --- */
+
+/*
+ * The whole point of index.php. Server-rendered, so it is on screen before
+ * public.php has answered: whoever is holding the item can act immediately.
+ */
+.pub-found {
+  background: var(--trax-surface);
+  border: 1px solid var(--trax-border-strong);
+  border-radius: var(--trax-radius);
+  padding: 1.1rem;
+}
+
+.pub-found-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.pub-found-text {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  color: var(--trax-muted);
+}
+
+/* The lookup card: a heading, not the name of a thing, so it sits a size down
+   from .pub-title and carries its own lead paragraph. */
+.pub-heading {
+  margin: 0 0 0.4rem;
+  font-size: 1.3rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.pub-lead {
+  margin: 0 0 1.1rem;
+  font-size: 0.95rem;
+  color: var(--trax-muted);
+}
+
+.pub-optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.pub-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
+
+.pub-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 52px;
+  padding: 0.7rem 1rem;
+  border-radius: var(--trax-radius);
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.pub-btn i { font-size: 1.15rem; line-height: 1; }
+
+.pub-btn-primary {
+  background: var(--trax-wa);
+  color: var(--trax-wa-ink);
+}
+
+.pub-btn-primary:hover { background: #3ad978; }
+
+.pub-btn-ghost {
+  background: var(--trax-surface-3);
+  color: var(--trax-text);
+  border-color: var(--trax-border-strong);
+}
+
+.pub-btn-ghost:hover { background: #26313d; }
+
+.pub-btn-quiet {
+  background: transparent;
+  color: var(--trax-muted);
+  border-color: var(--trax-border-strong);
+}
+
+.pub-btn-quiet:hover { color: var(--trax-text); }
+
+/* --------------------------------------------------------------- Forms --- */
+
+.pub-field { display: block; margin-bottom: 0.85rem; }
+
+.pub-field:last-child { margin-bottom: 0; }
+
+.pub-input {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.65rem 0.8rem;
+  background: var(--trax-surface-2);
+  border: 1px solid var(--trax-border-strong);
+  border-radius: 10px;
+  color: var(--trax-text);
+  font: inherit;
+}
+
+textarea.pub-input {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.pub-input::placeholder { color: var(--trax-muted); opacity: 1; }
+
+.pub-input:focus {
+  border-color: var(--trax-accent);
+  outline: 2px solid var(--trax-accent);
+  outline-offset: 1px;
+}
+
+/* Captcha — index.php's report form. The plate is drawn light by captcha.php
+   (dark ink on a light background reads better on a phone in daylight), so it
+   keeps its own white backing rather than the dark surface around it. */
+.pub-captcha {
+  border-radius: 8px;
+  border: 1px solid var(--trax-border-strong);
+  background: #fff;
+}
+
+.pub-captcha-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+/* Off-screen rather than display:none: a bot reading the DOM fills it in, a
+   screen reader skips it (aria-hidden) and a keyboard never reaches it. */
+.pub-hp {
+  position: absolute;
+  left: -9999px;
+}
+
+.pub-search { position: relative; }
+
+.pub-search .pub-input { padding-left: 2.6rem; }
+
+.pub-search-icon {
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--trax-muted);
+  pointer-events: none;
+}
+
+/* -------------------------------------------------------------- Modal --- */
+
+.pub-modal {
+  /* Percentage-first so it can never be wider than a 320px screen. */
+  width: min(100% - 1.5rem, 440px);
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--trax-border-strong);
+  border-radius: 14px;
+  background: var(--trax-surface);
+  color: var(--trax-text);
+}
+
+.pub-modal::backdrop { background: rgba(3, 5, 8, 0.72); }
+
+.pub-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--trax-border);
+}
+
+.pub-modal-title { margin: 0; font-size: 1.05rem; font-weight: 600; }
+
+.pub-modal-body { padding: 1rem; }
+
+.pub-modal-body .pub-flash { margin-bottom: 0.85rem; }
+
+.pub-modal-foot {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+  padding: 0 1rem 1rem;
+}
+
+.pub-icon-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--trax-border-strong);
+  background: transparent;
+  color: var(--trax-muted);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.pub-icon-btn:hover { color: var(--trax-text); }
+
+/* --------------------------------------------------------------- Flash --- */
+
+.pub-flash {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--trax-radius);
+  border: 1px solid transparent;
+  font-size: 0.95rem;
+}
+
+.pub-flash-ok { color: #7ee2a0; background: rgba(46, 160, 67, 0.12); border-color: rgba(46, 160, 67, 0.35); }
+.pub-flash-bad { color: #ff9a94; background: rgba(229, 83, 75, 0.12); border-color: rgba(229, 83, 75, 0.35); }
+
+.pub-note {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--trax-muted);
+}
+
+.pub-note-bad { color: #ff9a94; }
+
+/* ---------------------------------------------------------------- List --- */
+
+.pub-board-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pub-board-title { margin: 0; font-size: 1.2rem; font-weight: 600; }
+
+.pub-count { font-size: 0.85rem; color: var(--trax-muted); }
+
+.pub-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.pub-item {
+  background: var(--trax-surface);
+  border: 1px solid var(--trax-border);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+}
+
+.pub-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pub-item-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pub-item-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--trax-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.6rem;
+}
+
+.pub-item-notes {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: var(--trax-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The list badge is the same five colours, one notch smaller than the one the
+   asset page shows. */
+.pub-item .pub-status {
+  margin-top: 0;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  flex: 0 0 auto;
+}
+
+.pub-empty {
+  margin: 0;
+  border: 1px dashed var(--trax-border-strong);
+  border-radius: 10px;
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--trax-muted);
+  font-size: 0.95rem;
+}
+
+.pub-skeleton-row {
+  height: 62px;
+  border-radius: 10px;
+  border: 1px solid var(--trax-border);
+  background: var(--trax-surface);
+  animation: pubFade 1.4s ease-in-out infinite;
+}
+
+.pub-skeleton-row:nth-child(2) { animation-delay: 0.15s; }
+.pub-skeleton-row:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes pubFade {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.8; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pub-skeleton-row { animation: none; opacity: 0.55; }
+}
+
+/* --------------------------------------------------------- Wider screens --- */
+
+/* One thumb-width column on a phone; side by side once there is room for two
+   52px targets without either getting narrow. Nothing above is a fixed width,
+   so 320px never scrolls sideways. */
+@media (min-width: 560px) {
+  .pub-actions { grid-template-columns: 1fr 1fr; }
+  .pub-modal-foot { grid-template-columns: 1fr 1fr; }
+}
+
+@media (min-width: 768px) {
+  .pub-main { padding: 1.75rem 1.25rem 3rem; gap: 1.1rem; }
+  .pub-card, .pub-found { padding: 1.4rem; }
+  .pub-title { font-size: 1.75rem; }
+}
+
+/*
+ * iOS zooms the page when a field under 16px takes focus, and it ignores
+ * user-scalable=no. Both public pages link this file, so both keep the fix.
+ * Kept as an element-level rule, not just .pub-input, so a field added later
+ * without the class is still covered.
+ */
+@media (max-width: 991.98px) {
+  .pub-input,
+  select, textarea,
+  input:not([type]), input[type='text'], input[type='search'],
+  input[type='email'], input[type='number'], input[type='date'],
+  input[type='datetime-local'], input[type='tel'],
+  input[type='password'], input[type='file'] { font-size: 16px; }
+}
