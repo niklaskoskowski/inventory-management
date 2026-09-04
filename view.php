@@ -20,6 +20,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/lib/config.php';
 require_once __DIR__ . '/lib/store.php';
 
+// The public board is for people with the link, not for search engines.
+header('X-Robots-Tag: noindex, nofollow');
+
 $appName    = (string)trax_setting('branding.appName', 'Assets');
 $brandColor = (string)trax_setting('branding.brandColor', '#1F2937');
 $favicon    = (string)trax_setting('branding.faviconFile', '');
@@ -37,7 +40,7 @@ function pub_e(string $value): string
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
     <title><?php echo pub_e($appName); ?> – Inventory</title>
     <meta name="theme-color" content="<?php echo pub_e($brandColor); ?>">
-    <meta name="robots" content="noindex">
+    <meta name="robots" content="noindex, nofollow">
 <?php if ($favicon !== ''): ?>
     <link rel="icon" type="image/png" href="<?php echo pub_e($favicon); ?>">
 <?php endif; ?>

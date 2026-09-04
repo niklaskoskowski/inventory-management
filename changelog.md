@@ -132,6 +132,16 @@ only record. There is no git history to mine.
 
 ### Changed
 
+- **The whole instance is now out of search engines, uniformly.**
+  `Header always set X-Robots-Tag "noindex, nofollow"` in `.htaccess` (inside `<IfModule
+  mod_headers.c>`, so a host without the module does not 500) covers every response from the
+  folder, static files included. Because mod_headers may be absent, the same header is also sent
+  from PHP on `admin.php:7`, `restore.php:26`, `download.php:34` (all three ahead of the auth gate,
+  so the 302 to `login.php` carries it too), `index.php:24`, `view.php:24`, `public.php:29`,
+  `captcha.php:28,94`, `label.php:115,1856` and `label-w.php:120,2178` (both label files set it in
+  the error-image helper as well as on the rendered PNG). `<meta name="robots" content="noindex,
+  nofollow">` added to `admin.php`, `restore.php` and `scandebug.html`; `index.php` and `view.php`
+  upgraded from plain `noindex`. New `robots.txt` disallows everything.
 - `trax_available_qty_for()` (`lib/store.php:1572`) is now **the** availability function —
   blocked-aware and unit-aware. `trax_available_qty()`, the decorator, `trax_effective_status()`,
   `checkout.create` and `reservation.convert` all route through it; they used to carry separate

@@ -28,6 +28,17 @@ RewriteEngine On
 
 
 # ============================================================
+# SECURITY: Keep the whole instance out of search engines
+# One switch for every response from this directory, including the
+# static files PHP never touches (scandebug.html, vendor/, images).
+# ============================================================
+
+<IfModule mod_headers.c>
+    Header always set X-Robots-Tag "noindex, nofollow"
+</IfModule>
+
+
+# ============================================================
 # SECURITY: Block internal application directories
 # PHP require/include still works - this only blocks HTTP access
 # ============================================================

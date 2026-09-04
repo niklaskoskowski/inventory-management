@@ -22,6 +22,9 @@ $backupRoot = $siteRoot . DIRECTORY_SEPARATOR . 'backup';
 require_once $root . '/lib/config.php';
 require_once $root . '/lib/auth.php';
 
+// Set before the gate, so the redirect response carries it as well.
+header('X-Robots-Tag: noindex, nofollow');
+
 trax_require_login('html');
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -629,6 +632,7 @@ $currentBackup = $backups[0]['name'] ?? '';
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
     <title>Restore backup</title>
 
     <link

@@ -26,6 +26,7 @@ ob_start();
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
+header('X-Robots-Tag: noindex, nofollow');
 header('Cache-Control: public, max-age=20');
 
 const TRAX_PUBLIC_JSON_FLAGS = JSON_UNESCAPED_UNICODE

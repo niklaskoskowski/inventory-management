@@ -3,6 +3,9 @@
 require_once __DIR__ . '/lib/config.php';
 require_once __DIR__ . '/lib/auth.php';
 
+// Set before the gate, so the redirect response carries it as well.
+header('X-Robots-Tag: noindex, nofollow');
+
 // No session, no shell: an anonymous visitor is sent to the login form, and an
 // instance with no operators yet is sent to the installer.
 trax_require_login('html');
@@ -47,6 +50,7 @@ function asset_version(string $relative): string
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="robots" content="noindex, nofollow">
     <title><?php echo admin_e($appName); ?></title>
 
     <meta name="csrf-token" content="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">

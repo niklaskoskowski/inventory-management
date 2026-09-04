@@ -20,6 +20,9 @@ require_once __DIR__ . '/lib/store.php';
 require_once __DIR__ . '/lib/mailer.php';
 require_once __DIR__ . '/lib/public-session.php';
 
+// A scanned label is not a page for a crawler to keep.
+header('X-Robots-Tag: noindex, nofollow');
+
 $id    = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT) ?: null;
 $unit  = filter_input(INPUT_GET, 'u', FILTER_VALIDATE_INT) ?: null;
 $asset = null;
@@ -161,7 +164,7 @@ function pub_e(string $value): string
   <title><?php echo pub_e($asset['name'] ?? ($appName . ' • Asset')); ?></title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
   <meta name="theme-color" content="<?php echo pub_e($brandColor); ?>">
-  <meta name="robots" content="noindex">
+  <meta name="robots" content="noindex, nofollow">
 <?php if ($favicon !== ''): ?>
   <link rel="icon" type="image/png" href="<?php echo pub_e($favicon); ?>">
 <?php endif; ?>

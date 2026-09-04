@@ -25,6 +25,7 @@ require_once __DIR__ . '/lib/public-session.php';
 if (!function_exists('imagecreatetruecolor') || !function_exists('imagepng')) {
     http_response_code(500);
     header('Content-Type: text/plain; charset=UTF-8');
+    header('X-Robots-Tag: noindex, nofollow');
     echo "Captcha unavailable: PHP is missing the gd extension.\n";
     return;
 }
@@ -90,6 +91,7 @@ for ($i = 0; $i < 60; $i++) {
 
 header('Content-Type: image/png');
 header('Cache-Control: no-store, no-cache, must-revalidate');
+header('X-Robots-Tag: noindex, nofollow');
 header('Pragma: no-cache');
 
 imagepng($image);

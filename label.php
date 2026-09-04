@@ -111,6 +111,10 @@ function label_error_png(Throwable $e): void
         $e->getLine()
     );
 
+    header(
+        'X-Robots-Tag: noindex, nofollow'
+    );
+
     if (!$isTestMode) {
 
         if (ob_get_length() !== false) {
@@ -1845,6 +1849,11 @@ try {
 
     header(
         'Cache-Control: no-cache, no-store, must-revalidate'
+    );
+
+
+    header(
+        'X-Robots-Tag: noindex, nofollow'
     );
 
 

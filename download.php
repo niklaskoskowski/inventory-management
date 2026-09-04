@@ -30,6 +30,9 @@ require_once __DIR__ . '/lib/store.php';
 require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/documents.php';
 
+// Set before the gate, so the redirect to the login form carries it as well.
+header('X-Robots-Tag: noindex, nofollow');
+
 // Gate one of three. The same one admin.php and api.php use — no session, no
 // bytes. A browser following this link gets the login form, not a document.
 trax_require_login('html');

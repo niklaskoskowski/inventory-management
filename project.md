@@ -363,6 +363,10 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   the next unrelated write.
 - The public endpoints do **not** use the `api.php` envelope: `public.php` answers
   `{"ok":false,"error":"Not found."}` — a string, not an object.
+- **Nothing here is for a search engine.** Every response carries `X-Robots-Tag: noindex, nofollow`
+  — globally from `.htaccess` (`mod_headers`) and again from PHP on every entry point, since the
+  module may be missing; the HTML pages repeat it as a `robots` meta tag, and `robots.txt`
+  disallows all.
 - `.htaccess` blocks `lib/` and `documents/` by rewrite, and `data.json`, `data.json.bak`,
   `checkout.json`, `users.json`, `.trax.lock` and `config.local.php` by `FilesMatch`. On a host
   without it, reproduce the rules by hand.
