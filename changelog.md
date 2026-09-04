@@ -10,6 +10,12 @@ only record. There is no git history to mine.
 
 ### Added
 
+- **Warranty date auto-filled from the purchase date.** Entering *Purchased* on the asset
+  sheet fills *Warranty until* with the same day N months later, month-end clamped
+  (`addMonths()`, `app/components/AssetSheet.js:24`). N is
+  `settings.defaults.warrantyMonths` — new, integer 0..120, default 24, `0` turns the auto-fill
+  off (`lib/store.php:1231`, Settings → Defaults). A warranty date the operator typed is never
+  overwritten, and opening an existing asset never changes its stored dates.
 - **Per-unit tracking ("units" / Exemplare).** An `ITEM` asset may list its physical units
   individually; a `SET` never does. Unit `12.3` is unit 3 of asset 12.
   - Data model: `units: [{no, label, serial, condition, outOfService, note}]` on the asset
@@ -53,6 +59,16 @@ only record. There is no git history to mine.
   availability wording. `public.php` accepts `u` and returns `unit {no, code, label, state}` —
   never the holder. `label.php` / `label-w.php` accept `u`, print "ID: 12.1" and the unit label.
   `LabelDrawer` gained a unit selector and "Print all unit labels".
+- **UI**: `LabelDrawer` "Download all unit labels" — both label formats of every unit fetched and
+  packed client-side into one `labels-<assetId>.zip`, entries `<assetId>.<no>.png` (portrait) and
+  `<assetId>.<no>-wide.png`. One archive rather than one download per PNG because a browser blocks
+  or prompts on the second programmatic download onwards. Out-of-service units are included: the
+  physical item still needs its label.
+- **`app/lib/zip.js`**: `buildZip(entries) -> Blob`, a hand-written store-only (method 0) ZIP
+  writer — local file headers, central directory, end-of-central-directory, table-based CRC-32,
+  UTF-8 names (flag bit 11), DOS timestamps. No ZIP64 and no compression: the entries are PNGs,
+  already deflated, and nothing here approaches 4 GB. Nothing is vendored for this and there is no
+  npm, so the format is written out by hand.
 - **Mail**: item lines spell out the units — " (units 12.1, 12.3)" (`lib/mailer.php:141-162`).
 - **Captcha**: self-hosted image captcha + honeypot on the public found-item report form
   (`captcha.php`, session-bound, 10-min expiry, one-time). GD draws five distorted characters from

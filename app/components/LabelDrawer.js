@@ -1,5 +1,6 @@
 import { computed, ref, watch } from 'vue';
-import { state, getAsset } from '../store.js';
+import { state, getAsset, toast } from '../store.js';
+import { buildZip } from '../lib/zip.js';
 import Drawer from './ui/Drawer.js';
 
 /** Preview and download the two server-rendered label formats. */
@@ -100,9 +101,62 @@ export default {
       });
     };
 
+    // Same-origin, so the session cookie rides along and the PNG comes back
+    // rendered for this asset. The bytes go into the archive as they are.
+    const labelBytes = async (url) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return new Uint8Array(await response.arrayBuffer());
+    };
+
+    /**
+     * The same shelf as printAllUnits(), but as files: both label formats of
+     * every unit, packed into one ZIP. One archive rather than one download per
+     * PNG because a browser blocks or prompts on the second programmatic
+     * download onwards.
+     */
+    const downloadingAll = ref(false);
+    const downloadAllUnits = async () => {
+      if (!hasUnits.value || downloadingAll.value) return;
+      downloadingAll.value = true;
+      try {
+        const wanted = units.value.flatMap((unit) => [
+          { name: `${props.assetId}.${unit.no}.png`, url: `label.php?id=${props.assetId}&u=${unit.no}` },
+          { name: `${props.assetId}.${unit.no}-wide.png`, url: `label-w.php?id=${props.assetId}&u=${unit.no}` },
+        ]);
+        // In parallel: a shelf of twelve units is twenty-four round trips, and
+        // in series that is a visibly slow button.
+        const entries = await Promise.all(wanted.map(async (file) => ({
+          name: file.name,
+          data: await labelBytes(file.url),
+        })));
+
+        saveBlob(buildZip(entries), `labels-${props.assetId}.zip`);
+      } catch (error) {
+        toast(`Could not build the label archive: ${error.message}`, 'danger', 8000);
+      } finally {
+        downloadingAll.value = false;
+      }
+    };
+
+    // A Blob has no address a download attribute can point at, so it gets a
+    // temporary one. Revoked afterwards, or the bytes stay pinned for the life
+    // of the document.
+    const saveBlob = (blob, filename) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
     return {
       asset, appName, units, hasUnits, selected, code, unitOption,
-      portrait, wide, printLabel, printAllUnits, emit,
+      portrait, wide, printLabel, printAllUnits, downloadingAll,
+      downloadAllUnits, emit,
     };
   },
   template: `
@@ -159,9 +213,15 @@ export default {
         </div>
       </div>
 
-      <div v-if="hasUnits" class="d-grid mt-3">
+      <div v-if="hasUnits" class="d-grid gap-2 mt-3">
         <button class="btn btn-sm btn-outline-secondary" @click="printAllUnits">
           <i class="bi bi-printer"></i> Print all unit labels
+        </button>
+        <button class="btn btn-sm btn-outline-secondary"
+                :disabled="downloadingAll" @click="downloadAllUnits">
+          <span v-if="downloadingAll" class="spinner-border spinner-border-sm me-1"></span>
+          <i v-else class="bi bi-file-earmark-zip"></i>
+          {{ downloadingAll ? 'Preparing…' : 'Download all unit labels' }}
         </button>
       </div>
 

@@ -17,6 +17,22 @@ const BLANK = {
   warrantyUntil: '', condition: 'GOOD', tags: '', quantity: 1,
 };
 
+/**
+ * `YYYY-MM-DD` plus N months, clamped to the last day of the target month —
+ * 2024-01-31 + 1 is 2024-02-29, not 2024-03-02. Anything else in, '' out.
+ */
+const addMonths = (value, months) => {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!parts || !Number.isFinite(months)) return '';
+
+  const day = Number(parts[3]);
+  const target = new Date(Number(parts[1]), Number(parts[2]) - 1 + months, 1);
+  // Day 0 of the next month is the last day of this one.
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return toDateInput(target);
+};
+
 /** Create/edit one asset, plus its live state and history. */
 export default {
   name: 'AssetSheet',
@@ -117,6 +133,55 @@ export default {
       },
       { immediate: true },
     );
+
+    // --- Warranty auto-fill --------------------------------------------
+    // Most gear carries the same warranty, so the date is derived from the
+    // purchase date and only touched by hand when it is longer.
+    const warrantyMonths = computed(() =>
+      Math.max(0, Number(state.settings?.defaults?.warrantyMonths ?? 0) || 0),
+    );
+    // What the last auto-fill wrote, so a later purchase date may replace its
+    // own answer but never a date the operator typed.
+    const lastAutoWarranty = ref('');
+    const autoWarranty = computed(() =>
+      (warrantyMonths.value ? addMonths(form.value.purchasedAt, warrantyMonths.value) : ''),
+    );
+    const warrantyIsAuto = computed(() =>
+      !!autoWarranty.value && form.value.warrantyUntil === autoWarranty.value,
+    );
+
+    watch(() => form.value.purchasedAt, (next, prev) => {
+      // The watcher also fires when watch(asset) rebuilds `form` — on open and
+      // on every snapshot refresh. A form that still matches the stored record
+      // was not edited by anyone, so opening an asset changes nothing.
+      if (
+        next === toDateInput(asset.value?.purchasedAt || '')
+        && form.value.warrantyUntil === toDateInput(asset.value?.warrantyUntil || '')
+      ) {
+        lastAutoWarranty.value = '';
+        return;
+      }
+
+      const current = form.value.warrantyUntil;
+      const months = warrantyMonths.value;
+
+      if (!next) {
+        // Purchase date cleared: take back our own answer, leave a typed one.
+        if (current && current === lastAutoWarranty.value) {
+          form.value.warrantyUntil = '';
+          lastAutoWarranty.value = '';
+        }
+        return;
+      }
+      if (!months) return;
+
+      const fromPrev = prev ? addMonths(prev, months) : '';
+      if (current === '' || current === lastAutoWarranty.value || (fromPrev && current === fromPrev)) {
+        const auto = addMonths(next, months);
+        form.value.warrantyUntil = auto;
+        lastAutoWarranty.value = auto;
+      }
+    });
 
     // `form` deliberately has no `units` key: saving the details must never
     // rewrite the unit list, which the Units tab owns.
@@ -355,6 +420,7 @@ export default {
     return {
       state, form, saving, confirmDelete, fileInput, tab,
       asset, isNew, isSet, hasUnits, lines, outUnits, history, members, warrantyExpired,
+      warrantyMonths, warrantyIsAuto,
       unitsForm, unitsDirty, unitCode, unitDetail, touchUnits,
       trackUnits, addUnit, removeUnit, saveUnits,
       MAX_PHOTOS, conditionFiles, conditionNote, conditionBusy, conditionLog,
@@ -511,6 +577,10 @@ export default {
           <div class="col-6">
             <label class="form-label small" for="f-warranty">Warranty until</label>
             <input id="f-warranty" type="date" class="form-control form-control-sm" v-model="form.warrantyUntil">
+            <div v-if="warrantyIsAuto" class="form-text small">
+              Auto-filled as purchase date + {{ warrantyMonths }} months — change it if the
+              warranty is longer.
+            </div>
           </div>
 
           <div class="col-6">

@@ -131,6 +131,7 @@ const DEFAULT_SETTINGS = {
     loanDays: 7,
     dueHour: 18,
     reservationStartHour: 9,
+    warrantyMonths: 24,
     currency: 'EUR',
     allowPartialDefault: false,
     overdueGraceDays: 0,

@@ -1224,6 +1224,11 @@ function trax_normalize_settings(mixed $raw): array
             'loanDays'             => trax_clamp_int($defaults['loanDays'] ?? null, 1, 365, 7),
             'dueHour'              => trax_clamp_int($defaults['dueHour'] ?? null, 0, 23, 18),
             'reservationStartHour' => trax_clamp_int($defaults['reservationStartHour'] ?? null, 0, 23, 9),
+            // How far a warranty runs from the purchase date. The asset sheet
+            // fills the warranty field in from it when a purchase date is
+            // entered; 0 turns that off. Ten years is the ceiling because the
+            // field is a convenience, not a contract.
+            'warrantyMonths'       => trax_clamp_int($defaults['warrantyMonths'] ?? null, 0, 120, 24),
             'currency'             => trax_str($defaults['currency'] ?? '', 8) ?: 'EUR',
             'allowPartialDefault'  => trax_bool($defaults['allowPartialDefault'] ?? null, false),
             'overdueGraceDays'     => trax_clamp_int($defaults['overdueGraceDays'] ?? null, 0, 90, 0),

@@ -173,12 +173,13 @@ moment the gear came back.
 
 ### Settings
 
-`trax_normalize_settings()` (`lib/store.php:1157-1249`), four groups: `email.*`
+`trax_normalize_settings()` (`lib/store.php:1157-1254`), four groups: `email.*`
 (addresses, per-mail kill switches, editable subject/body `templates`),
 `branding.*` (`appName`, `orgName`, `brandColor`, `publicPath`, `logoFile`,
 `faviconFile`, `labelHeading`, `whatsapp`), `defaults.*` (`loanDays`, `dueHour`,
-`reservationStartHour`, `currency`, `allowPartialDefault`, `overdueGraceDays`,
-`locale`, `dateFormat`) and `cron.*` (`secret`, `dueSoonHours`,
+`reservationStartHour`, `warrantyMonths` — 0..120, default 24, months added to a purchase date to
+auto-fill the warranty date in the asset sheet, `0` off —, `currency`, `allowPartialDefault`,
+`overdueGraceDays`, `locale`, `dateFormat`) and `cron.*` (`secret`, `dueSoonHours`,
 `overdueRepeatDays`). Each key falls back to a `TRAX_*` constant.
 
 ## Derived availability & status rules

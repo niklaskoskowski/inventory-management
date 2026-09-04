@@ -1043,6 +1043,14 @@ export default {
               </select>
             </div>
             <div class="col-6">
+              <label class="form-label small" for="set-warranty-months">Default warranty (months)</label>
+              <input id="set-warranty-months" type="number" min="0" max="120"
+                     class="form-control form-control-sm" v-model.number="draft.defaults.warrantyMonths">
+              <div class="form-text small">
+                Applied to the warranty date when a purchase date is entered. 0 turns it off.
+              </div>
+            </div>
+            <div class="col-6">
               <label class="form-label small" for="set-currency">Currency</label>
               <input id="set-currency" class="form-control form-control-sm" maxlength="8"
                      v-model="draft.defaults.currency">
