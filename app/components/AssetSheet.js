@@ -2,6 +2,7 @@ import { ref, computed, watch } from 'vue';
 import {
   state, getAsset, getLines, historyFor, membersOf, mutate, uploadPhoto,
   uploadConditionPhotos, uploadDocuments, deleteDocument, toast,
+  categories, locations,
 } from '../store.js';
 import {
   STATUSES, CONDITIONS, CONDITION_LABEL, statusLabel,
@@ -419,6 +420,7 @@ export default {
 
     return {
       state, form, saving, confirmDelete, fileInput, tab,
+      categories, locations,
       asset, isNew, isSet, hasUnits, lines, outUnits, history, members, warrantyExpired,
       warrantyMonths, warrantyIsAuto,
       unitsForm, unitsDirty, unitCode, unitDetail, touchUnits,
@@ -867,10 +869,10 @@ export default {
       </div>
 
       <datalist id="trax-categories">
-        <option v-for="c in state.assets.map(a => a.category).filter(Boolean)" :key="c" :value="c"></option>
+        <option v-for="c in categories" :key="c" :value="c"></option>
       </datalist>
       <datalist id="trax-locations">
-        <option v-for="l in state.assets.map(a => a.location).filter(Boolean)" :key="l" :value="l"></option>
+        <option v-for="l in locations" :key="l" :value="l"></option>
       </datalist>
 
       <template #footer>

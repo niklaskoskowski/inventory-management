@@ -82,6 +82,12 @@ only record. There is no git history to mine.
 
 ### Fixed
 
+- **Category and location suggestions on the asset sheet no longer repeat a value once per
+  asset.** The two `<datalist>`s in `AssetSheet` mapped over `state.assets` directly
+  (`app/components/AssetSheet.js:869-874`), so a category used by three assets was offered three
+  times. They now read the shared, de-duplicated and sorted `categories` / `locations` computeds
+  (`app/store.js:223-228`) that `FilterBar` and `BulkEditDrawer` already used. Both fields stay
+  free-text inputs — a new category can still simply be typed.
 - **Blocked items no longer show or grant free units.** `trax_is_blocked()` (`lib/store.php:1473`,
   stored status `LOCK` or `UNAV`) makes `trax_available_qty()` / `trax_available_qty_for()` and the
   snapshot decorator report `availableQty 0`; `public.php` reports the same. Previously a `LOCK`
