@@ -45,7 +45,8 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `restore.php` | Browser restore UI. |
 | `lib/config.php` | All `TRAX_*` constants, every one guarded by `defined()` so `lib/config.local.php` (loaded first) wins. |
 | `lib/store.php` | The data layer: normalisers, derived status, atomic writes, `trax_mutate()`. |
-| `lib/auth.php` | Sessions, CSRF, built-in vs. external auth mode. |
+| `lib/auth.php` | Sessions, CSRF, built-in vs. external auth mode. Includes `TRAX_AUTH_INCLUDE` at **global scope** in external mode — never load it from a public page. |
+| `lib/public-session.php` | `trax_public_session()`, the auth-free session start for `index.php` and `captcha.php`. A standalone twin of `trax_ensure_session()`. |
 | `lib/mailer.php` | Transactional mail; addresses and headers validated and CR/LF-stripped. |
 | `lib/photo.php` | Photos re-encoded through GD (strips EXIF, neutralises payloads). |
 | `lib/documents.php` | Documents are stored as uploaded — hence the separate, web-denied directory. |
@@ -315,6 +316,9 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   ten minutes and for one submit; the image is requested only when the dialog opens, so a plain scan
   still starts no session. `index.php` is the only public page that touches the session, and only on
   POST.
+- Neither public page may include `lib/auth.php`: it does `require_once TRAX_AUTH_INCLUDE` at global
+  scope in external-auth mode, which puts a scanned label behind the host login. They include
+  `lib/public-session.php` and call `trax_public_session()` instead (`index.php:21`, `captcha.php:19`).
 - `label.php` / `label-w.php` take the same `u` and print `ID: 12.1`. Portrait appends the unit's
   own label to the asset name; wide puts it in the notes strip.
 - `ScanDrawer.extractRef()` is the client-side inverse and accepts all of `12.1`, `/12.1`,

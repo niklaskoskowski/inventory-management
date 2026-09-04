@@ -16,7 +16,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/lib/config.php';
-require_once __DIR__ . '/lib/auth.php';
+require_once __DIR__ . '/lib/public-session.php';
 
 /**
  * No GD, no image. Answering with a broken PNG would leave the finder staring
@@ -33,7 +33,7 @@ if (!function_exists('imagecreatetruecolor') || !function_exists('imagepng')) {
 const TRAX_CAPTCHA_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const TRAX_CAPTCHA_LENGTH   = 5;
 
-trax_ensure_session();
+trax_public_session();
 
 $code = '';
 for ($i = 0; $i < TRAX_CAPTCHA_LENGTH; $i++) {

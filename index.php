@@ -18,7 +18,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/lib/config.php';
 require_once __DIR__ . '/lib/store.php';
 require_once __DIR__ . '/lib/mailer.php';
-require_once __DIR__ . '/lib/auth.php';
+require_once __DIR__ . '/lib/public-session.php';
 
 $id    = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT) ?: null;
 $unit  = filter_input(INPUT_GET, 'u', FILTER_VALIDATE_INT) ?: null;
@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reportName'])) {
      * cookie for a form almost nobody fills in is noise. captcha.php starts it
      * when the dialog is actually opened.
      */
-    trax_ensure_session();
+    trax_public_session();
 
     $reportValues = [
         'name'    => trax_str($_POST['reportName'] ?? '', 200),

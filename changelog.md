@@ -82,6 +82,19 @@ only record. There is no git history to mine.
 
 ### Fixed
 
+- **The public QR page and its captcha no longer demand a login on an external-auth host.**
+  Adding the captcha put `require_once lib/auth.php` into `index.php` and `captcha.php` — and
+  `lib/auth.php` runs `require_once TRAX_AUTH_INCLUDE` at *global* scope whenever the install is in
+  external-auth mode (everything but `install.php`). On a host whose `check_auth.php` redirects an
+  unauthenticated request, that bootstrap fired before a single byte of the public page: scanning a
+  printed label answered `302 → the host login page`, and so did `captcha.php`. Verified against a
+  sandbox in external mode with a redirecting `check_auth.php`: both were `302 /login-external`
+  before, both are `200` after (`index.php` HTML and no `Set-Cookie`, `captcha.php` `image/png`),
+  while `admin.php` still redirects. Both files now include the new `lib/public-session.php` and
+  call `trax_public_session()` (`index.php:21`, `:87`; `captcha.php:19`, `:36`) — a standalone twin
+  of `trax_ensure_session()` with the same cookie flags (`httponly`, `SameSite=Lax`, `secure` only
+  on TLS incl. `X-Forwarded-Proto`, `use_strict_mode`) and no auth. Neither public file references
+  any function that lives only in `lib/auth.php`.
 - **Category and location suggestions on the asset sheet no longer repeat a value once per
   asset.** The two `<datalist>`s in `AssetSheet` mapped over `state.assets` directly
   (`app/components/AssetSheet.js:869-874`), so a category used by three assets was offered three
