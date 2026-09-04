@@ -22,6 +22,10 @@ $backupRoot = $siteRoot . DIRECTORY_SEPARATOR . 'backup';
 require_once $root . '/lib/config.php';
 require_once $root . '/lib/auth.php';
 
+// Defines trax_run_backup() and nothing else when included; its CLI runner is
+// guarded and does not fire from here.
+require_once $root . '/backup.php';
+
 // Set before the gate, so the redirect response carries it as well.
 header('X-Robots-Tag: noindex, nofollow');
 
@@ -56,6 +60,17 @@ function flashGet(): ?array
     unset($_SESSION['trax_restore_flash']);
     return is_array($flash) ? $flash : null;
 }
+
+/*
+ * Two permission sets. Private data (data.json, checkout.json, users.json,
+ * documents/, lib/config.local.php) is only ever read by PHP, so it stays
+ * 0640 in 0750 directories. uploads/ is different: the web server hands those
+ * files out itself, and on a host where it runs as a different user than PHP
+ * a 0640 photo answers 403. lib/photo.php writes 0755/0644 there, and a
+ * restore must not undo that.
+ */
+const RESTORE_PRIVATE_MODES = ['dir' => 0750, 'file' => 0640];
+const RESTORE_PUBLIC_MODES = ['dir' => 0755, 'file' => 0644];
 
 function ensureDir(string $path, int $mode = 0750): void
 {
@@ -109,13 +124,13 @@ function removeTree(string $path): void
     }
 }
 
-function copyFileSafe(string $source, string $destination): int
+function copyFileSafe(string $source, string $destination, array $modes = RESTORE_PRIVATE_MODES): int
 {
     if (!is_file($source)) {
         return 0;
     }
 
-    ensureDir(dirname($destination));
+    ensureDir(dirname($destination), $modes['dir']);
 
     if (!@copy($source, $destination)) {
         $last = error_get_last();
@@ -125,7 +140,7 @@ function copyFileSafe(string $source, string $destination): int
         );
     }
 
-    @chmod($destination, 0640);
+    @chmod($destination, $modes['file']);
     return 1;
 }
 
@@ -134,7 +149,7 @@ function copyFileSafe(string $source, string $destination): int
  *
  * @return array{files:int,dirs:int,symlinks:int}
  */
-function copyDirectorySafe(string $source, string $destination): array
+function copyDirectorySafe(string $source, string $destination, array $modes = RESTORE_PRIVATE_MODES): array
 {
     $stats = ['files' => 0, 'dirs' => 0, 'symlinks' => 0];
 
@@ -142,7 +157,8 @@ function copyDirectorySafe(string $source, string $destination): array
         return $stats;
     }
 
-    ensureDir($destination);
+    ensureDir($destination, $modes['dir']);
+    @chmod($destination, $modes['dir']);
     $stats['dirs']++;
 
     $it = new RecursiveIteratorIterator(
@@ -163,13 +179,14 @@ function copyDirectorySafe(string $source, string $destination): array
         }
 
         if ($item->isDir()) {
-            ensureDir($destPath);
+            ensureDir($destPath, $modes['dir']);
+            @chmod($destPath, $modes['dir']);
             $stats['dirs']++;
             continue;
         }
 
         if ($item->isFile()) {
-            ensureDir(dirname($destPath));
+            ensureDir(dirname($destPath), $modes['dir']);
 
             if (!@copy($sourcePath, $destPath)) {
                 $last = error_get_last();
@@ -179,8 +196,70 @@ function copyDirectorySafe(string $source, string $destination): array
                 );
             }
 
-            @chmod($destPath, 0640);
+            @chmod($destPath, $modes['file']);
             $stats['files']++;
+        }
+    }
+
+    return $stats;
+}
+
+/**
+ * Force the whole uploads tree to 0755 dirs / 0644 files.
+ *
+ * Runs over everything that is there, not only over what a restore just
+ * copied: a folder uploaded by FTP or unpacked from a tarball arrives with
+ * whatever mode the transfer felt like, and a 0640 photo is a 403 wherever
+ * the web server is not the PHP user. chmod failures are counted, not
+ * thrown - on a shared host the files may belong to somebody else, and the
+ * ones we can fix should still get fixed.
+ *
+ * @return array{files:int,dirs:int,changed:int,failed:int}
+ */
+function fixUploadPermissions(string $uploadDir): array
+{
+    $stats = ['files' => 0, 'dirs' => 0, 'changed' => 0, 'failed' => 0];
+
+    if (!is_dir($uploadDir)) {
+        return $stats;
+    }
+
+    $apply = static function (string $path, int $want, array &$stats): void {
+        $current = @fileperms($path);
+
+        if ($current !== false && ($current & 0777) === $want) {
+            return;
+        }
+
+        if (@chmod($path, $want)) {
+            $stats['changed']++;
+        } else {
+            $stats['failed']++;
+        }
+    };
+
+    $stats['dirs']++;
+    $apply($uploadDir, RESTORE_PUBLIC_MODES['dir'], $stats);
+
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($uploadDir, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+
+    foreach ($it as $item) {
+        if ($item->isLink()) {
+            continue;
+        }
+
+        if ($item->isDir()) {
+            $stats['dirs']++;
+            $apply($item->getPathname(), RESTORE_PUBLIC_MODES['dir'], $stats);
+            continue;
+        }
+
+        if ($item->isFile()) {
+            $stats['files']++;
+            $apply($item->getPathname(), RESTORE_PUBLIC_MODES['file'], $stats);
         }
     }
 
@@ -453,7 +532,7 @@ function restoreData(string $backupDir, string $root, array $paths): int
     return $count;
 }
 
-function restoreDirectorySnapshot(string $source, string $destination): int
+function restoreDirectorySnapshot(string $source, string $destination, array $modes = RESTORE_PRIVATE_MODES): int
 {
     if (!is_dir($source)) {
         throw new RuntimeException('Backup section not present: ' . basename($source));
@@ -465,7 +544,7 @@ function restoreDirectorySnapshot(string $source, string $destination): int
         throw new RuntimeException('Restore destination is not a directory: ' . $destination);
     }
 
-    $stats = copyDirectorySafe($source, $destination);
+    $stats = copyDirectorySafe($source, $destination, $modes);
     return $stats['files'];
 }
 
@@ -506,10 +585,64 @@ $paths = runtimePaths($root);
 $allowedCategories = ['data', 'uploads', 'documents', 'branding', 'config'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $redirectTo = strtok((string)($_SERVER['REQUEST_URI'] ?? 'restore.php'), '?');
+
     try {
         $postedCsrf = (string)($_POST['csrf'] ?? '');
         if (!hash_equals($csrf, $postedCsrf)) {
             throw new RuntimeException('Security token expired. Reload the page and try again.');
+        }
+
+        $action = (string)($_POST['action'] ?? 'restore');
+
+        /*
+         * Create a backup on the spot, with the same code and the same target
+         * directory the nightly cron uses.
+         */
+        if ($action === 'backup') {
+            $result = trax_run_backup($root, $backupRoot);
+
+            $_SESSION['trax_restore_csrf'] = bin2hex(random_bytes(32));
+
+            if ($result['existing']) {
+                flashSet(
+                    'info',
+                    'A backup for "' . $result['name'] . '" already exists (' .
+                    formatBytes((int)$result['bytes']) . '). Nothing was copied.'
+                );
+            } else {
+                flashSet(
+                    'success',
+                    'Backup "' . $result['name'] . '" created: ' .
+                    $result['files'] . ' file(s), ' . formatBytes((int)$result['bytes']) . '.'
+                );
+            }
+
+            header('Location: ' . $redirectTo);
+            exit;
+        }
+
+        /*
+         * Repair the live uploads tree without restoring anything - for a
+         * folder that arrived by FTP or from an older restore and answers 403.
+         */
+        if ($action === 'fixperms') {
+            $stats = fixUploadPermissions($paths['upload_dir']);
+
+            $_SESSION['trax_restore_csrf'] = bin2hex(random_bytes(32));
+
+            $message =
+                'Upload permissions checked: ' . $stats['files'] . ' file(s) and ' .
+                $stats['dirs'] . ' folder(s). Permissions repaired on ' . $stats['changed'] . '.';
+
+            if ($stats['failed'] > 0) {
+                $message .= ' ' . $stats['failed'] . ' could not be changed (owned by another user).';
+            }
+
+            flashSet($stats['failed'] > 0 ? 'warning' : 'success', $message);
+
+            header('Location: ' . $redirectTo);
+            exit;
         }
 
         $backupName = trim((string)($_POST['backup'] ?? ''));
@@ -569,6 +702,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
 
         $restoredFiles = 0;
+        $uploadNote = '';
 
         foreach ($categories as $category) {
             switch ($category) {
@@ -577,10 +711,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     break;
 
                 case 'uploads':
-                    $restoredFiles += restoreDirectorySnapshot(
+                    $uploadFiles = restoreDirectorySnapshot(
                         $backupDir . '/uploads',
-                        $paths['upload_dir']
+                        $paths['upload_dir'],
+                        RESTORE_PUBLIC_MODES
                     );
+                    $restoredFiles += $uploadFiles;
+
+                    /*
+                     * Sweep the whole live tree, not only what was just
+                     * copied: anything already there keeps its old mode.
+                     */
+                    $uploadPerms = fixUploadPermissions($paths['upload_dir']);
+
+                    $uploadNote =
+                        ' uploads: ' . $uploadFiles . ' files, permissions repaired on ' .
+                        $uploadPerms['changed'] . '.';
+
+                    if ($uploadPerms['failed'] > 0) {
+                        $uploadNote .= ' ' . $uploadPerms['failed'] .
+                            ' could not be changed (owned by another user).';
+                    }
                     break;
 
                 case 'documents':
@@ -608,16 +759,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flashSet(
             'success',
             'Restore completed from "' . $backupName . '". ' .
-            $restoredFiles . ' file(s) restored. ' .
+            $restoredFiles . ' file(s) restored.' . $uploadNote . ' ' .
             'A safety snapshot of the previous live state was saved as "' . $preRestoreName . '".'
         );
 
-        header('Location: ' . strtok((string)($_SERVER['REQUEST_URI'] ?? 'restore.php'), '?'));
+        header('Location: ' . $redirectTo);
         exit;
 
     } catch (Throwable $e) {
         flashSet('danger', $e->getMessage());
-        header('Location: ' . strtok((string)($_SERVER['REQUEST_URI'] ?? 'restore.php'), '?'));
+        header('Location: ' . $redirectTo);
         exit;
     }
 }
@@ -825,6 +976,32 @@ $currentBackup = $backups[0]['name'] ?? '';
 
                     <?php endif; ?>
                 </div>
+
+                <div class="card-footer bg-white py-3">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <form method="post" class="m-0">
+                            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+                            <input type="hidden" name="action" value="backup">
+                            <button type="submit" class="btn btn-outline-primary btn-sm">
+                                Create backup now
+                            </button>
+                        </form>
+
+                        <form method="post" class="m-0">
+                            <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+                            <input type="hidden" name="action" value="fixperms">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                Repair upload permissions
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="small text-secondary mt-2 mb-0">
+                        "Repair upload permissions" sets the live <code>uploads/</code> folder to
+                        0755 / 0644 without touching any data. Use it when item photos answer 403
+                        after a manual copy.
+                    </div>
+                </div>
             </div>
 
             <div class="card border-0 shadow-sm mt-4">
@@ -864,6 +1041,7 @@ $currentBackup = $backups[0]['name'] ?? '';
 
                         <form method="post" id="restoreForm">
                             <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
+                            <input type="hidden" name="action" value="restore">
                             <input
                                 type="hidden"
                                 name="backup"

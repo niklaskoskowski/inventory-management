@@ -137,12 +137,41 @@ only record. There is no git history to mine.
   `min(max(520px, 33vw), 100vw)` and `.trax-drawer-wide` `min(max(860px, 33vw), 100vw)`
   (`app/app.css:411`, `:421`) — the asset sheet's two-column rows and the unit table were cramped at
   a flat 520px on a wide screen. Below 992px the drawer is still `100vw`.
+- **"Create backup now" on `restore.php`.** A POST button (own CSRF, PRG redirect) that runs the
+  same code the nightly cron runs and drops the result at the top of the backup list. `backup.php`
+  was refactored for it: its body is now `trax_run_backup(string $root, string $backupRoot,
+  ?callable $log = null): array` (`backup.php:106`), its four helpers are prefixed `bk_*` so they
+  no longer collide with `restore.php`'s own `ensureDir()` / `copyFileSafe()` /
+  `copyDirectorySafe()` / `removeTree()`, and the CLI runner is guarded by
+  `PHP_SAPI === 'cli' && realpath($argv[0]) === __FILE__` (`backup.php:236`) so that
+  `require 'backup.php'` prints nothing and exits nothing. `php backup.php` is unchanged, down to
+  the exit code 2 when another backup holds the lock; a direct HTTP hit on `backup.php` is still
+  refused with 403 (`backup.php:226`). A finished backup for today is still left alone — the
+  button then says so instead of copying again.
+- **"Repair upload permissions" on `restore.php`.** A second POST button that runs
+  `fixUploadPermissions()` (`restore.php:219`) over the live `uploads/` tree without restoring
+  anything: chmod 0755 on the directories, 0644 on the files, counted, chmod failures counted
+  separately and named in the flash rather than thrown. This is the manual fix for a folder that
+  arrived by FTP or from an older restore and answers 403 on every photo.
 - **Docs**: `project.md` and this changelog.
 - **Housekeeping**: four `phpqrcode/q*.png-errors.txt` GD warning logs, left behind by a scratch
   probe rather than by the app, removed from the working tree.
 
 ### Fixed
 
+- **A restore left `uploads/` unreadable by the web server: every item photo answered 403.**
+  `restore.php` wrote *everything* it copied as 0640 in 0750 directories. That is right for
+  `data.json`, `checkout.json`, `users.json`, `documents/` and `lib/config.local.php` — PHP is the
+  only reader — but wrong for `uploads/`, which Apache serves itself, and on a host where the web
+  server runs as a different user than PHP a 0640 photo is a 403. `lib/photo.php` has always
+  written 0755/0644 there (`lib/photo.php:121-125`, `:267`); a restore silently undid it.
+  `copyFileSafe()`, `copyDirectorySafe()` and `restoreDirectorySnapshot()` now take a mode set,
+  and pass its directory mode on to `ensureDir()` — `RESTORE_PRIVATE_MODES` (0750/0640) or
+  `RESTORE_PUBLIC_MODES` (0755/0644), `restore.php:72-73`. The uploads branch is the only caller
+  that passes the public one
+  (`restore.php:713-718`), followed by a `fixUploadPermissions()` sweep of the whole live tree whose
+  count goes into the success flash. Everything else, the pre-restore safety snapshot included,
+  stays private exactly as before.
 - **The admin shell hung on the boot spinner after pulling the two per-unit pushes.** Only
   `app/main.js` and `app/app.css` were cache-busted (`admin.php:42`); the other 28 modules are
   reached through the relative specifiers written inside the files (`../lib/format.js` &c.), which

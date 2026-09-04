@@ -41,8 +41,8 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `cron.php` | Reminder cron. CLI (`php cron.php [--dry-run]`) or `GET ?secret=<cron.secret>`. |
 | `login.php`, `logout.php` | Session in, session out. Both require the CSRF token. |
 | `install.php` + `lib/install.php` | Seven-step wizard; nothing is written until "Install" on step 6. |
-| `backup.php` | CLI only — refuses any non-CLI SAPI (`backup.php:6-10`). |
-| `restore.php` | Browser restore UI. |
+| `backup.php` | The daily backup. `trax_run_backup()` is the whole of it (`backup.php:106`); the CLI runner below it fires only when this file is the script being run, so `restore.php` can include it. A direct HTTP hit is still 403. |
+| `restore.php` | Browser restore UI. Also "Create backup now" and "Repair upload permissions" (POST actions `backup` / `fixperms`). |
 | `lib/config.php` | All `TRAX_*` constants, every one guarded by `defined()` so `lib/config.local.php` (loaded first) wins. |
 | `lib/store.php` | The data layer: normalisers, derived status, atomic writes, `trax_mutate()`. |
 | `lib/auth.php` | Sessions, CSRF, built-in vs. external auth mode. Includes `TRAX_AUTH_INCLUDE` at **global scope** in external mode — never load it from a public page. |
@@ -412,7 +412,13 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   `checkout.json`, `users.json`, `.trax.lock` and `config.local.php` by `FilesMatch`. On a host
   without it, reproduce the rules by hand.
 - Photos are re-encoded by GD (the stored bytes are ours); documents are stored verbatim, which is
-  why they sit behind `download.php`. `backup.php` refuses to run outside CLI.
+  why they sit behind `download.php`. `backup.php` refuses a direct HTTP request; only an include
+  gets past it.
+- **`uploads/` is 0755/0644, everything else 0750/0640.** Apache serves the photos itself, and on a
+  host where it runs as a different user than PHP a 0640 photo is a 403 — so `lib/photo.php` and
+  the uploads branch of `restore.php` (`RESTORE_PUBLIC_MODES`) write the loose modes, while
+  `data.json`, `checkout.json`, `users.json`, `documents/`, `lib/config.local.php` and the whole
+  backup tree stay private. `fixUploadPermissions()` (`restore.php:219`) repairs an existing tree.
 - **Drawer width is a floor, not a fixed size**: `.trax-drawer` is
   `min(max(520px, 33vw), 100vw)` and `.trax-drawer-wide` `min(max(860px, 33vw), 100vw)`
   (`app/app.css:406`, `:420`) — at least a third of a desktop viewport, so the asset sheet's

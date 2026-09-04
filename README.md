@@ -218,6 +218,11 @@ data.json  checkout.json  users.json  lib/config.local.php  uploads/  documents/
 Do it on a schedule you can live with losing — daily, if the app is in daily use.
 Restoring is the same thing backwards: copy the files back.
 
+A backup can also be created from the restore page: **Create backup now** writes the
+same dated folder the nightly `backup.php` writes. The button next to it, **Repair
+upload permissions**, sets `uploads/` back to 0755 / 0644 — use it when item photos
+answer 403 after a manual copy.
+
 ---
 
 ## Starting over
