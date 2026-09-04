@@ -143,6 +143,32 @@ only record. There is no git history to mine.
 
 ### Fixed
 
+- **The admin shell hung on the boot spinner after pulling the two per-unit pushes.** Only
+  `app/main.js` and `app/app.css` were cache-busted (`admin.php:42`); the other 28 modules are
+  reached through the relative specifiers written inside the files (`../lib/format.js` &c.), which
+  no server-side URL can touch, so the browser cached each of them on its own heuristic. Neither
+  push changed `main.js`, so its `?v=<mtime>` stayed the same and its cached copy was reused —
+  while `AssetSheet.js`, modified minutes before the pull and therefore heuristically stale, was
+  re-fetched. That mix is not a stale screen but a dead one: the new component asks for exports
+  the cached `format.js` does not have, and
+  `Uncaught SyntaxError: The requested module '../lib/format.js' does not provide an export named
+  'addMonths'` kills the whole module graph before `app.mount()` — leaving the server-rendered
+  `.trax-boot` placeholder (app name + spinner) on screen for ever, with nothing in the UI to say
+  why. `conditionSummary`, `unitPriceOf`, `totalPriceOf`, `purchasedAtOf` and `warrantyUntilOf`
+  are all new cross-module exports from these two pushes, so any pairing of a fresh importer with
+  a cached `format.js` fails the same way. The version is now ONE token — the newest mtime under
+  `app/` — carried into every module by a generated import map, so a deploy invalidates the graph
+  whole or not at all (`admin.php:41-127`, `admin.php:172`). Reproduced end to end with a static
+  server that sends `Last-Modified`/`ETag` and no `Cache-Control`, as stock Apache does: the old
+  generation loaded and cached, the two pushes applied as a pull, reload → the boot spinner and
+  that exact SyntaxError; the same browser with the same dirty cache mounted and rendered the
+  inventory as soon as the fixed `admin.php` was in place, all 29 module URLs re-fetched under the
+  shared token. The data on disk was ruled out first: `api.php?action=bootstrap` answers HTTP 200
+  with valid JSON for records written before both pushes (units with no `price`, `purchasedAt` or
+  `warrantyUntil`, assets with no `unitSeq`, a kit, checkout lines with no `unitNos`), and the app
+  renders that data — inventory, dashboard, asset sheet for a unit-tracked and a plain asset —
+  with a clean console.
+
 - **Sorting by value ordered a unit-priced asset by a price that is not on the screen.** The Value
   column renders `totalPriceOf()` — the sum of the unit prices once any unit carries one, else
   `price x quantity` (`app/lib/format.js:265`) — while `sortedAssets` still compared the stored

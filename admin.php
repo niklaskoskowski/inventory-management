@@ -38,11 +38,92 @@ function admin_e(string $value): string
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
-/** Cache-buster: shared hosts cache .js hard and there is no build hash. */
+/**
+ * Every file of the front end, relative to this one.
+ *
+ * The whole graph, not just the entry point: main.js is the only module the
+ * markup below names, but it reaches the other twenty-odd through relative
+ * specifiers the browser resolves on its own, and every one of them has to be
+ * versioned together — see app_version().
+ */
+function app_files(): array
+{
+    static $files = null;
+    if ($files !== null) {
+        return $files;
+    }
+
+    $files = [];
+    $root  = __DIR__ . '/app';
+    if (is_dir($root)) {
+        $walk = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($walk as $file) {
+            if ($file->isFile()) {
+                $files[] = 'app/' . str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
+            }
+        }
+    }
+    sort($files);   // so the import map is byte-identical between requests
+
+    return $files;
+}
+
+/**
+ * Cache-buster: shared hosts cache .js hard and there is no build hash.
+ *
+ * ONE token for the whole front end — the newest mtime under app/ — rather
+ * than one per file, because a half-updated module graph does not merely look
+ * stale, it does not run at all. The browser resolves `../lib/format.js` from
+ * inside AssetSheet.js by itself, so nothing stops it pairing a fresh
+ * component with a copy of format.js it cached days ago; the import then fails
+ * with "does not provide an export named ...", main.js never reaches
+ * app.mount(), and the boot placeholder below spins forever. With a shared
+ * token every module URL changes the moment any app file does, so the graph
+ * can only ever be served whole.
+ */
+function app_version(): string
+{
+    static $version = null;
+    if ($version !== null) {
+        return $version;
+    }
+
+    $newest = 0;
+    foreach (app_files() as $relative) {
+        $newest = max($newest, (int)filemtime(__DIR__ . '/' . $relative));
+    }
+
+    return $version = (string)$newest;
+}
+
 function asset_version(string $relative): string
 {
-    $path = __DIR__ . '/' . $relative;
-    return $relative . '?v=' . (is_file($path) ? (string)filemtime($path) : '0');
+    return $relative . '?v=' . app_version();
+}
+
+/**
+ * The import map: "vue" plus a versioned URL for every module.
+ *
+ * A key here is a URL, resolved against this document like any other relative
+ * path, so it keeps working under a sub-directory install and under the
+ * /admin clean URL. It is what carries the version into the imports written
+ * inside the modules, which no server-side rewrite can reach.
+ */
+function import_map_json(): string
+{
+    $imports = ['vue' => './vendor/vue.esm-browser.prod.js'];
+    foreach (app_files() as $relative) {
+        if (str_ends_with($relative, '.js')) {
+            $imports['./' . $relative] = './' . asset_version($relative);
+        }
+    }
+
+    return (string)json_encode(
+        ['imports' => $imports],
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG
+    );
 }
 ?>
 <!DOCTYPE html>
@@ -89,11 +170,7 @@ function asset_version(string $relative): string
 </div>
 
 <script type="importmap">
-{
-  "imports": {
-    "vue": "./vendor/vue.esm-browser.prod.js"
-  }
-}
+<?php echo import_map_json(); ?>
 </script>
 
 <!--
