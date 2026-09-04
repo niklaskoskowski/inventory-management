@@ -76,11 +76,59 @@ only record. There is no git history to mine.
   the hidden `website` field first (filled → silent thank-you, no mail) and then the code; a failure
   sends no mail, spends the code and re-renders the dialog open with the values still in it. The
   image is fetched only when the dialog opens, so a plain label scan still starts no session.
+- **Per-unit prices, with the asset's value derived from them.** A unit carries its own
+  `price` — float ≥ 0 rounded to 2 dp or `null`, normalised exactly like the asset price
+  (`trax_normalize_unit()`, `lib/store.php:302-326`). There is no per-unit currency; `asset.currency`
+  still covers the whole record. Two of the same model rarely cost the same twice, so the list is
+  the truth as soon as one unit names a figure.
+  - Derived, never stored (`trax_asset_value()`, `lib/store.php:2138-2164`, added to every asset by
+    `trax_decorate_assets()`): `unitPriced` (bool — an `ITEM` with units, at least one priced),
+    `priceTotal` (the sum of the unit prices with an unpriced unit counting as `0`; otherwise
+    `price × quantity`, or `null` when there is no price at all) and `pricedUnits` (how many units
+    carry one). Each unit price is rounded on write, so `[10, null, 5.255]` stores `[10, null,
+    5.26]` and totals `15.26`. Out-of-service and checked-out units count in — the money is still
+    the organisation's.
+  - The stored `asset.price` is left exactly as the client sends it: the server never derives it
+    from the units and never overwrites it, it is simply not consulted while `unitPriced`.
+  - No price of any kind reaches the public endpoints — `public.php`'s allow-list is unchanged and
+    the derived keys are not in it.
+  - **UI**: a price input per unit on the sheet's Units tab; the asset's own price field goes
+    read-only and shows the sum once any unit is priced; the inventory Value column shows
+    `totalPriceOf()` with a "Sum of N unit prices" tooltip (`app/components/AssetTable.js:82`);
+    insights and the PDF value maths go through `unitPriceOf()` — the sum divided by the count — so
+    the `price × quantity` arithmetic every report already does still lands on the sum
+    (`app/lib/format.js:259-268`, `app/lib/insights.js:176`, `app/lib/pdf.js:612-621`).
+- **Condition `BLOCKED`.** Appended to `TRAX_CONDITIONS` (`lib/config.php:365`), so it is offered for
+  an asset and for a single unit, and it rides the bootstrap `meta.conditions` like the rest. It is
+  purely informational: availability, unit `state` and effective status are decided by the stored
+  status and by the `outOfService` switch, and a `BLOCKED` unit that is not out of service is `FREE`
+  and countable exactly as before.
+- **Asset-level condition is hidden on the sheet once the asset tracks units** — the grade lives on
+  each unit there, and a second one on the asset would only disagree with them. The inventory table
+  shows a per-unit summary instead ("2× Good, 1× Blocked", `conditionSummary()`
+  `app/lib/format.js:70-93`), falling back to the asset's own grade only for an asset without units.
+- **The desktop drawer is at least a third of the viewport.** `.trax-drawer` is now
+  `min(max(520px, 33vw), 100vw)` and `.trax-drawer-wide` `min(max(860px, 33vw), 100vw)`
+  (`app/app.css:411`, `:421`) — the asset sheet's two-column rows and the unit table were cramped at
+  a flat 520px on a wide screen. Below 992px the drawer is still `100vw`.
 - **Docs**: `project.md` and this changelog.
 - **Housekeeping**: four `phpqrcode/q*.png-errors.txt` GD warning logs, left behind by a scratch
   probe rather than by the app, removed from the working tree.
 
 ### Fixed
+
+- **Sorting by value ordered a unit-priced asset by a price that is not on the screen.** The Value
+  column renders `totalPriceOf()` — the sum of the unit prices once any unit carries one, else
+  `price x quantity` (`app/lib/format.js:265`) — while `sortedAssets` still compared the stored
+  `asset.price` (`app/store.js:320`), which a unit-priced asset keeps unchanged and which is
+  therefore stale the moment the units are priced. An asset showing €22.50 sorted as 99.99. The
+  price branch now reads `totalPriceOf()` for both sides (`app/store.js:320-328`); every other
+  branch and the existing null handling (a missing value still compares as 0, so unpriced assets
+  stay first ascending) are unchanged. Verified in a sandbox with an asset priced 3 x €7.50 per
+  unit over a stored price of 99.99: ascending it was last (after €100.00) before and sits between
+  €12.00 and €100.00 after; descending is the exact reverse. Note that nothing in the UI sets
+  `sortBy: 'price'` today — the Value header carries no sort button — so the path is reachable
+  only from a saved view state.
 
 - **The public QR page and its captcha no longer demand a login on an external-auth host.**
   Adding the captcha put `require_once lib/auth.php` into `index.php` and `captcha.php` — and
@@ -132,6 +180,12 @@ only record. There is no git history to mine.
 
 ### Changed
 
+- **`asset.bulkUpdate` now skips `condition` for an asset that tracks units**, the same way it
+  already skipped `quantity`: the patch key is unset per asset behind
+  `trax_asset_has_units()` before `apply_asset_patch()` runs (`api.php:1078-1086`), so a bulk grade
+  lands on plain assets and silently leaves unit-tracking ones alone rather than writing a value
+  nothing displays. The rest of the same patch — status, category, location, supplier — still
+  applies to them. `BulkEditDrawer` says so under the condition select.
 - **The whole instance is now out of search engines, uniformly.**
   `Header always set X-Robots-Tag "noindex, nofollow"` in `.htaccess` (inside `<IfModule
   mod_headers.c>`, so a host without the module does not 500) covers every response from the
@@ -171,3 +225,8 @@ only record. There is no git history to mine.
 - The asset-table wheel fix is **structural, not proven against the reported symptom**: the phantom
   vertical scrollbar could not be reproduced in headless Chrome. The sticky `thead th` rule remains
   ineffective (pre-existing, untouched).
+- The per-unit price and `BLOCKED` **server** behaviour is verified end to end — normaliser suite
+  plus live `asset.create` / `asset.update` / `asset.bulkUpdate` / `public.php` against a sandbox
+  install. The **browser** half of those two entries (the unit price input, the read-only asset
+  price field, the Value column, the condition summary, the wider drawer) was written and checked
+  separately; it is not covered by any of the server checks above.

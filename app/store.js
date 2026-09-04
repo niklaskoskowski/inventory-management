@@ -11,7 +11,7 @@
 
 import { reactive, computed } from 'vue';
 import * as api from './api.js';
-import { parseDate, isOverdue, setUiLocale } from './lib/format.js';
+import { parseDate, isOverdue, setUiLocale, totalPriceOf } from './lib/format.js';
 
 const VIEW_STATE_KEY = 'traxAdminViewStateV2';
 
@@ -316,6 +316,14 @@ export const sortedAssets = computed(() => {
     if (sortBy === 'status') {
       left = a.effectiveStatus;
       right = b.effectiveStatus;
+    }
+    // Value sorts by what the Value column shows — totalPriceOf(), i.e. the
+    // unit prices when the asset carries any, else price x quantity. Sorting
+    // the stored `price` instead put a unit-priced asset in the position of a
+    // number that is not on the screen anywhere.
+    if (sortBy === 'price') {
+      left = totalPriceOf(a);
+      right = totalPriceOf(b);
     }
     if (sortBy === 'id' || sortBy === 'price') {
       return ((Number(left) || 0) - (Number(right) || 0)) * direction;

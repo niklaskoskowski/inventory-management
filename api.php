@@ -1077,9 +1077,12 @@ try {
                     }
                     // An asset that tracks its units counts them; a bulk
                     // quantity would be overwritten by the list on write, so
-                    // drop it here rather than pretend it was applied.
+                    // drop it here rather than pretend it was applied. Its
+                    // condition is per unit for the same reason: the sheet
+                    // hides the asset-level grade once units exist, and
+                    // stamping one on in bulk would set a value nothing shows.
                     if ($asset !== null && trax_asset_has_units($asset)) {
-                        unset($effective['quantity']);
+                        unset($effective['quantity'], $effective['condition']);
                     }
                     if ($effective === []) {
                         continue;

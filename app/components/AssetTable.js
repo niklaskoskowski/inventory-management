@@ -3,7 +3,9 @@ import {
   state, sortedAssets, toggleSort, toggleSelected, isSelected, selectAll,
   clearSelection, toggleSetExpanded, membersOf, soonestLine, getLines,
 } from '../store.js';
-import { formatDateTime, formatMoney, isOverdue } from '../lib/format.js';
+import {
+  CONDITION_LABEL, conditionSummary, formatDateTime, formatMoney, isOverdue, totalPriceOf,
+} from '../lib/format.js';
 import StatusBadge from './ui/StatusBadge.js';
 
 /**
@@ -70,6 +72,16 @@ export default {
       ].filter(Boolean).join(' '))
       .join(' / ');
 
+    // A unit-tracking asset has no single grade: the summary counts the units,
+    // and only an asset without them falls back to its own stored condition.
+    const conditionText = (asset) =>
+      conditionSummary(asset) || CONDITION_LABEL[asset.condition] || asset.condition || '';
+
+    // The Value column shows what the whole record is worth, so an asset that
+    // prices its units says where the number came from.
+    const valueTitle = (asset) =>
+      (asset.unitPriced ? `Sum of ${asset.pricedUnits} unit prices` : '');
+
     const columnCount = computed(
       () => 5 + ['quantity', 'category', 'location', 'notes', 'serial', 'condition', 'value'].filter(shows).length,
     );
@@ -78,7 +90,7 @@ export default {
       state, rows, allSelected, toggleAll, toggleSort, toggleSelected, isSelected,
       toggleSetExpanded, membersOf, shows, sortIcon, ariaSort,
       formatDateTime, formatMoney, isOverdue, dueFor, stockDetail, holderCount,
-      oosCount, unitTitle, columnCount, emit,
+      oosCount, unitTitle, conditionText, valueTitle, totalPriceOf, columnCount, emit,
     };
   },
   template: `
@@ -171,8 +183,8 @@ export default {
               <td v-if="shows('category')" class="text-secondary">{{ asset.category || '—' }}</td>
               <td v-if="shows('location')" class="text-secondary">{{ asset.location || '—' }}</td>
               <td v-if="shows('serial')" class="text-secondary font-monospace small">{{ asset.serial || '—' }}</td>
-              <td v-if="shows('condition')" class="text-secondary">{{ asset.condition }}</td>
-              <td v-if="shows('value')" class="text-secondary text-end">{{ formatMoney(asset.price, asset.currency) || '—' }}</td>
+              <td v-if="shows('condition')" class="text-secondary">{{ conditionText(asset) }}</td>
+              <td v-if="shows('value')" class="text-secondary text-end" :title="valueTitle(asset)">{{ formatMoney(totalPriceOf(asset), asset.currency) || '—' }}</td>
               <td v-if="shows('quantity')" class="text-secondary text-end font-monospace">
                 <span v-if="asset.quantity > 1">{{ asset.availableQty }} of {{ asset.quantity }}</span>
                 <span v-else>{{ asset.availableQty }}</span>
@@ -212,8 +224,8 @@ export default {
               <td v-if="shows('category')" class="text-secondary">{{ member.category || '—' }}</td>
               <td v-if="shows('location')" class="text-secondary">{{ member.location || '—' }}</td>
               <td v-if="shows('serial')" class="text-secondary font-monospace small">{{ member.serial || '—' }}</td>
-              <td v-if="shows('condition')" class="text-secondary">{{ member.condition }}</td>
-              <td v-if="shows('value')" class="text-secondary text-end">{{ formatMoney(member.price, member.currency) || '—' }}</td>
+              <td v-if="shows('condition')" class="text-secondary">{{ conditionText(member) }}</td>
+              <td v-if="shows('value')" class="text-secondary text-end" :title="valueTitle(member)">{{ formatMoney(totalPriceOf(member), member.currency) || '—' }}</td>
               <td v-if="shows('quantity')" class="text-secondary text-end font-monospace">
                 {{ member.availableQty }} of {{ member.quantity }} · need {{ member.reqQty }}
               </td>

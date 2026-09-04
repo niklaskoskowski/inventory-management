@@ -56,7 +56,7 @@ export const STATUS_CLASS = {
   PARTIAL: 'info',
 };
 
-export const CONDITIONS = ['NEW', 'GOOD', 'FAIR', 'POOR', 'DEFECT'];
+export const CONDITIONS = ['NEW', 'GOOD', 'FAIR', 'POOR', 'DEFECT', 'BLOCKED'];
 
 export const CONDITION_LABEL = {
   NEW: 'New',
@@ -64,7 +64,33 @@ export const CONDITION_LABEL = {
   FAIR: 'Fair',
   POOR: 'Poor',
   DEFECT: 'Defective',
+  BLOCKED: 'Blocked',
 };
+
+/**
+ * "2× Good, 1× Blocked" — the condition of a unit-tracking asset.
+ *
+ * Such an asset has no single condition: the grade lives on each unit, and the
+ * asset's own stored value is left behind unread. Counted in CONDITIONS order
+ * so the same list always reads the same way, and '' when there are no units,
+ * which is the caller's cue to fall back to the asset's own grade.
+ */
+export function conditionSummary(asset) {
+  const units = asset?.units || [];
+  if (!units.length) return '';
+
+  const counts = new Map();
+  for (const unit of units) {
+    const code = unit?.condition || 'GOOD';
+    counts.set(code, (counts.get(code) || 0) + 1);
+  }
+
+  const known = CONDITIONS.filter((code) => counts.has(code));
+  const rest = [...counts.keys()].filter((code) => !CONDITIONS.includes(code));
+  return [...known, ...rest]
+    .map((code) => `${counts.get(code)}\u00d7 ${CONDITION_LABEL[code] || code}`)
+    .join(', ');
+}
 
 export function statusClass(status) {
   return STATUS_CLASS[status] || 'secondary';
@@ -219,6 +245,26 @@ export function formatMoney(value, currency = 'EUR') {
   } catch {
     return `${number.toFixed(2)} ${currency}`;
   }
+}
+
+/**
+ * What ONE unit of an asset is worth.
+ *
+ * A unit-tracking asset that prices its units is worth the sum of them, and
+ * the server hands that sum over as `priceTotal`; the stored `asset.price` is
+ * left alone underneath and is not what such an asset costs any more. Dividing
+ * the sum back by the count is what keeps `price x quantity` — the arithmetic
+ * every value report already does — landing on the sum again.
+ */
+export function unitPriceOf(asset) {
+  if (asset?.unitPriced) return asset.priceTotal / Math.max(1, asset.quantity);
+  return asset?.price ?? null;
+}
+
+/** What the whole record is worth: the unit sum, or price x quantity. */
+export function totalPriceOf(asset) {
+  if (asset?.priceTotal !== null && asset?.priceTotal !== undefined) return asset.priceTotal;
+  return asset?.price != null ? asset.price * Math.max(1, asset.quantity) : null;
 }
 
 /**

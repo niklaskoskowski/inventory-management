@@ -8,7 +8,7 @@
  * the open checkout record.
  */
 
-import { parseDate, daysOverdue } from './format.js';
+import { parseDate, daysOverdue, unitPriceOf } from './format.js';
 
 export function computeInsights({ assets, checkouts, history, rangeStart, rangeEnd, statusFilter = '' }) {
   const inScope = assets.filter(
@@ -166,9 +166,15 @@ export function currencyOf(asset) {
   return code || DEFAULT_CURRENCY;
 }
 
-/** The per-unit price as a number, or null when none is recorded. */
+/**
+ * The per-unit price as a number, or null when none is recorded.
+ *
+ * unitPriceOf() is what makes this right for an asset that prices its units
+ * one by one: it hands back the unit sum divided by the count, so the
+ * `price x quantity` every caller below does still lands on the sum.
+ */
 export function priceOf(asset) {
-  const raw = asset?.price;
+  const raw = unitPriceOf(asset);
   if (raw === null || raw === undefined || raw === '') return null;
   const number = Number(raw);
   return Number.isFinite(number) && number >= 0 ? number : null;

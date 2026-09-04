@@ -308,11 +308,16 @@ function trax_normalize_unit(mixed $raw): ?array
         return null;
     }
 
+    // What this one piece cost. Normalised exactly like the asset's own price;
+    // the currency stays on the asset, because a unit is one of the same thing.
+    $price = trax_float($raw['price'] ?? null);
+
     return [
         'no'           => $no,
         'label'        => trax_str($raw['label'] ?? '', 120),
         'serial'       => trax_str($raw['serial'] ?? '', 120),
         'condition'    => trax_enum($raw['condition'] ?? null, TRAX_CONDITIONS, 'GOOD'),
+        'price'        => $price !== null && $price >= 0 ? round($price, 2) : null,
         // Taken off the shelf by hand: broken, lent to the workshop, whatever.
         // It stays part of the asset and keeps its number.
         'outOfService' => !empty($raw['outOfService']),
@@ -2119,6 +2124,46 @@ function trax_update_asset(array &$data, int $id, callable $fn): bool
 }
 
 /**
+ * What one asset is worth, derived — never stored.
+ *
+ * A unit-tracking asset prices itself unit by unit: as soon as a single unit
+ * carries a price the list is the source of truth, and units still without one
+ * count as 0 rather than guessing the asset price onto them. Everything else
+ * falls back to the old `price x quantity`. Each unit price is already rounded
+ * to 2 dp by the normaliser, so the sum is rounded once more only to clear the
+ * float noise of adding them up.
+ *
+ * @return array{0:bool, 1:?float, 2:int}  [unitPriced, priceTotal, pricedUnits]
+ */
+function trax_asset_value(array $asset): array
+{
+    $pricedUnits = 0;
+    $sum         = 0.0;
+
+    if (trax_asset_has_units($asset)) {
+        foreach ((array)($asset['units'] ?? []) as $unit) {
+            $price = $unit['price'] ?? null;
+            if ($price === null) {
+                continue;
+            }
+            $pricedUnits++;
+            $sum += (float)$price;
+        }
+    }
+
+    if ($pricedUnits > 0) {
+        return [true, round($sum, 2), $pricedUnits];
+    }
+
+    $price = $asset['price'] ?? null;
+    if ($price === null) {
+        return [false, null, 0];
+    }
+
+    return [false, round((float)$price * (int)($asset['quantity'] ?? 1), 2), 0];
+}
+
+/**
  * Decorates assets with their derived status and set membership info for
  * the client, without ever persisting the derived values.
  */
@@ -2162,6 +2207,13 @@ function trax_decorate_assets(array $assets, array $checkouts): array
         } else {
             $asset['availableUnitNos'] = [];
         }
+
+        // What the asset is worth. Once any unit carries a price, the units are
+        // the source of truth and the asset's own price is not consulted at all
+        // — two of the same model rarely cost the same twice, and the stored
+        // asset price stays exactly as the client last sent it.
+        [$asset['unitPriced'], $asset['priceTotal'], $asset['pricedUnits']] = trax_asset_value($asset);
+
         return $asset;
     }, $assets);
 }

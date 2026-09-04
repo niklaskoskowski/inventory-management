@@ -357,7 +357,12 @@ if (!defined('TRAX_STATUSES')) define('TRAX_STATUSES', ['FREE', 'RSVD', 'UNAV', 
 
 if (!defined('TRAX_ASSET_KINDS')) define('TRAX_ASSET_KINDS', ['ITEM', 'SET']);
 
-if (!defined('TRAX_CONDITIONS')) define('TRAX_CONDITIONS', ['NEW', 'GOOD', 'FAIR', 'POOR', 'DEFECT']);
+/**
+ * Condition grades for an asset and for a single unit. BLOCKED is purely
+ * informational — availability, unit state and effective status are decided by
+ * the stored status and by `outOfService`, never by a condition.
+ */
+if (!defined('TRAX_CONDITIONS')) define('TRAX_CONDITIONS', ['NEW', 'GOOD', 'FAIR', 'POOR', 'DEFECT', 'BLOCKED']);
 
 if (!defined('TRAX_RESERVATION_STATUSES')) define('TRAX_RESERVATION_STATUSES', ['ACTIVE', 'CONVERTED', 'COMPLETED', 'CANCELLED']);
 

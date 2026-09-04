@@ -73,6 +73,9 @@ export default {
             <option value="">— keep —</option>
             <option v-for="c in CONDITIONS" :key="c" :value="c">{{ CONDITION_LABEL[c] }}</option>
           </select>
+          <div class="form-text small">
+            Skipped for items that track individual units (condition is kept per unit).
+          </div>
         </div>
 
         <div class="col-12">

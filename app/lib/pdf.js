@@ -612,9 +612,10 @@ function linesByCategory(rows, lookup) {
 /**
  * One asset as a schedule row.
  *
- * The two money cells are NOT computed here: the unit price is the stored field
- * rendered with its own currency, and the line value comes back from
- * valueOfLines() — the same helper the basket and the dashboard use. An
+ * The two money cells are NOT computed here: the unit price is priceOf() —
+ * the stored field, or the unit sum divided by the count once an asset prices
+ * its units — rendered with its own currency, and the line value comes back
+ * from valueOfLines(), the same helper the basket and the dashboard use. An
  * unpriced asset falls out of it as an empty total bag, which formatTotals()
  * renders as a dash, so it appears in the document with no value rather than
  * disappearing from it.

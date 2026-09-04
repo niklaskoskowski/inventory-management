@@ -5,7 +5,7 @@ import {
   categories, locations,
 } from '../store.js';
 import {
-  STATUSES, CONDITIONS, CONDITION_LABEL, statusLabel,
+  STATUSES, CONDITIONS, CONDITION_LABEL, conditionSummary, statusLabel,
   formatDate, formatDateTime, formatMoney, toDateInput, isOverdue,
 } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
@@ -81,6 +81,9 @@ export default {
     const isSet = computed(() => asset.value?.kind === 'SET');
     // Quantity is derived server-side once units are tracked.
     const hasUnits = computed(() => !!asset.value?.units?.length);
+    // Once a single unit carries a price the sum of them IS the asset's price,
+    // and the stored `price` underneath is neither shown nor written.
+    const unitPriced = computed(() => !!asset.value?.unitPriced);
     // Several people can hold units of the same asset now, so this is a list.
     const lines = computed(() => (props.assetId ? getLines(props.assetId) : []));
     const outUnits = computed(() =>
@@ -184,19 +187,40 @@ export default {
       }
     });
 
+    // The details Price box reads the derived total once the units are priced.
+    // It is disabled then, so the setter only ever runs for the plain case.
+    const priceField = computed({
+      get: () => (unitPriced.value
+        ? Number(asset.value.priceTotal ?? 0).toFixed(2)
+        : form.value.price),
+      set: (value) => { form.value.price = value; },
+    });
+
+    /** "2× Good, 1× Blocked" — what stands in for the asset's own grade. */
+    const unitConditions = computed(() => conditionSummary(asset.value));
+
     // `form` deliberately has no `units` key: saving the details must never
     // rewrite the unit list, which the Units tab owns.
-    const patch = () => ({
-      ...form.value,
-      // A kit has no quantity of its own; the server pins it to 1 anyway.
-      quantity: isSet.value ? undefined : Math.max(1, Number(form.value.quantity) || 1),
-      price: form.value.price === '' ? null : form.value.price,
-      purchasedAt: form.value.purchasedAt || null,
-      warrantyUntil: form.value.warrantyUntil || null,
-      tags: form.value.tags
-        ? form.value.tags.split(',').map((t) => t.trim()).filter(Boolean)
-        : [],
-    });
+    const patch = () => {
+      const out = {
+        ...form.value,
+        // A kit has no quantity of its own; the server pins it to 1 anyway.
+        quantity: isSet.value ? undefined : Math.max(1, Number(form.value.quantity) || 1),
+        price: form.value.price === '' ? null : form.value.price,
+        purchasedAt: form.value.purchasedAt || null,
+        warrantyUntil: form.value.warrantyUntil || null,
+        tags: form.value.tags
+          ? form.value.tags.split(',').map((t) => t.trim()).filter(Boolean)
+          : [],
+      };
+      // Neither field is on the form once units take it over, so neither is
+      // sent: the server writes only the keys a patch carries, and dropping
+      // them is what leaves the stored values untouched instead of blanking
+      // them with what the hidden control happened to hold.
+      if (unitPriced.value) delete out.price;
+      if (hasUnits.value) delete out.condition;
+      return out;
+    };
 
     const save = async () => {
       if (!form.value.name.trim()) {
@@ -359,7 +383,7 @@ export default {
     };
 
     const blankUnit = () => ({
-      no: null, label: '', serial: '',
+      no: null, label: '', serial: '', price: null,
       condition: form.value.condition || 'GOOD', outOfService: false, note: '',
     });
 
@@ -387,7 +411,7 @@ export default {
       unitsDirty.value = true;
     };
 
-    /** Only the six stored keys go back; `state`, `lineId` &c. are derived. */
+    /** Only the seven stored keys go back; `state`, `lineId` &c. are derived. */
     const saveUnits = async () => {
       saving.value = true;
       try {
@@ -395,6 +419,8 @@ export default {
           no: unit.no || null,
           label: unit.label || '',
           serial: unit.serial || '',
+          // An emptied box is "no price on this one", not zero.
+          price: unit.price === '' || unit.price === undefined ? null : unit.price,
           condition: unit.condition || 'GOOD',
           outOfService: !!unit.outOfService,
           note: unit.note || '',
@@ -421,7 +447,8 @@ export default {
     return {
       state, form, saving, confirmDelete, fileInput, tab,
       categories, locations,
-      asset, isNew, isSet, hasUnits, lines, outUnits, history, members, warrantyExpired,
+      asset, isNew, isSet, hasUnits, unitPriced, priceField, unitConditions,
+      lines, outUnits, history, members, warrantyExpired,
       warrantyMonths, warrantyIsAuto,
       unitsForm, unitsDirty, unitCode, unitDetail, touchUnits,
       trackUnits, addUnit, removeUnit, saveUnits,
@@ -537,11 +564,19 @@ export default {
             </div>
           </div>
 
-          <div class="col-6">
+          <!-- A tracked asset has no single grade: each unit carries its own,
+               so the select goes and the counted summary takes its place. -->
+          <div class="col-6" v-if="!hasUnits">
             <label class="form-label small" for="f-condition">Condition</label>
             <select id="f-condition" class="form-select form-select-sm" v-model="form.condition">
               <option v-for="c in CONDITIONS" :key="c" :value="c">{{ CONDITION_LABEL[c] }}</option>
             </select>
+          </div>
+          <div class="col-6" v-else>
+            <label class="form-label small">Condition</label>
+            <p class="form-control-plaintext form-control-sm text-secondary small mb-0">
+              Condition per unit: {{ unitConditions }}
+            </p>
           </div>
 
           <div class="col-6">
@@ -588,8 +623,12 @@ export default {
           <div class="col-6">
             <label class="form-label small" for="f-price">Price</label>
             <div class="input-group input-group-sm">
-              <input id="f-price" class="form-control" v-model="form.price" inputmode="decimal" placeholder="0,00">
+              <input id="f-price" class="form-control" v-model="priceField" inputmode="decimal"
+                     placeholder="0,00" :disabled="unitPriced">
               <input class="form-control" style="max-width:5rem" v-model="form.currency" maxlength="8" aria-label="Currency">
+            </div>
+            <div v-if="unitPriced" class="form-text small">
+              Sum of {{ asset.pricedUnits }} unit prices — edit them in the Units tab.
             </div>
           </div>
 
@@ -673,6 +712,11 @@ export default {
                         :aria-label="'Condition of unit ' + unitCode(unit)">
                   <option v-for="c in CONDITIONS" :key="c" :value="c">{{ CONDITION_LABEL[c] }}</option>
                 </select>
+              </div>
+              <div class="col-4">
+                <input class="form-control form-control-sm" type="text" inputmode="decimal"
+                       v-model="unit.price" placeholder="Price" @input="touchUnits"
+                       :aria-label="'Price of unit ' + unitCode(unit)">
               </div>
               <div class="col-4 d-flex align-items-center">
                 <div class="form-check form-switch mb-0">
