@@ -207,6 +207,26 @@ export function toDateInput(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/**
+ * `YYYY-MM-DD` plus N months, clamped to the last day of the target month —
+ * 2024-01-31 + 1 is 2024-02-29, not 2024-03-02. Anything else in, '' out.
+ *
+ * It lives here rather than in the asset sheet because the warranty date is
+ * derived from a purchase date in two places now: the asset's own dates and
+ * every unit's.
+ */
+export function addMonths(value, months) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!parts || !Number.isFinite(months)) return '';
+
+  const day = Number(parts[3]);
+  const target = new Date(Number(parts[1]), Number(parts[2]) - 1 + months, 1);
+  // Day 0 of the next month is the last day of this one.
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return toDateInput(target);
+}
+
 /** "in 3 days" / "2 days ago" / "today" */
 export function relativeDays(value) {
   const date = parseDate(value);
@@ -265,6 +285,24 @@ export function unitPriceOf(asset) {
 export function totalPriceOf(asset) {
   if (asset?.priceTotal !== null && asset?.priceTotal !== undefined) return asset.priceTotal;
   return asset?.price != null ? asset.price * Math.max(1, asset.quantity) : null;
+}
+
+/**
+ * When an asset was bought, and when its warranty lapses.
+ *
+ * Both read the derived field first: as soon as one unit names a date the
+ * server answers with the earliest of the units (`purchasedFirst`) and the
+ * next warranty to run out (`warrantyNext`), and the asset's own stored dates
+ * are the fallback for the untracked record. Same shape as unitPriceOf() —
+ * the screen asks one question and never has to know which of the two
+ * answered it.
+ */
+export function purchasedAtOf(asset) {
+  return asset?.purchasedFirst ?? asset?.purchasedAt ?? null;
+}
+
+export function warrantyUntilOf(asset) {
+  return asset?.warrantyNext ?? asset?.warrantyUntil ?? null;
 }
 
 /**

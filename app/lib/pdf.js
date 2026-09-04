@@ -9,6 +9,7 @@
 
 import {
   formatDate, formatDateTime, formatMoney, formatTotals, statusLabel, parseDate,
+  purchasedAtOf,
 } from './format.js';
 import { computeValue, valueOfLines, currencyOf, priceOf, unitsOf } from './insights.js';
 import { state } from '../store.js';
@@ -628,7 +629,9 @@ function scheduleRow(asset, lookup) {
     String(asset.name || `#${asset.id}`),
     `#${asset.id}`,
     String(asset.serial ?? '').trim() || DASH,
-    formatDate(asset.purchasedAt), // already a dash when there is no date
+    // The earliest of the units once they carry their own dates; already a
+    // dash when there is no date at all.
+    formatDate(purchasedAtOf(asset)),
     String(units),
     unit === null ? DASH : formatMoney(unit, currencyOf(asset)),
     formatTotals(valueOfLines([{ id: asset.id, qty: units }], lookup).totals),

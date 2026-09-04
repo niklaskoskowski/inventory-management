@@ -58,15 +58,15 @@ booking page for their own transaction. Sized for one or two operators. No datab
 
 Storage lives in `TRAX_DATA_DIR` (`lib/config.php:33-42`; the project root by default, overridden by
 the `TRAX_DATA_DIR` environment variable when it names a readable directory): `data.json` (+
-`data.json.bak`, rewritten on every save, `lib/store.php:1974`), `checkout.json`, `users.json`,
+`data.json.bak`, rewritten on every save, `lib/store.php:1979`), `checkout.json`, `users.json`,
 `uploads/`, `documents/`, `.trax.lock`.
 
-`trax_normalize_data()` (`lib/store.php:1324-1371`) **is** the schema: `rev`, `assets`, `events`,
+`trax_normalize_data()` (`lib/store.php:1329-1376`) **is** the schema: `rev`, `assets`, `events`,
 `reservations`, `rentalHistory`, `bookings`, `settings`, `cronState`. A top-level key not in that
 literal is dropped on the next write, because `trax_mutate()` re-normalises the whole tree before
 committing. Add a key only together with its normaliser.
 
-### Asset — `trax_normalize_asset()` (`lib/store.php:328-471`)
+### Asset — `trax_normalize_asset()` (`lib/store.php:333-476`)
 
 | Field | Notes |
 |---|---|
@@ -75,11 +75,11 @@ committing. Add a key only together with its normaliser.
 | `status` | `FREE` \| `RSVD` \| `UNAV` \| `LOCK` (`lib/config.php:356`) |
 | `notes`, `category`, `location` | free text; category/location ≤ 120 |
 | `quantity` | int 1..`TRAX_MAX_QUANTITY` (9999); forced to 1 for a `SET`; **derived** from `units` when that list is non-empty |
-| `units` | `[{no, label, serial, condition, price, outOfService, note}]`, `ITEM` only, always `[]` for a `SET` — see [Units](#units-per-unit-tracking) |
+| `units` | `[{no, label, serial, condition, price, purchasedAt, warrantyUntil, outOfService, note}]`, `ITEM` only, always `[]` for a `SET` — see [Units](#units-per-unit-tracking) |
 | `kind` | `ITEM` \| `SET` (`lib/config.php:358`) |
 | `members` | `[{assetId, qty}]`, sets only; legacy flat `[3,4,5]` still accepted |
 | `serial`, `supplier` | ≤ 120 |
-| `purchasedAt`, `warrantyUntil` | dates |
+| `purchasedAt`, `warrantyUntil` | dates. Stored exactly as the client sends them — the server never derives or overwrites them, and they are ignored once the units carry their own (`unitDated`). Hidden in the sheet while the asset tracks units |
 | `price`, `currency` | float ≥ 0 rounded to 2; currency defaults to `EUR`. The price of **one** piece. Stored exactly as the client sends it — the server never derives or overwrites it, and it is ignored for the value of an asset whose units carry their own prices |
 | `condition` | `NEW` \| `GOOD` \| `FAIR` \| `POOR` \| `DEFECT` \| `BLOCKED` (`lib/config.php:365`). Informational only — nothing derives from it. Hidden in the sheet once the asset tracks units, which grade themselves |
 | `photo`, `tags` | file name in `uploads/`; unique tag strings ≤ 60 |
@@ -88,18 +88,19 @@ committing. Add a key only together with its normaliser.
 
 ### Units (per-unit tracking)
 
-`trax_normalize_unit()` (`lib/store.php:302-326`). An `ITEM` may list its physical units one by
+`trax_normalize_unit()` (`lib/store.php:302-331`). An `ITEM` may list its physical units one by
 one — the thing an operator can tell apart from its neighbour: unit `12.1` is the Sommer cable,
 `12.2` the Cordial. Optional: an asset with `units: []` is the pre-feature record and is counted
 by `quantity` alone. A `SET` never has units; its members do.
 
 | Field | Notes |
 |---|---|
-| `no` | int ≥ 1, the unit's number **within its asset**. Assigned server-side (`apply_units_patch()` `api.php:616`), never by the client. Written and scanned as `12.3` (`trax_unit_code()` `lib/store.php:1496`) |
+| `no` | int ≥ 1, the unit's number **within its asset**. Assigned server-side (`apply_units_patch()` `api.php:616`), never by the client. Written and scanned as `12.3` (`trax_unit_code()` `lib/store.php:1501`) |
 | `label` | ≤ 120, what the operator calls this one ("Sommer") |
 | `serial` | ≤ 120 |
 | `condition` | `NEW` \| `GOOD` \| `FAIR` \| `POOR` \| `DEFECT` \| `BLOCKED`, defaults `GOOD` |
 | `price` | float ≥ 0 rounded to 2, or `null`. What *this* piece cost — two of the same model rarely cost the same twice. Normalised exactly like the asset price (`trax_float()`, negative → `null`). There is no per-unit currency: `asset.currency` covers the whole record |
+| `purchasedAt`, `warrantyUntil` | dates, `YYYY-MM-DD` or `null`. When *this* piece was bought and how long its cover runs — units of the same model are bought on different days. Normalised by `trax_date()`, exactly like the asset's own pair |
 | `outOfService` | bool — off the shelf by hand: broken, in the workshop. It stays part of the asset and keeps its number |
 | `note` | ≤ 500 |
 
@@ -107,29 +108,29 @@ The high-water mark lives on the asset, not on the unit:
 
 | Field | Notes |
 |---|---|
-| `unitSeq` | int ≥ 0 on the **asset** (`lib/store.php:376-381, 450`). The highest unit number this asset has ever handed out. Server-managed: it is not in the `apply_asset_patch()` whitelist, and it only ever goes up, so removing a unit retires its number instead of freeing it. `0` for a `SET`. Absent on a legacy record and rebuilt from `max(unit no)` on first read |
+| `unitSeq` | int ≥ 0 on the **asset** (`lib/store.php:381-386, 455`). The highest unit number this asset has ever handed out. Server-managed: it is not in the `apply_asset_patch()` whitelist, and it only ever goes up, so removing a unit retires its number instead of freeing it. `0` for a `SET`. Absent on a legacy record and rebuilt from `max(unit no)` on first read |
 
 Rules:
 
 - The list is sorted by `no`, duplicate numbers are dropped, and it is capped at `TRAX_MAX_UNITS`
   (500, `lib/config.php:407`) — deliberately far below `TRAX_MAX_QUANTITY`, because units are
   hand-managed rows an operator reads, not a bulk counter.
-- **A non-empty list *is* the count**: `quantity = count(units)` on write (`lib/store.php:389-392`).
+- **A non-empty list *is* the count**: `quantity = count(units)` on write (`lib/store.php:394-397`).
   Two sources of truth for "how many are there" is how an asset ends up owing units it never had.
-- **State is derived, never stored.** `trax_unit_states()` (`lib/store.php:1512`) returns
+- **State is derived, never stored.** `trax_unit_states()` (`lib/store.php:1517`) returns
   `{state, lineId, customerName, dueAt}` per number:
   - `OUT` — an open checkout line names the number. This wins even over `outOfService`: the gear is
     physically gone, and saying otherwise would let it be handed out twice.
   - `OOS` — flagged `outOfService` and not out.
-  - `FREE` — otherwise. `trax_available_unit_nos()` (`lib/store.php:1557`) is the ascending list of
+  - `FREE` — otherwise. `trax_available_unit_nos()` (`lib/store.php:1562`) is the ascending list of
     these.
 - Checkout lines, history events and booking items carry `unitNos: int[]`
   (`trax_unit_nos()` `lib/store.php:242`, `trax_item_pair()` `lib/store.php:273`). An empty
   `unitNos` on a line for a unit-tracking asset is a **legacy** line: it claims *some* unit without
   naming it, and availability subtracts it (see below).
-- `trax_asset_has_units()` (`lib/store.php:1490`) is the one test for "does this asset track units".
+- `trax_asset_has_units()` (`lib/store.php:1495`) is the one test for "does this asset track units".
 
-### Checkout line — `trax_normalize_checkout()` (`lib/store.php:667-712`)
+### Checkout line — `trax_normalize_checkout()` (`lib/store.php:672-717`)
 
 Keyed by `lineId`, not by asset: one asset can be out on several lines at once.
 
@@ -142,7 +143,7 @@ Keyed by `lineId`, not by asset: one asset can be out on several lines at once.
 | `customerName`, `customerEmail`, `note` | |
 | `reservationId`, `setId`, `bookingId` | provenance links, nullable |
 
-### Reservation — `trax_normalize_reservation()` (`lib/store.php:571-626`)
+### Reservation — `trax_normalize_reservation()` (`lib/store.php:576-631`)
 
 | Field | Notes |
 |---|---|
@@ -155,7 +156,7 @@ Keyed by `lineId`, not by asset: one asset can be out on several lines at once.
 | `status` | `ACTIVE` \| `CONVERTED` \| `COMPLETED` \| `CANCELLED` (`lib/config.php:367`) |
 | `createdAt`, `convertedAt`, `completedAt`, `cancelledAt` | timestamps per transition |
 
-### Booking — `trax_normalize_booking()` (`lib/store.php:807-869`)
+### Booking — `trax_normalize_booking()` (`lib/store.php:812-874`)
 
 One record per customer transaction, addressed publicly by an unguessable 64-hex
 `token`. `items` is a **snapshot** taken at creation: checkout lines are deleted
@@ -175,7 +176,7 @@ moment the gear came back.
 
 ### Settings
 
-`trax_normalize_settings()` (`lib/store.php:1162-1259`), four groups: `email.*`
+`trax_normalize_settings()` (`lib/store.php:1167-1264`), four groups: `email.*`
 (addresses, per-mail kill switches, editable subject/body `templates`),
 `branding.*` (`appName`, `orgName`, `brandColor`, `publicPath`, `logoFile`,
 `faviconFile`, `labelHeading`, `whatsapp`), `defaults.*` (`loanDays`, `dueHour`,
@@ -186,13 +187,14 @@ auto-fill the warranty date in the asset sheet, `0` off —, `currency`, `allowP
 
 ## Derived availability & status rules
 
-Nothing about availability is stored. `trax_decorate_assets()` (`lib/store.php:2170-2219`) adds nine
-derived fields to every asset in the snapshot: `effectiveStatus`, `outQty`, `availableQty`, `isOut`,
-`memberOf`, `availableUnitNos`, `unitPriced`, `priceTotal`, `pricedUnits` — plus, on a unit-tracking
-asset, `state` / `lineId` / `customerName` / `dueAt` on each entry of `units`. All of it is dropped
-again by `trax_normalize_asset()` on write, so none of it can be read back as truth.
+Nothing about availability is stored. `trax_decorate_assets()` (`lib/store.php:2219-2277`) adds
+thirteen derived fields to every asset in the snapshot: `effectiveStatus`, `outQty`, `availableQty`,
+`isOut`, `memberOf`, `availableUnitNos`, `unitPriced`, `priceTotal`, `pricedUnits`, `unitDated`,
+`purchasedFirst`, `warrantyNext`, `warrantyNextUnit` — plus, on a unit-tracking asset, `state` /
+`lineId` / `customerName` / `dueAt` on each entry of `units`. All of it is dropped again by
+`trax_normalize_asset()` on write, so none of it can be read back as truth.
 
-`trax_available_qty_for($asset, $linesForThatAsset)` (`lib/store.php:1582`) is **the** availability
+`trax_available_qty_for($asset, $linesForThatAsset)` (`lib/store.php:1587`) is **the** availability
 function — blocked-aware and unit-aware. `trax_available_qty()`, the decorator,
 `trax_effective_status()`, `checkout.create`, `reservation.convert` and `public.php` all route
 through it. There used to be several copies of `quantity - lines_qty` and they drifted.
@@ -200,27 +202,27 @@ through it. There used to be several copies of `quantity - lines_qty` and they d
 - `outQty` = sum of `qty` over all open checkout lines for the asset.
 - `availableQty`:
   - `0` when the asset is *blocked* — stored `status` `LOCK` or `UNAV` (`trax_is_blocked()`
-    `lib/store.php:1483`). This is checked first, so a blocked asset never shows or grants free
+    `lib/store.php:1488`). This is checked first, so a blocked asset never shows or grants free
     units.
   - a unit-tracking asset: `count(free units) - (quantity held by legacy lines that name no unit)`,
     floored at 0. That subtraction matters — counting the free units in full would hand the same
     piece of gear out twice.
   - otherwise `quantity - outQty`.
-- `effectiveStatus` (`trax_effective_status()` `lib/store.php:1629-1687`):
+- `effectiveStatus` (`trax_effective_status()` `lib/store.php:1634-1692`):
   - **ITEM**: own `LOCK` → `LOCK`; available 0 with *nothing out* → `LOCK` (every unit is flagged
     out of service, which is off the shelf, not lent out — unreachable without units); available 0
     → `UNAV`; `0 < available < quantity` → `PARTIAL`; else the stored status.
   - **SET**: own `LOCK` → `LOCK`; any member short of its `qty`, or stamped `UNAV`/`LOCK` by hand →
     `PARTIAL`; any member `RSVD` → `RSVD`; else `FREE`.
 - **`PARTIAL` is derived only**, never written to disk — it is not in `TRAX_STATUSES`.
-- `trax_assert_quantity_covers_checkouts()` (`lib/store.php:1693`) refuses a quantity edit smaller
+- `trax_assert_quantity_covers_checkouts()` (`lib/store.php:1698`) refuses a quantity edit smaller
   than what is already out.
 - Which units actually leave on a line is decided by `trax_pick_units()` (`api.php:688`): the
   operator's named units first, in full, then the lowest free numbers to fill the count. A named
   unit that is not free is reported back as a shortfall rather than quietly swapped — "give me the
   Sommer cable" is not the same request as "give me a cable".
 
-### Derived value — `trax_asset_value()` (`lib/store.php:2138-2164`)
+### Derived value — `trax_asset_value()` (`lib/store.php:2143-2169`)
 
 What an asset is worth is derived the same way, from the units when they price themselves and from
 the asset otherwise. Three keys, added by the decorator and dropped on write like the rest:
@@ -234,6 +236,28 @@ the asset otherwise. Three keys, added by the decorator and dropped on write lik
 Out-of-service and checked-out units count in the total: the money is still the organisation's. The
 stored `asset.price` is never derived from the units and never overwritten — it stays whatever the
 client last sent, and is simply not consulted while `unitPriced`.
+
+### Derived dates — `trax_asset_dates()` (`lib/store.php:2186-2213`)
+
+Same shape again, for "when was it bought" and "when does the cover lapse". Units of the same model
+are bought on different days, so an asset-level purchase date is a fiction once units exist — and
+the warranty that matters is the *next* one to run out, not the record's. Four keys, added by the
+decorator and dropped on write:
+
+| Field | Notes |
+|---|---|
+| `unitDated` | bool — an `ITEM` with units, at least one of which names a `purchasedAt` **or** a `warrantyUntil`. `false` for a `SET`, for a unit-less asset and for a unit list where nobody named a date |
+| `purchasedFirst` | string\|null — `unitDated`: the earliest non-null unit `purchasedAt`. Otherwise the asset's own `purchasedAt` |
+| `warrantyNext` | string\|null — `unitDated`: the earliest non-null unit `warrantyUntil`, the next cover to lapse. Otherwise the asset's own `warrantyUntil` |
+| `warrantyNextUnit` | int\|null — the `no` of the unit that supplied `warrantyNext`; `null` when the asset is not `unitDated`, or when it is but no unit named a warranty. A tie goes to the lowest number, because the list is sorted by `no` |
+
+`YYYY-MM-DD` sorts lexically, so "earliest" is a plain string comparison. `unitDated` is one flag
+for both dates: a unit list that names only warranties reports `purchasedFirst: null` rather than
+falling back to the asset's purchase date, so the two halves can never come from two sources.
+Out-of-service and checked-out units count — the warranty runs regardless of where the gear is.
+The stored `asset.purchasedAt` / `asset.warrantyUntil` are never derived or overwritten; the sheet
+hides them and omits them from the patch while the asset tracks units, so a legacy record keeps
+whatever it already had.
 
 ## API contract
 
@@ -259,9 +283,9 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
   `checkout.create|extend|checkin`, `reservation.create|convert|cancel`,
   `booking.resend|uploadPhotos|deletePhoto`, `settings.update`,
   `auth.changePassword|testInclude|configUpdate`, `taxonomy.rename|merge|delete`.
-- **Concurrency**: `trax_mutate($expectedRev, $mutator)` (`lib/store.php:1941`) holds `LOCK_EX` on
+- **Concurrency**: `trax_mutate($expectedRev, $mutator)` (`lib/store.php:1946`) holds `LOCK_EX` on
   `.trax.lock` across the read-modify-write of *both* `data.json` and `checkout.json`, so cross-file
-  operations commit together. Writes go through `trax_write_atomic()` (`lib/store.php:1875`): temp
+  operations commit together. Writes go through `trax_write_atomic()` (`lib/store.php:1880`): temp
   file in the same directory, `fsync`, `rename()`.
 - **Error codes**: `STALE` (rev behind), `CONFLICT` (items unavailable; `details.blocked` says
   which), `BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN` (CSRF), `TOO_LARGE`, `UNSUPPORTED_MEDIA`,
@@ -405,7 +429,7 @@ Deliberate or simply true, and surprising either way. Each was checked against t
   (`apply_units_patch()` `api.php:616`). Delete `12.3` and the next unit added is `12.4`, so a label
   already printed for `12.3` can never come to mean different gear — the number is retired, and the
   list keeps a gap. A record written before `unitSeq` existed heals itself off its own units on
-  first read (`lib/store.php:376-381`).
+  first read (`lib/store.php:381-386`).
 - **A blocked asset can still be reserved.** `reservation.create` judges conflicts by time window
   (`trax_conflicts_for()`), not by `trax_is_blocked()`, so a `LOCK`/`UNAV` asset accepts a booking.
   `reservation.convert` refuses it, which is where the operator finds out.

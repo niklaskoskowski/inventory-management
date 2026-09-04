@@ -7,6 +7,7 @@ import {
 import {
   STATUSES, CONDITIONS, CONDITION_LABEL, conditionSummary, statusLabel,
   formatDate, formatDateTime, formatMoney, toDateInput, isOverdue,
+  addMonths, warrantyUntilOf,
 } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
 import StatusBadge from './ui/StatusBadge.js';
@@ -19,20 +20,17 @@ const BLANK = {
 };
 
 /**
- * `YYYY-MM-DD` plus N months, clamped to the last day of the target month —
- * 2024-01-31 + 1 is 2024-02-29, not 2024-03-02. Anything else in, '' out.
+ * One stored unit as an editable row.
+ *
+ * The two dates come back from the server as `YYYY-MM-DD` or null, and a null
+ * in a `<input type="date">` renders as the string "null" — so they go through
+ * toDateInput() exactly like the asset's own dates on the details form.
  */
-const addMonths = (value, months) => {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
-  if (!parts || !Number.isFinite(months)) return '';
-
-  const day = Number(parts[3]);
-  const target = new Date(Number(parts[1]), Number(parts[2]) - 1 + months, 1);
-  // Day 0 of the next month is the last day of this one.
-  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
-  target.setDate(Math.min(day, lastDay));
-  return toDateInput(target);
-};
+const unitRow = (unit) => ({
+  ...unit,
+  purchasedAt: toDateInput(unit.purchasedAt),
+  warrantyUntil: toDateInput(unit.warrantyUntil),
+});
 
 /** Create/edit one asset, plus its live state and history. */
 export default {
@@ -96,9 +94,20 @@ export default {
     // Newest first as well: the receipt attached last is the one being looked for.
     const documents = computed(() => [...(asset.value?.documents || [])].reverse());
 
+    // The date that matters is the units' once they carry their own: the
+    // NEXT warranty to lapse, not the asset's own field underneath.
     const warrantyExpired = computed(() => {
-      const until = asset.value?.warrantyUntil;
+      const until = warrantyUntilOf(asset.value);
       return until ? isOverdue(until) : false;
+    });
+
+    // Which units have run out, not just the earliest one: the operator is
+    // about to decide what to do with each of them by name.
+    const expiredUnits = computed(() => {
+      if (!asset.value?.unitDated) return [];
+      return (asset.value.units || [])
+        .filter((unit) => unit.warrantyUntil && isOverdue(unit.warrantyUntil))
+        .map((unit) => unitCode(unit));
     });
 
     watch(
@@ -130,7 +139,7 @@ export default {
         // Keep an unsaved unit edit across a snapshot refresh, but never
         // across a switch to another asset.
         if (!unitsDirty.value || unitsFor.value !== (value?.id ?? null)) {
-          unitsForm.value = (value?.units || []).map((unit) => ({ ...unit }));
+          unitsForm.value = (value?.units || []).map(unitRow);
           unitsDirty.value = false;
         }
         unitsFor.value = value?.id ?? null;
@@ -218,7 +227,11 @@ export default {
       // them is what leaves the stored values untouched instead of blanking
       // them with what the hidden control happened to hold.
       if (unitPriced.value) delete out.price;
-      if (hasUnits.value) delete out.condition;
+      if (hasUnits.value) {
+        delete out.condition;
+        delete out.purchasedAt;
+        delete out.warrantyUntil;
+      }
       return out;
     };
 
@@ -385,6 +398,7 @@ export default {
     const blankUnit = () => ({
       no: null, label: '', serial: '', price: null,
       condition: form.value.condition || 'GOOD', outOfService: false, note: '',
+      purchasedAt: '', warrantyUntil: '',
     });
 
     /** "12.1" — the code that goes on this unit's own label. */
@@ -394,10 +408,67 @@ export default {
 
     const touchUnits = () => { unitsDirty.value = true; };
 
-    /** Turn a plain quantity into that many blank, editable units. */
+    // --- Per-unit warranty auto-fill ------------------------------------
+    // The asset-level rule again, once per row. Keyed by the row object, so
+    // removing or re-ordering a row cannot make one unit inherit another
+    // unit's last auto-fill; a dropped row takes its entry with it.
+    const unitLastAuto = new WeakMap();
+
+    const unitAutoWarranty = (unit) =>
+      (warrantyMonths.value ? addMonths(unit.purchasedAt, warrantyMonths.value) : '');
+    const unitWarrantyIsAuto = (unit) => {
+      const auto = unitAutoWarranty(unit);
+      return !!auto && unit.warrantyUntil === auto;
+    };
+
+    /**
+     * A row's purchase date changed: derive its warranty unless it was typed.
+     *
+     * The input is bound by hand rather than with v-model precisely so that
+     * `unit.purchasedAt` is still the PREVIOUS date here — which is what tells
+     * "the operator typed this warranty" from "we wrote it last time".
+     */
+    const onUnitPurchased = (unit, next) => {
+      const prev = unit.purchasedAt || '';
+      unit.purchasedAt = next;
+      touchUnits();
+
+      const current = unit.warrantyUntil || '';
+      const months = warrantyMonths.value;
+
+      if (!next) {
+        // Purchase date cleared: take back our own answer, leave a typed one.
+        if (current && current === unitLastAuto.get(unit)) {
+          unit.warrantyUntil = '';
+          unitLastAuto.delete(unit);
+        }
+        return;
+      }
+      if (!months) return;
+
+      const fromPrev = prev ? addMonths(prev, months) : '';
+      if (current === '' || current === unitLastAuto.get(unit) || (fromPrev && current === fromPrev)) {
+        const auto = addMonths(next, months);
+        unit.warrantyUntil = auto;
+        unitLastAuto.set(unit, auto);
+      }
+    };
+
+    /**
+     * Turn a plain quantity into that many blank, editable units.
+     *
+     * The asset's own condition and dates are copied down onto every row:
+     * until somebody says otherwise the pieces were all bought together, and
+     * the record would otherwise lose its purchase date the moment it starts
+     * tracking units, which then answer for it.
+     */
     const trackUnits = () => {
       const count = Math.max(1, Number(asset.value?.quantity) || 1);
-      unitsForm.value = Array.from({ length: count }, blankUnit);
+      unitsForm.value = Array.from({ length: count }, () => ({
+        ...blankUnit(),
+        purchasedAt: form.value.purchasedAt || '',
+        warrantyUntil: form.value.warrantyUntil || '',
+      }));
       unitsDirty.value = true;
     };
 
@@ -411,7 +482,7 @@ export default {
       unitsDirty.value = true;
     };
 
-    /** Only the seven stored keys go back; `state`, `lineId` &c. are derived. */
+    /** Only the nine stored keys go back; `state`, `lineId` &c. are derived. */
     const saveUnits = async () => {
       saving.value = true;
       try {
@@ -422,6 +493,10 @@ export default {
           // An emptied box is "no price on this one", not zero.
           price: unit.price === '' || unit.price === undefined ? null : unit.price,
           condition: unit.condition || 'GOOD',
+          // An empty box is "no date on this one", the same null the asset's
+          // own dates are cleared to.
+          purchasedAt: unit.purchasedAt || null,
+          warrantyUntil: unit.warrantyUntil || null,
           outOfService: !!unit.outOfService,
           note: unit.note || '',
         }));
@@ -429,7 +504,7 @@ export default {
         toast('Units saved.', 'success');
         unitsDirty.value = false;
         // The server assigns the numbers, so take the list back from it.
-        unitsForm.value = (asset.value?.units || []).map((unit) => ({ ...unit }));
+        unitsForm.value = (asset.value?.units || []).map(unitRow);
       } catch {
         /* toast already raised by the store */
       } finally {
@@ -448,9 +523,10 @@ export default {
       state, form, saving, confirmDelete, fileInput, tab,
       categories, locations,
       asset, isNew, isSet, hasUnits, unitPriced, priceField, unitConditions,
-      lines, outUnits, history, members, warrantyExpired,
-      warrantyMonths, warrantyIsAuto,
+      lines, outUnits, history, members, warrantyExpired, expiredUnits,
+      warrantyMonths, warrantyIsAuto, warrantyUntilOf,
       unitsForm, unitsDirty, unitCode, unitDetail, touchUnits,
+      onUnitPurchased, unitWarrantyIsAuto,
       trackUnits, addUnit, removeUnit, saveUnits,
       MAX_PHOTOS, conditionFiles, conditionNote, conditionBusy, conditionLog,
       pickConditionPhotos, clearConditionPick, sendConditionPhotos, removeConditionPhoto,
@@ -495,7 +571,8 @@ export default {
 
       <div v-if="warrantyExpired" class="alert alert-warning py-2 px-3 small">
         <i class="bi bi-shield-exclamation"></i>
-        Warranty expired {{ formatDateTime(asset.warrantyUntil) }}.
+        <span v-if="expiredUnits.length">Warranty expired for {{ expiredUnits.join(', ') }}.</span>
+        <span v-else>Warranty expired {{ formatDateTime(warrantyUntilOf(asset)) }}.</span>
       </div>
 
       <ul class="nav nav-tabs nav-tabs-sm mb-3" v-if="!isNew">
@@ -606,18 +683,34 @@ export default {
             <input id="f-supplier" class="form-control form-control-sm" v-model="form.supplier">
           </div>
 
-          <div class="col-6">
+          <!-- Two of the same model are rarely bought on the same day, so a
+               tracked asset has no single purchase date either: the units
+               carry both dates and the summary reads them back. -->
+          <div class="col-6" v-if="!hasUnits">
             <label class="form-label small" for="f-purchased">Purchased</label>
             <input id="f-purchased" type="date" class="form-control form-control-sm" v-model="form.purchasedAt">
           </div>
+          <div class="col-6" v-else>
+            <label class="form-label small">Purchased</label>
+            <p class="form-control-plaintext form-control-sm text-secondary small mb-0">
+              Purchased per unit — earliest {{ formatDate(asset.purchasedFirst) }}
+            </p>
+          </div>
 
-          <div class="col-6">
+          <div class="col-6" v-if="!hasUnits">
             <label class="form-label small" for="f-warranty">Warranty until</label>
             <input id="f-warranty" type="date" class="form-control form-control-sm" v-model="form.warrantyUntil">
             <div v-if="warrantyIsAuto" class="form-text small">
               Auto-filled as purchase date + {{ warrantyMonths }} months — change it if the
               warranty is longer.
             </div>
+          </div>
+          <div class="col-6" v-else>
+            <label class="form-label small">Warranty until</label>
+            <p class="form-control-plaintext form-control-sm text-secondary small mb-0">
+              Warranty per unit — next {{ formatDate(asset.warrantyNext) }}<span
+                v-if="asset.warrantyNextUnit"> (unit {{ asset.id }}.{{ asset.warrantyNextUnit }})</span>
+            </p>
           </div>
 
           <div class="col-6">
@@ -725,6 +818,25 @@ export default {
                   <label class="form-check-label small" :for="'f-unit-oos-' + ui">Out of service</label>
                 </div>
               </div>
+              <!-- Bound by hand, not with v-model: onUnitPurchased() needs the
+                   date the row had to tell an auto-filled warranty from a
+                   typed one. -->
+              <div class="col-6">
+                <label class="form-label small mb-1" :for="'f-unit-bought-' + ui">Purchased</label>
+                <input class="form-control form-control-sm" type="date" :id="'f-unit-bought-' + ui"
+                       :value="unit.purchasedAt" @input="onUnitPurchased(unit, $event.target.value)"
+                       :aria-label="'Purchase date of unit ' + unitCode(unit)">
+              </div>
+              <div class="col-6">
+                <label class="form-label small mb-1" :for="'f-unit-warranty-' + ui">Warranty until</label>
+                <input class="form-control form-control-sm" type="date" :id="'f-unit-warranty-' + ui"
+                       v-model="unit.warrantyUntil" @input="touchUnits"
+                       :aria-label="'Warranty of unit ' + unitCode(unit)">
+                <div v-if="unitWarrantyIsAuto(unit)" class="form-text small">
+                  auto: purchase + {{ warrantyMonths }} months
+                </div>
+              </div>
+
               <div class="col-12">
                 <input class="form-control form-control-sm" v-model="unit.note" maxlength="500"
                        placeholder="Note (optional)" @input="touchUnits"

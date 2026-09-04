@@ -98,6 +98,32 @@ only record. There is no git history to mine.
     insights and the PDF value maths go through `unitPriceOf()` — the sum divided by the count — so
     the `price × quantity` arithmetic every report already does still lands on the sum
     (`app/lib/format.js:259-268`, `app/lib/insights.js:176`, `app/lib/pdf.js:612-621`).
+- **Per-unit purchase date and warranty date, with the asset's dates derived from them.** A unit
+  carries its own `purchasedAt` and `warrantyUntil` — stored `YYYY-MM-DD` or `null`, normalised by
+  `trax_date()` exactly like the asset's own two fields (`trax_normalize_unit()`,
+  `lib/store.php:302-331`). Both are edited in the sheet's Units tab and get the same warranty
+  auto-fill as the asset sheet: typing a purchase date fills that unit's warranty
+  `settings.defaults.warrantyMonths` later, and a date the operator typed is never overwritten.
+  Units of the same model are bought on different days, so the list is the truth as soon as one
+  unit names a date.
+  - Derived, never stored (`trax_asset_dates()`, `lib/store.php:2186-2213`, added to every asset by
+    `trax_decorate_assets()`): `unitDated` (bool — an `ITEM` with units, at least one of which
+    names a `purchasedAt` or a `warrantyUntil`), `purchasedFirst` (the earliest unit purchase date,
+    else the asset's own), `warrantyNext` (the earliest unit warranty date — the next one to lapse
+    — else the asset's own) and `warrantyNextUnit` (the `no` of the unit that supplies it, `null`
+    when the asset is not `unitDated`). `YYYY-MM-DD` sorts lexically, so "earliest" is a string
+    comparison. Out-of-service and checked-out units count in: the warranty runs regardless.
+  - The dashboard's "Warranty expiring" widget and the insurance PDF read `warrantyNext` /
+    `purchasedFirst`, so a unit-tracking asset is judged by the unit whose cover lapses first
+    rather than by an asset-level date nobody maintains.
+  - The stored `asset.purchasedAt` / `asset.warrantyUntil` are left exactly as the client sends
+    them: the server never derives them from the units and never overwrites them. The sheet hides
+    the asset-level pair once the asset tracks units and omits them from the patch, so a legacy
+    record keeps whatever it already had.
+  - First "Track N units" copies the asset's existing purchase date, warranty date and condition
+    onto every unit it creates, so switching an old record over to units does not lose them.
+  - No date of any kind reaches the public endpoints — `public.php`'s allow-list is unchanged and
+    the derived keys are not in it.
 - **Condition `BLOCKED`.** Appended to `TRAX_CONDITIONS` (`lib/config.php:365`), so it is offered for
   an asset and for a single unit, and it rides the bootstrap `meta.conditions` like the rest. It is
   purely informational: availability, unit `state` and effective status are decided by the stored

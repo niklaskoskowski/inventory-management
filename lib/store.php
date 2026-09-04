@@ -313,15 +313,20 @@ function trax_normalize_unit(mixed $raw): ?array
     $price = trax_float($raw['price'] ?? null);
 
     return [
-        'no'           => $no,
-        'label'        => trax_str($raw['label'] ?? '', 120),
-        'serial'       => trax_str($raw['serial'] ?? '', 120),
-        'condition'    => trax_enum($raw['condition'] ?? null, TRAX_CONDITIONS, 'GOOD'),
-        'price'        => $price !== null && $price >= 0 ? round($price, 2) : null,
+        'no'            => $no,
+        'label'         => trax_str($raw['label'] ?? '', 120),
+        'serial'        => trax_str($raw['serial'] ?? '', 120),
+        'condition'     => trax_enum($raw['condition'] ?? null, TRAX_CONDITIONS, 'GOOD'),
+        'price'         => $price !== null && $price >= 0 ? round($price, 2) : null,
+        // When this one piece was bought and how long its warranty runs.
+        // Normalised exactly like the asset's own dates: stored YYYY-MM-DD or
+        // null. Two of the same model are rarely bought on the same day.
+        'purchasedAt'   => trax_date($raw['purchasedAt'] ?? null),
+        'warrantyUntil' => trax_date($raw['warrantyUntil'] ?? null),
         // Taken off the shelf by hand: broken, lent to the workshop, whatever.
         // It stays part of the asset and keeps its number.
-        'outOfService' => !empty($raw['outOfService']),
-        'note'         => trax_str($raw['note'] ?? '', 500),
+        'outOfService'  => !empty($raw['outOfService']),
+        'note'          => trax_str($raw['note'] ?? '', 500),
     ];
 }
 
@@ -2164,6 +2169,50 @@ function trax_asset_value(array $asset): array
 }
 
 /**
+ * When an asset was bought and when its warranty runs out, derived — never
+ * stored.
+ *
+ * Same shape as trax_asset_value(): once a single unit names a date, the unit
+ * list is the source of truth and the asset's own dates are not consulted.
+ * A unit list is a list of things bought on different days, so a single
+ * asset-level "purchased" is a fiction there — and the warranty that matters
+ * is the *next* one to lapse, not the asset's.
+ *
+ * `YYYY-MM-DD` sorts lexically, so plain string comparison is the earliest.
+ *
+ * @return array{0:bool, 1:?string, 2:?string, 3:?int}
+ *         [unitDated, purchasedFirst, warrantyNext, warrantyNextUnit]
+ */
+function trax_asset_dates(array $asset): array
+{
+    $purchasedFirst   = null;
+    $warrantyNext     = null;
+    $warrantyNextUnit = null;
+
+    if (trax_asset_has_units($asset)) {
+        foreach ((array)($asset['units'] ?? []) as $unit) {
+            $purchased = $unit['purchasedAt'] ?? null;
+            if ($purchased !== null && ($purchasedFirst === null || $purchased < $purchasedFirst)) {
+                $purchasedFirst = $purchased;
+            }
+
+            $warranty = $unit['warrantyUntil'] ?? null;
+            if ($warranty !== null && ($warrantyNext === null || $warranty < $warrantyNext)) {
+                $warrantyNext     = $warranty;
+                $warrantyNextUnit = (int)$unit['no'];
+            }
+        }
+    }
+
+    if ($purchasedFirst !== null || $warrantyNext !== null) {
+        return [true, $purchasedFirst, $warrantyNext, $warrantyNextUnit];
+    }
+
+    // No unit named a date — the asset's own fields still stand.
+    return [false, $asset['purchasedAt'] ?? null, $asset['warrantyUntil'] ?? null, null];
+}
+
+/**
  * Decorates assets with their derived status and set membership info for
  * the client, without ever persisting the derived values.
  */
@@ -2213,6 +2262,15 @@ function trax_decorate_assets(array $assets, array $checkouts): array
         // — two of the same model rarely cost the same twice, and the stored
         // asset price stays exactly as the client last sent it.
         [$asset['unitPriced'], $asset['priceTotal'], $asset['pricedUnits']] = trax_asset_value($asset);
+
+        // When it was bought and when the warranty lapses, by the same rule:
+        // the units answer for themselves as soon as one of them names a date.
+        [
+            $asset['unitDated'],
+            $asset['purchasedFirst'],
+            $asset['warrantyNext'],
+            $asset['warrantyNextUnit'],
+        ] = trax_asset_dates($asset);
 
         return $asset;
     }, $assets);

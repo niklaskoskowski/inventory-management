@@ -4,6 +4,7 @@ import {
 } from '../store.js';
 import {
   formatDateTime, daysOverdue, parseDate, isOverdue, formatMoney, formatTotals,
+  warrantyUntilOf,
 } from '../lib/format.js';
 import { computeValue } from '../lib/insights.js';
 import { exportInsurancePdf } from '../lib/pdf.js';
@@ -76,15 +77,18 @@ export default {
         .sort((a, b) => parseDate(a.dueAt || a.returnDate) - parseDate(b.dueAt || b.returnDate));
     });
 
+    // The next warranty to lapse, which for a unit-tracking asset is one
+    // unit's rather than the record's own — warrantyUntilOf() picks whichever
+    // the asset actually answers with.
     const warrantyExpiring = computed(() => {
       const now = new Date();
       const horizon = new Date(now.getTime() + 60 * 86400000);
       return items.value
         .filter((asset) => {
-          const until = parseDate(asset.warrantyUntil);
+          const until = parseDate(warrantyUntilOf(asset));
           return until && until >= now && until <= horizon;
         })
-        .sort((a, b) => parseDate(a.warrantyUntil) - parseDate(b.warrantyUntil))
+        .sort((a, b) => parseDate(warrantyUntilOf(a)) - parseDate(warrantyUntilOf(b)))
         .slice(0, 5);
     });
 
@@ -121,7 +125,7 @@ export default {
       upcoming, dueSoon, warrantyExpiring, recent,
       exportingInsurance, insurancePdf,
       overdueCheckouts, activeReservations, sets, items, getAsset,
-      formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
+      formatDateTime, daysOverdue, isOverdue, formatTotals, warrantyUntilOf, emit,
     };
   },
   template: `
@@ -354,7 +358,10 @@ export default {
             <li v-for="asset in warrantyExpiring" :key="asset.id"
                 class="list-group-item bg-transparent d-flex align-items-center gap-2">
               <button class="trax-name-btn flex-grow-1" @click="emit('open', asset.id)">{{ asset.name }}</button>
-              <span class="small text-secondary">{{ formatDateTime(asset.warrantyUntil) }}</span>
+              <span class="small text-secondary">
+                {{ formatDateTime(warrantyUntilOf(asset)) }}<span
+                  v-if="asset.warrantyNextUnit"> · unit {{ asset.id }}.{{ asset.warrantyNextUnit }}</span>
+              </span>
             </li>
             <li v-if="!warrantyExpiring.length" class="list-group-item bg-transparent text-secondary small">
               Nothing expiring — add purchase dates to track this.
