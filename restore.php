@@ -82,7 +82,7 @@ function ensureDir(string $path, int $mode = 0750): void
         $last = error_get_last();
         throw new RuntimeException(
             'Could not create directory: ' . $path .
-            ($last && isset($last['message']) ? ' â ' . $last['message'] : '')
+            ($last && isset($last['message']) ? ' — ' . $last['message'] : '')
         );
     }
 }
@@ -136,7 +136,7 @@ function copyFileSafe(string $source, string $destination, array $modes = RESTOR
         $last = error_get_last();
         throw new RuntimeException(
             'Could not copy ' . $source . ' to ' . $destination .
-            ($last && isset($last['message']) ? ' â ' . $last['message'] : '')
+            ($last && isset($last['message']) ? ' — ' . $last['message'] : '')
         );
     }
 
@@ -192,7 +192,7 @@ function copyDirectorySafe(string $source, string $destination, array $modes = R
                 $last = error_get_last();
                 throw new RuntimeException(
                     'Could not copy ' . $sourcePath .
-                    ($last && isset($last['message']) ? ' â ' . $last['message'] : '')
+                    ($last && isset($last['message']) ? ' — ' . $last['message'] : '')
                 );
             }
 
@@ -600,7 +600,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
          * directory the nightly cron uses.
          */
         if ($action === 'backup') {
-            $result = trax_run_backup($root, $backupRoot);
+            $force = ($_POST['force'] ?? '') !== '';
+            $result = trax_run_backup($root, $backupRoot, null, $force);
 
             $_SESSION['trax_restore_csrf'] = bin2hex(random_bytes(32));
 
@@ -940,7 +941,7 @@ $currentBackup = $backups[0]['name'] ?? '';
                                             <?php if ($timestamp): ?>
                                                 <?= h(date('Y-m-d H:i', $timestamp)) ?>
                                             <?php else: ?>
-                                                â
+                                                —
                                             <?php endif; ?>
                                         </td>
 
@@ -979,12 +980,18 @@ $currentBackup = $backups[0]['name'] ?? '';
 
                 <div class="card-footer bg-white py-3">
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <form method="post" class="m-0">
+                        <form method="post" class="m-0 d-flex flex-wrap align-items-center gap-2">
                             <input type="hidden" name="csrf" value="<?= h($csrf) ?>">
                             <input type="hidden" name="action" value="backup">
                             <button type="submit" class="btn btn-outline-primary btn-sm">
                                 Create backup now
                             </button>
+                            <div class="form-check m-0">
+                                <input class="form-check-input" type="checkbox" name="force" value="1" id="force-backup">
+                                <label class="form-check-label small" for="force-backup">
+                                    Force a second backup today
+                                </label>
+                            </div>
                         </form>
 
                         <form method="post" class="m-0">
@@ -997,6 +1004,9 @@ $currentBackup = $backups[0]['name'] ?? '';
                     </div>
 
                     <div class="small text-secondary mt-2 mb-0">
+                        Without "Force a second backup today" a finished backup for today is left
+                        alone. With it, a second one is written beside it as
+                        <code>YYYY-MM-DD_HH-MM-SS</code>; nothing existing is overwritten.
                         "Repair upload permissions" sets the live <code>uploads/</code> folder to
                         0755 / 0644 without touching any data. Use it when item photos answer 403
                         after a manual copy.
@@ -1327,7 +1337,7 @@ $currentBackup = $backups[0]['name'] ?? '';
         restoreButton.disabled = true;
         restoreButton.innerHTML =
             '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>' +
-            'Restoringâ¦';
+            'Restoring…';
     });
 
     updateMode();

@@ -219,7 +219,9 @@ Do it on a schedule you can live with losing — daily, if the app is in daily u
 Restoring is the same thing backwards: copy the files back.
 
 A backup can also be created from the restore page: **Create backup now** writes the
-same dated folder the nightly `backup.php` writes. The button next to it, **Repair
+same dated folder the nightly `backup.php` writes; tick **Force a second backup today**
+(or run `php backup.php --force`) to write a second, time-stamped one beside it instead
+of being told today's already exists. The button next to it, **Repair
 upload permissions**, sets `uploads/` back to 0755 / 0644 — use it when item photos
 answer 403 after a manual copy.
 

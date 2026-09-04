@@ -5,7 +5,8 @@ declare(strict_types=1);
  * Inventory Management backup.
  *
  * Two entry points, one implementation:
- *   php backup.php            the daily cron runner (CLI only)
+ *   php backup.php [--force]  the daily cron runner (CLI only); --force writes a
+ *                             second, time-stamped backup when today's exists
  *   trax_run_backup(...)      called by restore.php's "Create backup now"
  *
  * Including this file runs nothing and prints nothing: only the runner at the
@@ -98,19 +99,23 @@ function bk_dirSize(string $path): int {
  * nothing in there is ever served by the web server.
  *
  * A finished backup for today is left alone and reported back with
- * existing => true. Throws with code 2 when another backup holds the lock.
+ * existing => true — unless $force, in which case a second backup is written
+ * next to it under a time-stamped name (YYYY-MM-DD_HH-MM-SS, the pre-restore
+ * snapshot pattern without its random suffix). The daily folder is never
+ * overwritten or deleted. Throws with code 2 when another backup holds the lock.
  *
  * @param callable|null $log fn(string $message): void — progress sink.
+ * @param bool $force write a second, time-stamped backup when today's exists.
  * @return array{dir:string,name:string,files:int,dirs:int,symlinks:int,bytes:int,existing:bool}
  */
-function trax_run_backup(string $root, string $backupRoot, ?callable $log = null): array {
+function trax_run_backup(string $root, string $backupRoot, ?callable $log = null, bool $force = false): array {
     $say = static function (string $message) use ($log): void {
         if ($log !== null) $log($message);
     };
 
     $today = date('Y-m-d');
-    $finalDir = $backupRoot . '/' . $today;
-    $tempDir = $backupRoot . '/.tmp-' . $today . '-' . getmypid();
+    $backupName = $today;
+    $finalDir = $backupRoot . '/' . $backupName;
     $lockPath = $backupRoot . '/.backup.lock';
 
     $say('Application root: ' . $root);
@@ -133,17 +138,34 @@ function trax_run_backup(string $root, string $backupRoot, ?callable $log = null
 
     try {
         if (is_dir($finalDir) && is_file($finalDir . '/backup-complete.json')) {
-            $say('Backup for ' . $today . ' already exists. Nothing to do.');
-            return [
-                'dir' => $finalDir,
-                'name' => $today,
-                'files' => 0,
-                'dirs' => 0,
-                'symlinks' => 0,
-                'bytes' => bk_dirSize($finalDir),
-                'existing' => true,
-            ];
+            if (!$force) {
+                $say('Backup for ' . $today . ' already exists. Nothing to do.');
+                return [
+                    'dir' => $finalDir,
+                    'name' => $backupName,
+                    'files' => 0,
+                    'dirs' => 0,
+                    'symlinks' => 0,
+                    'bytes' => bk_dirSize($finalDir),
+                    'existing' => true,
+                ];
+            }
+
+            /*
+             * Forced: keep today's folder exactly as it is and write a second
+             * one beside it, named like a pre-restore snapshot minus the random
+             * suffix.
+             */
+            $backupName = date('Y-m-d_H-i-s');
+            $finalDir = $backupRoot . '/' . $backupName;
+            $say('Backup for ' . $today . ' already exists. Forcing a second backup: ' . $backupName);
+
+            if (is_dir($finalDir) && is_file($finalDir . '/backup-complete.json')) {
+                throw new RuntimeException('A forced backup named "' . $backupName . '" already exists.');
+            }
         }
+
+        $tempDir = $backupRoot . '/.tmp-' . $backupName . '-' . getmypid();
 
         if (is_dir($finalDir)) bk_removeTree($finalDir);
         if (is_dir($tempDir)) bk_removeTree($tempDir);
@@ -205,7 +227,7 @@ function trax_run_backup(string $root, string $backupRoot, ?callable $log = null
 
         return [
             'dir' => $finalDir,
-            'name' => $today,
+            'name' => $backupName,
             'files' => $files,
             'dirs' => $dirs,
             'symlinks' => $symlinks,
@@ -249,8 +271,10 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
     $siteRoot = dirname($root);
     $backupRoot = $siteRoot . DIRECTORY_SEPARATOR . 'backup';
 
+    $force = in_array('--force', array_slice($argv, 1), true);
+
     try {
-        trax_run_backup($root, $backupRoot, $out);
+        trax_run_backup($root, $backupRoot, $out, $force);
     } catch (Throwable $e) {
         $fail($e->getMessage(), $e->getCode() === 2 ? 2 : 1);
     }

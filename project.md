@@ -41,7 +41,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `cron.php` | Reminder cron. CLI (`php cron.php [--dry-run]`) or `GET ?secret=<cron.secret>`. |
 | `login.php`, `logout.php` | Session in, session out. Both require the CSRF token. |
 | `install.php` + `lib/install.php` | Seven-step wizard; nothing is written until "Install" on step 6. |
-| `backup.php` | The daily backup. `trax_run_backup()` is the whole of it (`backup.php:106`); the CLI runner below it fires only when this file is the script being run, so `restore.php` can include it. A direct HTTP hit is still 403. |
+| `backup.php` | The daily backup. `trax_run_backup()` is the whole of it (`backup.php:111`); the CLI runner below it fires only when this file is the script being run, so `restore.php` can include it. A direct HTTP hit is still 403. |
 | `restore.php` | Browser restore UI. Also "Create backup now" and "Repair upload permissions" (POST actions `backup` / `fixperms`). |
 | `lib/config.php` | All `TRAX_*` constants, every one guarded by `defined()` so `lib/config.local.php` (loaded first) wins. |
 | `lib/store.php` | The data layer: normalisers, derived status, atomic writes, `trax_mutate()`. |

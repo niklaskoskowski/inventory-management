@@ -153,11 +153,28 @@ only record. There is no git history to mine.
   anything: chmod 0755 on the directories, 0644 on the files, counted, chmod failures counted
   separately and named in the flash rather than thrown. This is the manual fix for a folder that
   arrived by FTP or from an older restore and answers 403 on every photo.
+- **Force a second backup on the same day.** `trax_run_backup()` takes a fourth argument
+  `bool $force = false` (`backup.php:111`). Without it a finished backup for today is still left
+  alone and reported back with `existing => true`; with it a second backup is written beside the
+  daily folder under the pre-restore snapshot's name pattern minus the random suffix —
+  `2026-09-04_21-34-52` (`backup.php:159`). The daily folder is never overwritten or deleted, the
+  manifest is written as usual and the lock is held exactly as before. Two ways in: the CLI flag
+  `php backup.php --force` (`backup.php:274`) and a "Force a second backup today" check box next
+  to "Create backup now" on `restore.php` (`restore.php:603`, `:990`). `listBackups()` sorts by
+  the manifest's `created_at` and `resolveBackupByName()` validates the path rather than a date
+  pattern, so a time-stamped folder lists and restores like any other.
 - **Docs**: `project.md` and this changelog.
 - **Housekeeping**: four `phpqrcode/q*.png-errors.txt` GD warning logs, left behind by a scratch
   probe rather than by the app, removed from the working tree.
 
 ### Fixed
+
+- **Double-encoded UTF-8 in `restore.php`.** Five strings carried a mojibake em dash or ellipsis
+  (`C3 A2 C2 80 C2 94` / `C3 A2 C2 80 C2 A6` instead of `E2 80 94` / `E2 80 A6`) and rendered as
+  "â€”": the three `ensureDir()` / `copyFileSafe()` exception texts (`restore.php:85`,
+  `:139`, `:195`), the empty-cell dash in the backup table (`restore.php:944`) and the
+  "Restoring…" button label (`restore.php:1340`). Replaced with the real characters; the file
+  is valid UTF-8 and no `C3 A2 C2` or `C3 83` sequence is left.
 
 - **A restore left `uploads/` unreadable by the web server: every item photo answered 403.**
   `restore.php` wrote *everything* it copied as 0640 in 0750 directories. That is right for
