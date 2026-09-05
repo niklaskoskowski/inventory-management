@@ -1668,7 +1668,7 @@ try {
 
 
     $lineHeight =
-        label_px(20);
+        label_px(22);
 
 
     foreach (

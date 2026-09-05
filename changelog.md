@@ -6,6 +6,16 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-09-05
+
+### Changed
+
+- **Portrait label: a touch more air between the wrapped name lines.** The asset-name block's
+  line height went from 20 to 22 label units (`label.php:1671`); the font size, the first
+  baseline at 240 and the three-line cap are unchanged. Baselines move from 240/260/280 to
+  240/262/284, so a third line — including the `– unit label` suffix that rides along in the
+  block — still clears the ID bar at 300 with room for descenders.
+
 ## 2026-09-04
 
 ### Added
