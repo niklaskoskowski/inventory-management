@@ -8,6 +8,10 @@ only record. There is no git history to mine.
 
 ## 2026-09-05
 
+### Fixed
+
+- Lightbox: the PDF frame and image now fill the space below the toolbar instead of a fixed 90vh, so on phones (especially landscape / shrunken viewport) the preview no longer overlaps the Download/Open/Close bar or runs off the bottom; toolbar wraps on narrow screens, safe-area insets respected (`app/app.css`).
+
 ### Added
 
 - **Click any image to see it full size; preview documents in the app.**
