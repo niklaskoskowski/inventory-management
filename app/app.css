@@ -389,6 +389,13 @@ button,
   align-items: flex-start;
 }
 
+/* Long names / notes must shrink inside the card, never push the print button out. */
+.trax-asset-card > .flex-grow-1 { min-width: 0; overflow: hidden; }
+.trax-asset-card > .btn { flex-shrink: 0; }
+.trax-asset-card .text-truncate { display: block; min-width: 0; max-width: 100%; }
+.trax-asset-card strong.text-truncate { flex: 1 1 auto; }
+.trax-asset-card .trax-kind-chip { flex-shrink: 0; }
+
 .trax-asset-card.is-selected {
   border-color: var(--trax-accent);
   background: var(--trax-accent-soft);
