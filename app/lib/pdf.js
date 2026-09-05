@@ -51,9 +51,28 @@ const ZEBRA = () => [246, 248, 250];
  *
  * Empty means the install has no logo, and the header sets the app name instead.
  */
-const LOGO_WIDTH = 42;
-/** Where the navy rule sits, and where a page's content may start.  */
-const RULE_Y = 22;
+const LOGO_TOP = 9;
+const LOGO_MAX_WIDTH = 42;
+/**
+ * The band the logo has to live in, and why it is bounded on BOTH sides.
+ *
+ * Scaling by width alone gives a square or portrait mark a height of its own
+ * choosing: at 42 mm wide a 300x300 logo is 42 mm tall, which runs straight
+ * through the rule and over the title underneath it. The mark is therefore
+ * fitted into LOGO_MAX_WIDTH x LOGO_MAX_HEIGHT, aspect preserved, centred in
+ * the band — a wide logo still fills the width, a tall one gives width back
+ * rather than taking height it has not got.
+ */
+const LOGO_MAX_HEIGHT = 9;
+/** Clear air between the bottom of the band and the rule. */
+const RULE_GAP = 4;
+/**
+ * Where the navy rule sits, and where a page's content may start.
+ *
+ * Derived from the band rather than picked, so the rule cannot be crossed by
+ * any logo shape: the artwork can never reach past LOGO_TOP + LOGO_MAX_HEIGHT.
+ */
+const RULE_Y = LOGO_TOP + LOGO_MAX_HEIGHT + RULE_GAP;
 const CONTENT_TOP = 40;
 /** How many kits a value caveat names before it falls back to `+N more`. */
 const CAVEAT_NAMES = 3;
@@ -294,9 +313,10 @@ function reportId() {
 }
 
 /**
- * Branded header: white band, logo top-left at its true aspect ratio, a rule in
- * the brand colour, then the document title. `logo` is the object brandLogo()
- * resolved, or null — synchronous by design, see the note there.
+ * Branded header: white band, logo top-left fitted into the band at its true
+ * aspect ratio, a rule in the brand colour, then the document title. `logo` is
+ * the object brandLogo() resolved, or null — synchronous by design, see the
+ * note there.
  */
 function decorate(doc, title, subtitle, logo) {
   const width = doc.internal.pageSize.getWidth();
@@ -308,12 +328,16 @@ function decorate(doc, title, subtitle, logo) {
   let drew = false;
   if (logo) {
     try {
-      // Height comes from the artwork's OWN pixel size, never from a guessed
-      // box, so any logo an operator uploads keeps its proportions. The alias
-      // keeps one copy in the file however many pages ask for it, and the raw
-      // RGBA of a large mark is megabytes, so it gets deflated.
-      const height = LOGO_WIDTH * (logo.height / logo.width);
-      doc.addImage(logo.dataUri, logo.format, 14, 9, LOGO_WIDTH, height, 'brand-logo', 'FAST');
+      // Contained, not stretched: the smaller of the two ratios, so the
+      // artwork's OWN pixel size still sets the proportions but neither edge
+      // can leave the band. The alias keeps one copy in the file however many
+      // pages ask for it, and the raw RGBA of a large mark is megabytes, so it
+      // gets deflated.
+      const scale = Math.min(LOGO_MAX_WIDTH / logo.width, LOGO_MAX_HEIGHT / logo.height);
+      const drawWidth = logo.width * scale;
+      const drawHeight = logo.height * scale;
+      const top = LOGO_TOP + (LOGO_MAX_HEIGHT - drawHeight) / 2;
+      doc.addImage(logo.dataUri, logo.format, 14, top, drawWidth, drawHeight, 'brand-logo', 'FAST');
       drew = true;
     } catch { /* fall through to the wordmark */ }
   }

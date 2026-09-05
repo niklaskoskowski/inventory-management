@@ -10,6 +10,7 @@ only record. There is no git history to mine.
 
 ### Fixed
 
+- PDF header: the branding logo is now fitted into a fixed header band (max 42 x 9 mm, aspect ratio preserved, vertically centred at x = 14 mm) instead of being scaled by width alone. A square or portrait logo used to be drawn 42 mm wide and therefore 42 mm or more tall — measured 42 x 42 mm for a 300x300 mark and 42 x 140 mm for a 120x400 one — running straight through the brand rule at y = 22 mm and over the title and summary lines beneath it. The rule's y is now derived from the band (`LOGO_TOP + LOGO_MAX_HEIGHT + RULE_GAP`, still 22 mm, so nothing else on the page moves), so no logo shape can cross it. One shared header (`decorate()`), so this covers the inventory report, the overview/insurance schedule, the selection value PDF, the booking/handover sheet and every continuation page (`app/lib/pdf.js:54`, `:340`).
 - Lightbox: the PDF frame and image now fill the space below the toolbar instead of a fixed 90vh, so on phones (especially landscape / shrunken viewport) the preview no longer overlaps the Download/Open/Close bar or runs off the bottom; toolbar wraps on narrow screens, safe-area insets respected (`app/app.css`).
 
 ### Added
