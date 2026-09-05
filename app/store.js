@@ -172,7 +172,84 @@ export const state = reactive({
   booting: true,
   error: null,
   toasts: [],
+
+  // The full-screen preview, or null when nothing is open. One at a time, and
+  // global rather than per-component: a thumbnail in the table and one in the
+  // asset sheet open the same overlay, and the sheet's own drawer must not be
+  // able to clip it.
+  //   { kind: 'image' | 'pdf' | 'file', src, title, downloadHref, size,
+  //     items: [{kind, src, title, downloadHref, size}] | null, index }
+  // `items` turns the overlay into a gallery; the fields above it always
+  // describe the entry currently on screen.
+  preview: null,
 });
+
+// --- Preview ---------------------------------------------------------------
+
+/** One gallery entry, flattened onto the fields the overlay actually reads. */
+function previewEntry(raw) {
+  const entry = raw && typeof raw === 'object' ? raw : {};
+  const src = typeof entry.src === 'string' ? entry.src : '';
+  return {
+    kind: ['image', 'pdf', 'file'].includes(entry.kind) ? entry.kind : 'image',
+    src,
+    title: typeof entry.title === 'string' ? entry.title : '',
+    downloadHref: typeof entry.downloadHref === 'string' && entry.downloadHref
+      ? entry.downloadHref
+      : src,
+    size: Number.isFinite(Number(entry.size)) && Number(entry.size) > 0
+      ? Number(entry.size)
+      : null,
+  };
+}
+
+/**
+ * Opens the overlay.
+ *
+ * `items` (optional) makes it a gallery and `index` says which entry is showing;
+ * the top-level fields are then taken from that entry, so a caller can hand over
+ * the whole list and the clicked position rather than both the list and a copy
+ * of one row.
+ */
+export function openPreview(payload) {
+  const raw = payload && typeof payload === 'object' ? payload : {};
+  const list = Array.isArray(raw.items) ? raw.items.map(previewEntry).filter((e) => e.src) : [];
+  const items = list.length ? list : null;
+  const index = items
+    ? Math.min(Math.max(Number(raw.index) || 0, 0), items.length - 1)
+    : 0;
+  const current = items ? items[index] : previewEntry(raw);
+  if (!current.src) return;
+  state.preview = { ...current, items, index };
+}
+
+export function closePreview() {
+  state.preview = null;
+}
+
+/** Moves `step` entries through the gallery, wrapping at either end. */
+function previewStep(step) {
+  const preview = state.preview;
+  if (!preview?.items || preview.items.length < 2) return;
+  const count = preview.items.length;
+  const index = (preview.index + step + count) % count;
+  state.preview = { ...preview.items[index], items: preview.items, index };
+}
+
+/**
+ * The one-line version every thumbnail uses: show this asset's photo full size.
+ *
+ * The thumb is `uploads/thumb/<file>` and the preview is `uploads/<file>` —
+ * the stored original, which is what an operator clicked a 34px square to see.
+ */
+export function openAssetPhoto(asset) {
+  const file = asset?.photo;
+  if (!file) return;
+  openPreview({ kind: 'image', src: `uploads/${file}`, title: asset.name || '' });
+}
+
+export function previewNext() { previewStep(1); }
+export function previewPrev() { previewStep(-1); }
 
 // --- Toasts ----------------------------------------------------------------
 

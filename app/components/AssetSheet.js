@@ -2,7 +2,7 @@ import { ref, computed, watch } from 'vue';
 import {
   state, getAsset, getLines, historyFor, membersOf, mutate, uploadPhoto,
   uploadConditionPhotos, uploadDocuments, deleteDocument, toast,
-  categories, locations,
+  categories, locations, openPreview, openAssetPhoto,
 } from '../store.js';
 import {
   STATUSES, CONDITIONS, CONDITION_LABEL, conditionSummary, statusLabel,
@@ -395,6 +395,46 @@ export default {
       return `${(n / 1024 / 1024).toFixed(1)} MB`;
     };
 
+    /**
+     * The condition log as one gallery, opened at the photo that was clicked.
+     *
+     * The thumbs are `uploads/thumb/<file>`; the preview is the stored original.
+     * The caption is the date the shot was taken plus whatever the operator
+     * wrote about it, which is the only thing telling two dents apart.
+     */
+    const openConditionPhoto = (file) => {
+      const items = conditionLog.value.map((shot) => ({
+        kind: 'image',
+        src: `uploads/${shot.file}`,
+        title: [formatDateTime(shot.at), shot.note].filter(Boolean).join(' — '),
+      }));
+      const index = conditionLog.value.findIndex((shot) => shot.file === file);
+      openPreview({ items, index: index < 0 ? 0 : index });
+    };
+
+    /**
+     * A document in the overlay.
+     *
+     * What can be shown is decided by the extension WE chose when it was
+     * stored, never by anything the client said — the same rule download.php
+     * serves the bytes under. Anything else is a card with a download button.
+     * `inline=1` is what makes download.php send `Content-Disposition: inline`;
+     * the plain URL stays an attachment and is what "Download" uses.
+     */
+    const openDocument = (doc) => {
+      const href = `download.php?file=${encodeURIComponent(doc.file)}`;
+      const ext = String(doc.file || '').split('.').pop().toLowerCase();
+      const kind = ext === 'pdf' ? 'pdf'
+        : (['jpg', 'jpeg', 'png', 'webp'].includes(ext) ? 'image' : 'file');
+      openPreview({
+        kind,
+        src: kind === 'file' ? href : `${href}&inline=1`,
+        downloadHref: href,
+        title: doc.title || doc.name || doc.file,
+        size: doc.size,
+      });
+    };
+
     const blankUnit = () => ({
       no: null, label: '', serial: '', price: null,
       condition: form.value.condition || 'GOOD', outOfService: false, note: '',
@@ -531,6 +571,7 @@ export default {
       MAX_PHOTOS, conditionFiles, conditionNote, conditionBusy, conditionLog,
       pickConditionPhotos, clearConditionPick, sendConditionPhotos, removeConditionPhoto,
       MAX_DOCS, MAX_ASSET_DOCS, docFiles, docTitle, docBusy, documents,
+      openPreview, openAssetPhoto, openConditionPhoto, openDocument,
       pickDocuments, clearDocPick, sendDocuments, removeDocument, formatSize,
       STATUSES, CONDITIONS, CONDITION_LABEL, statusLabel,
       formatDate, formatDateTime, formatMoney, isOverdue,
@@ -734,8 +775,12 @@ export default {
           <template v-if="!isNew">
             <div class="col-12"><hr class="my-1"><span class="small text-secondary">Photo</span></div>
             <div class="col-12 d-flex align-items-center gap-3">
-              <img v-if="asset?.photo" :src="'uploads/' + asset.photo" alt=""
-                   style="width:96px;height:96px;object-fit:cover;border-radius:8px">
+              <button v-if="asset?.photo" type="button" class="trax-thumb-btn"
+                      :aria-label="'Show the photo of ' + (asset?.name || 'this item')"
+                      @click="openAssetPhoto(asset)">
+                <img :src="'uploads/' + asset.photo" alt=""
+                     style="width:96px;height:96px;object-fit:cover;border-radius:8px">
+              </button>
               <div v-else class="trax-thumb trax-thumb-placeholder"
                    style="width:96px;height:96px;font-size:1.6rem">
                 <i class="bi bi-image"></i>
@@ -867,7 +912,11 @@ export default {
         <ul class="list-group list-group-flush">
           <li v-for="(member, mi) in members" :key="mi + '-' + member.id"
               class="list-group-item bg-transparent d-flex align-items-center gap-2 px-0">
-            <img v-if="member.photo" class="trax-thumb" :src="'uploads/thumb/' + member.photo" alt="">
+            <button v-if="member.photo" type="button" class="trax-thumb-btn"
+                    :aria-label="'Show the photo of ' + member.name"
+                    @click.stop="openAssetPhoto(member)">
+              <img class="trax-thumb" :src="'uploads/thumb/' + member.photo" alt="">
+            </button>
             <span v-else class="trax-thumb trax-thumb-placeholder"><i class="bi bi-camera"></i></span>
             <button class="trax-name-btn flex-grow-1" @click="emit('open', member.id)">{{ member.name }}</button>
             <span v-if="member.reqQty > 1" class="trax-kind-chip">×{{ member.reqQty }}</span>
@@ -917,9 +966,11 @@ export default {
         <ul class="list-group list-group-flush">
           <li v-for="shot in conditionLog" :key="shot.file"
               class="list-group-item bg-transparent d-flex align-items-center gap-2 px-0">
-            <a :href="'uploads/' + shot.file" target="_blank" rel="noopener noreferrer">
+            <button type="button" class="trax-thumb-btn"
+                    :aria-label="'Show the condition photo from ' + formatDateTime(shot.at)"
+                    @click="openConditionPhoto(shot.file)">
               <img class="trax-thumb" :src="'uploads/thumb/' + shot.file" alt="Condition photo">
-            </a>
+            </button>
             <div class="flex-grow-1 min-w-0">
               <div class="small">{{ formatDateTime(shot.at) }}</div>
               <div v-if="shot.note" class="text-secondary" style="font-size:.75rem">{{ shot.note }}</div>
@@ -980,10 +1031,13 @@ export default {
               class="list-group-item bg-transparent d-flex align-items-center gap-2 px-0">
             <i class="bi bi-file-earmark-text fs-5 text-secondary"></i>
             <div class="flex-grow-1 min-w-0">
-              <div class="small text-truncate">
+              <!-- The name opens the preview; the button beside it still
+                   downloads, which is the only way to get a copy on disk. -->
+              <button type="button" class="trax-name-btn small text-truncate w-100 text-start"
+                      :aria-label="'Preview ' + doc.name" @click="openDocument(doc)">
                 <strong v-if="doc.title">{{ doc.title }}</strong>
                 <span v-else>{{ doc.name }}</span>
-              </div>
+              </button>
               <div class="text-secondary text-truncate" style="font-size:.75rem">
                 <span v-if="doc.title">{{ doc.name }} · </span>{{ formatSize(doc.size) }} ·
                 {{ formatDateTime(doc.addedAt) }}

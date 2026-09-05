@@ -8,6 +8,36 @@ only record. There is no git history to mine.
 
 ## 2026-09-05
 
+### Added
+
+- **Click any image to see it full size; preview documents in the app.**
+  - `app/components/ui/Lightbox.js` — one overlay, mounted once by `AppShell` next to `ToastHost`,
+    driven by `state.preview` (`app/store.js:184`) and the actions `openPreview()`, `closePreview()`,
+    `previewNext()` / `previewPrev()` and `openAssetPhoto()`. Three kinds: `image` (max 92vw/92vh,
+    `object-fit: contain`), `pdf` (an iframe at 92vw × 90vh) and `file` (a card with the name, the
+    size and a Download button). Backdrop click, Escape and Close all dismiss it; Download, "Open"
+    in a new tab, a focus trap and a `n / N` counter with ← / → and prev/next arrows when the
+    payload carries `items`. z-index 1070/1071, above `.trax-drawer` (1055), because most of the
+    pictures being clicked sit inside a drawer.
+  - Thumbnails are now buttons (`.trax-thumb-btn`): the inventory table (`AssetTable.js:147`),
+    the cards (`AssetCards.js:56`), the asset sheet's main photo (`AssetSheet.js:778`), its kit
+    members (`:915`) and its condition photos (`:969`, which used to open a new tab and now open
+    the whole log as a gallery at the photo that was clicked), and the kit editor's contents list
+    (`SetEditor.js:200`). The thumb still loads `uploads/thumb/<file>`; the preview loads the
+    stored original `uploads/<file>`.
+  - The document name in the asset sheet opens the preview (`AssetSheet.js:1036`): PDFs in the
+    iframe, images on screen, everything else as a file card. The separate download button is
+    unchanged.
+  - `download.php` accepts `?inline=1` and answers `Content-Disposition: inline` for it — but only
+    for `application/pdf` and `image/*`, decided from the extension the app itself chose, never from
+    the request. Without the flag the response is the attachment it always was. `X-Frame-Options`
+    relaxes to `SAMEORIGIN` on an inline response so our own iframe can hold it, and stays `DENY`
+    otherwise. The auth gate, the name regex and the "must be referenced by an asset" check are
+    untouched.
+  - `app/lib/scroll-lock.js` — the background scroll lock is now counted, so a lightbox opened over
+    an open drawer and then closed does not hand the page its scrollbar back while the drawer is
+    still there. `Drawer.js` uses the same pair.
+
 ### Changed
 
 - **Portrait label: a touch more air between the wrapped name lines.** The asset-name block's

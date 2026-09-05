@@ -20,7 +20,12 @@
  *      files this application deliberately wrote and still tracks; there is no
  *      arbitrary read behind it.
  *
- * The response is always an attachment. Nothing here ever renders inline.
+ * The response is an attachment unless `?inline=1` is passed, which the admin
+ * app's preview overlay uses to show a PDF in an iframe or an image on screen.
+ * Inline is offered for `application/pdf` and `image/*` only — the two types a
+ * browser renders rather than executes — and never for `text/plain`, which a
+ * browser would happily display in our own origin. `nosniff` is on either way,
+ * so a mislabelled file cannot become something else on the way in.
  */
 
 declare(strict_types=1);
@@ -98,14 +103,21 @@ if (trim($ascii, '_ .') === '') {
     $ascii = 'document';
 }
 
-$disposition = 'attachment; filename="' . $ascii . '"';
+// Inline only when it was asked for AND the type is one we are willing to
+// render. The type comes from OUR extension, never from the request, so this
+// cannot be talked into rendering something else.
+$type   = trax_document_content_type($file);
+$inline = ($_GET['inline'] ?? '') === '1'
+    && ($type === 'application/pdf' || str_starts_with($type, 'image/'));
+
+$disposition = ($inline ? 'inline' : 'attachment') . '; filename="' . $ascii . '"';
 if ($ascii !== $display) {
     $disposition .= "; filename*=UTF-8''" . rawurlencode($display);
 }
 
 // Serving from the type WE recorded on the extension WE chose, never from
 // anything the client said. nosniff then stops a browser second-guessing it.
-header('Content-Type: ' . trax_document_content_type($file));
+header('Content-Type: ' . $type);
 header('X-Content-Type-Options: nosniff');
 header('Content-Disposition: ' . $disposition);
 header('Content-Length: ' . (string)filesize($path));
@@ -114,8 +126,10 @@ header('Content-Length: ' . (string)filesize($path));
 header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: 0');
-// A receipt is not something another origin may frame or embed.
-header('X-Frame-Options: DENY');
+// A receipt is not something ANOTHER origin may frame or embed. The preview
+// overlay is our own page, so an inline response has to allow that one case —
+// SAMEORIGIN, never a blanket allow.
+header('X-Frame-Options: ' . ($inline ? 'SAMEORIGIN' : 'DENY'));
 header('Referrer-Policy: no-referrer');
 
 // Nothing may be buffered here: these files can be megabytes.

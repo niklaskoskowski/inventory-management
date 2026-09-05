@@ -2,6 +2,7 @@ import { computed } from 'vue';
 import {
   state, sortedAssets, toggleSort, toggleSelected, isSelected, selectAll,
   clearSelection, toggleSetExpanded, membersOf, soonestLine, getLines,
+  openAssetPhoto,
 } from '../store.js';
 import {
   CONDITION_LABEL, conditionSummary, formatDateTime, formatMoney, isOverdue, totalPriceOf,
@@ -91,6 +92,7 @@ export default {
       toggleSetExpanded, membersOf, shows, sortIcon, ariaSort,
       formatDateTime, formatMoney, isOverdue, dueFor, stockDetail, holderCount,
       oosCount, unitTitle, conditionText, valueTitle, totalPriceOf, columnCount, emit,
+      openAssetPhoto,
     };
   },
   template: `
@@ -140,8 +142,14 @@ export default {
               </td>
 
               <td>
-                <img v-if="asset.photo" class="trax-thumb"
-                     :src="'uploads/thumb/' + asset.photo" :alt="''" loading="lazy">
+                <!-- The row itself opens the sheet, so the thumb stops the
+                     click and opens the picture instead. -->
+                <button v-if="asset.photo" type="button" class="trax-thumb-btn"
+                        :aria-label="'Show the photo of ' + asset.name"
+                        @click.stop="openAssetPhoto(asset)">
+                  <img class="trax-thumb" :src="'uploads/thumb/' + asset.photo"
+                       :alt="''" loading="lazy">
+                </button>
                 <span v-else class="trax-thumb trax-thumb-placeholder">
                   <i class="bi" :class="asset.kind === 'SET' ? 'bi-box-seam' : 'bi-camera'"></i>
                 </span>

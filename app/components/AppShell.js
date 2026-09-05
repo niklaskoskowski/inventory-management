@@ -5,6 +5,7 @@ import {
 } from '../store.js';
 import * as api from '../api.js';
 import ToastHost from './ui/ToastHost.js';
+import Lightbox from './ui/Lightbox.js';
 import FilterBar from './FilterBar.js';
 import AssetTable from './AssetTable.js';
 import AssetCards from './AssetCards.js';
@@ -39,7 +40,7 @@ const MOBILE_NAV = ['inventory', 'checkouts', 'reservations', 'scan', 'calendar'
 export default {
   name: 'AppShell',
   components: {
-    ToastHost, FilterBar, AssetTable, AssetCards, AssetSheet,
+    ToastHost, Lightbox, FilterBar, AssetTable, AssetCards, AssetSheet,
     DashboardView, CheckoutsView, ReservationsView, CalendarView, InsightsView,
     SettingsView, SetEditor, BasketDrawer, LabelDrawer, ScanDrawer, BulkEditDrawer,
   },
@@ -416,5 +417,8 @@ export default {
                 @open="openAsset" @basket="showBasket = true" />
 
     <ToastHost />
+
+    <!-- One preview for the whole app; it sits above every drawer above. -->
+    <Lightbox />
   `,
 };

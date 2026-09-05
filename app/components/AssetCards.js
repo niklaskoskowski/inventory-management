@@ -1,5 +1,7 @@
 import { computed } from 'vue';
-import { sortedAssets, toggleSelected, isSelected, soonestLine, getLines } from '../store.js';
+import {
+  sortedAssets, toggleSelected, isSelected, soonestLine, getLines, openAssetPhoto,
+} from '../store.js';
 import { formatDateTime, isOverdue } from '../lib/format.js';
 import StatusBadge from './ui/StatusBadge.js';
 
@@ -40,7 +42,7 @@ export default {
 
     return {
       rows, toggleSelected, isSelected, dueFor, stockDetail, holderCount,
-      oosCount, unitTitle, formatDateTime, isOverdue, emit,
+      oosCount, unitTitle, formatDateTime, isOverdue, emit, openAssetPhoto,
     };
   },
   template: `
@@ -51,7 +53,11 @@ export default {
                :checked="isSelected(asset.id)" @change="toggleSelected(asset.id)"
                :aria-label="'Select ' + asset.name">
 
-        <img v-if="asset.photo" class="trax-thumb" :src="'uploads/thumb/' + asset.photo" alt="" loading="lazy">
+        <button v-if="asset.photo" type="button" class="trax-thumb-btn"
+                :aria-label="'Show the photo of ' + asset.name"
+                @click.stop="openAssetPhoto(asset)">
+          <img class="trax-thumb" :src="'uploads/thumb/' + asset.photo" alt="" loading="lazy">
+        </button>
         <span v-else class="trax-thumb trax-thumb-placeholder">
           <i class="bi" :class="asset.kind === 'SET' ? 'bi-box-seam' : 'bi-camera'"></i>
         </span>

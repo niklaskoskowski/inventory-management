@@ -469,6 +469,122 @@ button,
   padding: 0.25em 0.45em;
 }
 
+/* ------------------------------------------------------------ Lightbox --- */
+
+/* Above .trax-drawer (1055) and its backdrop (1050): most of the pictures that
+   get clicked are inside the asset sheet, and the drawer stays open behind. */
+
+.trax-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  z-index: 1070;
+}
+
+.trax-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1071;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+  pointer-events: none;   /* the gap around the picture belongs to the backdrop */
+}
+
+.trax-lightbox > * {
+  pointer-events: auto;
+}
+
+.trax-lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--trax-radius);
+  background: var(--trax-surface);
+  border: 1px solid var(--trax-border);
+  box-shadow: var(--trax-shadow);
+}
+
+.trax-lightbox-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  max-width: 45vw;
+}
+
+.trax-lightbox-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.75rem;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.trax-lightbox-image {
+  max-width: 92vw;
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--trax-radius);
+  background: var(--trax-surface-3);
+}
+
+.trax-lightbox-frame {
+  width: 92vw;
+  height: 90vh;
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius);
+  background: var(--trax-surface);
+}
+
+.trax-lightbox-file {
+  width: min(360px, calc(100vw - 2rem));
+}
+
+.trax-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0 0.4rem;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  border: 1px solid var(--trax-border-strong);
+  background: var(--trax-surface);
+  color: var(--trax-text);
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trax-lightbox-nav:hover {
+  background: var(--trax-surface-3);
+}
+
+/* A thumbnail that opens the preview. The button is only a hit target — the
+   image inside keeps every bit of the .trax-thumb geometry. */
+
+.trax-thumb-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 0;
+  border-radius: 6px;
+  flex: 0 0 auto;
+  cursor: zoom-in;
+}
+
+.trax-thumb-btn:focus-visible {
+  outline: 2px solid var(--trax-accent);
+  outline-offset: 2px;
+}
+
 /* -------------------------------------------------------------- Toasts --- */
 
 .trax-toasts {

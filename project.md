@@ -37,7 +37,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `booking.php` | Customer booking page, addressed **only** by a 64-hex token (`?t=`). |
 | `captcha.php` | GD-rendered captcha PNG for the public report form; the code lives in the session. |
 | `label.php`, `label-w.php` | GD-rendered PNG labels, portrait 14×30 mm and wide 30×14 mm. |
-| `download.php` | The only read path into `documents/`; that directory denies the web outright. |
+| `download.php` | The only read path into `documents/`; that directory denies the web outright. `?inline=1` switches the response to `Content-Disposition: inline` for PDFs and images so the app can preview them. |
 | `cron.php` | Reminder cron. CLI (`php cron.php [--dry-run]`) or `GET ?secret=<cron.secret>`. |
 | `login.php`, `logout.php` | Session in, session out. Both require the CSRF token. |
 | `install.php` + `lib/install.php` | Seven-step wizard; nothing is written until "Install" on step 6. |
@@ -376,7 +376,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   `mutate()` are the only paths in and out; `mutate()` retries **once** on `STALE` and re-throws
   `CONFLICT` so the caller can offer a choice. Filters/columns/density persist to `localStorage`
   under `traxAdminViewStateV2`, with a `columnsVersion` migration for columns added later.
-- `app/lib/` — `format.js` (dates, money, `STATUS_LABEL`/`STATUS_CLASS`, UI locale), `schedule.js`
+- `app/lib/` — `format.js` (dates, money, `STATUS_LABEL`/`STATUS_CLASS`, UI locale), `scroll-lock.js`
+  (the counted `body.style.overflow` lock every full-screen layer shares), `schedule.js`
   (interval conflicts and the calendar timeline), `insights.js` (utilisation maths), `pdf.js` (jsPDF
   is a UMD bundle, so it is injected as a `<script>` on demand and read off `window` — ~400 KB kept
   out of the initial load).
@@ -384,7 +385,14 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   `AssetCards` (narrow), `AssetSheet`, `SetEditor`, `BasketDrawer`, `BulkEditDrawer`, `ScanDrawer`
   (jsQR, loaded on demand), `LabelDrawer`, and the views `DashboardView`, `CheckoutsView`,
   `ReservationsView`, `CalendarView`, `InsightsView`, `SettingsView`. Shared primitives in
-  `app/components/ui/`: `Drawer`, `ConfirmDialog`, `ToastHost`, `StatusBadge`.
+  `app/components/ui/`: `Drawer`, `ConfirmDialog`, `ToastHost`, `StatusBadge`, `Lightbox`.
+- `Lightbox` is mounted once by `AppShell` and driven only by `state.preview` —
+  `{kind: 'image'|'pdf'|'file', src, title, downloadHref, size, items, index}`, `null` when nothing
+  is open, written by `openPreview()` / `closePreview()` / `previewNext()` / `previewPrev()` /
+  `openAssetPhoto()` (`app/store.js:184-253`). Any thumbnail anywhere therefore opens the same
+  overlay with one store call. It sits at z-index 1070/1071, above `.trax-drawer` (1055), because
+  most of the pictures being clicked are inside a drawer; a `pdf` preview points at
+  `download.php?file=…&inline=1`, an `image` at `uploads/<file>`, and `items` makes it a gallery.
 - Navigation ids: `dashboard`, `inventory`, `kits`, `checkouts`, `reservations`, `calendar`,
   `insights`, `settings` (`AppShell.js:24-32`). The table/cards switch and the mobile nav run off
   `matchMedia('(max-width: 991.98px)')` (`AppShell.js:56`, `:184`).

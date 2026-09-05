@@ -1,5 +1,7 @@
 import { ref, computed, watch } from 'vue';
-import { state, items, getAsset, mutate, toast, clearSelection } from '../store.js';
+import {
+  state, items, getAsset, mutate, toast, clearSelection, openAssetPhoto,
+} from '../store.js';
 import Drawer from './ui/Drawer.js';
 import StatusBadge from './ui/StatusBadge.js';
 
@@ -156,6 +158,7 @@ export default {
     return {
       name, notes, category, location, members, search, busy,
       isNew, candidates, chosen, derivedStatus, add, setMemberQty, remove, save, emit,
+      openAssetPhoto,
     };
   },
   template: `
@@ -194,7 +197,11 @@ export default {
           <ul class="list-group list-group-flush">
             <li v-for="row in chosen" :key="'m' + row.asset.id"
                 class="list-group-item bg-transparent d-flex align-items-center gap-2 py-1">
-              <img v-if="row.asset.photo" class="trax-thumb" :src="'uploads/thumb/' + row.asset.photo" alt="">
+              <button v-if="row.asset.photo" type="button" class="trax-thumb-btn"
+                      :aria-label="'Show the photo of ' + row.asset.name"
+                      @click.stop="openAssetPhoto(row.asset)">
+                <img class="trax-thumb" :src="'uploads/thumb/' + row.asset.photo" alt="">
+              </button>
               <span v-else class="trax-thumb trax-thumb-placeholder"><i class="bi bi-camera"></i></span>
               <span class="flex-grow-1 text-truncate">{{ row.asset.name }}</span>
               <input class="form-control form-control-sm text-center" type="number" min="1"

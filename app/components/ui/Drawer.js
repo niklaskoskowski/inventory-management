@@ -1,4 +1,5 @@
 import { onMounted, onBeforeUnmount, ref, nextTick } from 'vue';
+import { lockScroll, unlockScroll } from '../../lib/scroll-lock.js';
 
 /**
  * Side panel used for asset detail, kit editing, checkout and scanning.
@@ -47,7 +48,7 @@ export default {
     onMounted(async () => {
       previouslyFocused.value = document.activeElement;
       document.addEventListener('keydown', onKeydown, true);
-      document.body.style.overflow = 'hidden';
+      lockScroll();
       await nextTick();
       const target = panel.value?.querySelector('[data-autofocus]')
         || panel.value?.querySelector('input, select, textarea, button');
@@ -56,7 +57,7 @@ export default {
 
     onBeforeUnmount(() => {
       document.removeEventListener('keydown', onKeydown, true);
-      document.body.style.overflow = '';
+      unlockScroll();
       previouslyFocused.value?.focus?.();
     });
 
