@@ -7,11 +7,15 @@ import {
 import {
   STATUSES, CONDITIONS, CONDITION_LABEL, conditionSummary, statusLabel,
   formatDate, formatDateTime, formatMoney, toDateInput, isOverdue,
-  addMonths, warrantyUntilOf,
+  addMonths, warrantyUntilOf, unitPriceOf,
 } from '../lib/format.js';
+import {
+  BLANK_OVERRIDE, daysLabel, formatPercent, priceBasis, rentalOfUnit, ruleFor, tierFor,
+} from '../lib/rental.js';
 import Drawer from './ui/Drawer.js';
 import StatusBadge from './ui/StatusBadge.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
+import RentalRate from './RentalRate.js';
 
 const BLANK = {
   name: '', status: 'FREE', notes: '', category: '', location: '',
@@ -32,10 +36,32 @@ const unitRow = (unit) => ({
   warrantyUntil: toDateInput(unit.warrantyUntil),
 });
 
+/**
+ * The hire rates of an asset and of each of its units, as an editable draft.
+ *
+ * Only the rates: the Rental tab never edits a label, a serial or a price, and
+ * carrying them would put a second writer on the unit list.
+ */
+const rentalDraft = (asset) => ({
+  rental: { ...BLANK_OVERRIDE, ...(asset?.rental || {}) },
+  units: (asset?.units || []).map((unit) => ({
+    no: unit.no,
+    rental: { ...BLANK_OVERRIDE, ...(unit.rental || {}) },
+  })),
+});
+
+/** An empty rate box is "not set on this one", never zero. */
+const cleanOverride = (rule) => ({
+  mode: rule?.mode || 'INHERIT',
+  percent: rule?.percent === '' || rule?.percent === undefined ? null : rule.percent,
+  fixed: rule?.fixed === '' || rule?.fixed === undefined ? null : rule.fixed,
+  fixedPer: rule?.fixedPer || 'RENTAL',
+});
+
 /** Create/edit one asset, plus its live state and history. */
 export default {
   name: 'AssetSheet',
-  components: { Drawer, StatusBadge, ConfirmDialog },
+  components: { Drawer, StatusBadge, ConfirmDialog, RentalRate },
   props: {
     assetId: { type: Number, default: null },
   },
@@ -73,6 +99,13 @@ export default {
     // Which asset unitsForm was built for, so an unsaved edit cannot follow
     // the sheet onto the next asset.
     const unitsFor = ref(null);
+
+    // The hire rates, edited as their own draft for the same reason the units
+    // are: the Rental tab owns them and saves them on its own, so the details
+    // form can never carry — or clobber — a rate.
+    const rentalForm = ref({ rental: { ...BLANK_OVERRIDE }, units: [] });
+    const rentalDirty = ref(false);
+    const rentalFor = ref(null);
 
     const asset = computed(() => (props.assetId ? getAsset(props.assetId) : null));
     const isNew = computed(() => !props.assetId);
@@ -143,6 +176,14 @@ export default {
           unitsDirty.value = false;
         }
         unitsFor.value = value?.id ?? null;
+
+        // Same rule for the rates: an unsaved edit survives a snapshot
+        // refresh, never a switch to another asset.
+        if (!rentalDirty.value || rentalFor.value !== (value?.id ?? null)) {
+          rentalForm.value = rentalDraft(value);
+          rentalDirty.value = false;
+        }
+        rentalFor.value = value?.id ?? null;
       },
       { immediate: true },
     );
@@ -539,12 +580,136 @@ export default {
           warrantyUntil: unit.warrantyUntil || null,
           outOfService: !!unit.outOfService,
           note: unit.note || '',
+          // Carried through untouched. The server writes a unit whole, so a
+          // patch that left this out would silently reset the unit's hire rate
+          // to "inherit" every time somebody renamed it.
+          rental: cleanOverride(unit.rental),
         }));
         await mutate('asset.update', { id: props.assetId, patch: { units } });
         toast('Units saved.', 'success');
         unitsDirty.value = false;
         // The server assigns the numbers, so take the list back from it.
         unitsForm.value = (asset.value?.units || []).map(unitRow);
+      } catch {
+        /* toast already raised by the store */
+      } finally {
+        saving.value = false;
+      }
+    };
+
+    // --- Rental rates ---------------------------------------------------
+    // What this gear costs to HIRE, as opposed to what it is worth. The rate
+    // is resolved — unit, then asset, then category, then the install default
+    // (app/lib/rental.js) — so this tab shows what is in force and lets the
+    // two bottom levels be overruled.
+
+    const rentalDays = ref(Math.max(1, Number(state.settings?.defaults?.loanDays) || 7));
+
+    const touchRental = () => { rentalDirty.value = true; };
+
+    /** The asset as the DRAFT has it, so the preview follows the boxes. */
+    const rentalAsset = computed(() => ({ ...(asset.value || {}), rental: rentalForm.value.rental }));
+
+    /** The stored unit with the draft's rate on it. */
+    const rentalUnitAt = (index) => ({
+      ...(asset.value?.units?.[index] || {}),
+      rental: rentalForm.value.units[index]?.rental || { ...BLANK_OVERRIDE },
+    });
+
+    const rentalCurrency = computed(() => asset.value?.currency || 'EUR');
+
+    /** The rule underneath this asset: its category's, or the install's. */
+    const categoryRate = computed(() => ruleFor(state.settings, asset.value?.category));
+
+    const categoryRateText = computed(() => {
+      const { rule, source } = categoryRate.value;
+      const name = source === 'category'
+        ? `Category "${asset.value?.category}"`
+        : 'Default rate';
+      if (rule.mode === 'FIXED') {
+        return `${name}: ${formatMoney(rule.fixed, rentalCurrency.value)}`
+          + (rule.fixedPer === 'DAY' ? ' per day' : ' per rental');
+      }
+      const ladder = (rule.tiers || [])
+        .map((tier) => `from ${tier.days} days ${formatPercent(tier.percent)} %`)
+        .join(', ');
+      return `${name}: ${formatPercent(rule.percent)} %/day`
+        + (ladder ? ` · discounts: ${ladder}` : ' · no discounts');
+    });
+
+    /** The step that would apply to the previewed duration, for the hint. */
+    const activeTier = computed(() => tierFor(categoryRate.value.rule.tiers, rentalDays.value));
+
+    const pricedFor = (unit) => rentalOfUnit(
+      rentalAsset.value,
+      unit,
+      state.settings,
+      Math.max(1, Number(rentalDays.value) || 1),
+    );
+
+    /** "3 %/day · 210.00 for 7 days" — what this rate actually charges. */
+    const rateText = (unit) => {
+      const days = Math.max(1, Number(rentalDays.value) || 1);
+      const priced = pricedFor(unit);
+      const money = formatMoney(priced.amount, rentalCurrency.value);
+      if (priced.resolved.mode === 'FIXED') {
+        return priced.resolved.fixedPer === 'DAY'
+          ? `${formatMoney(priced.resolved.fixed, rentalCurrency.value)}/day · ${money} for ${daysLabel(days)}`
+          : `${money} · fixed, whatever the duration`;
+      }
+      if (priced.unpriced) {
+        return `${formatPercent(priced.rate)} %/day · no value recorded, so no price`;
+      }
+      return `${formatPercent(priced.rate)} %/day · ${money} for ${daysLabel(days)}`;
+    };
+
+    const RATE_SOURCE = {
+      unit: 'this unit', asset: 'this asset', category: 'category', default: 'default rate',
+    };
+
+    const rateSource = (unit) => RATE_SOURCE[pricedFor(unit).resolved.source] || '';
+
+    /**
+     * What a unit's rate is worked out from.
+     *
+     * A unit with no price of its own is not necessarily priceless: unless the
+     * asset prices its units one by one, the asset's own value still answers
+     * for it — and printing "no value" beside a rate that plainly produced a
+     * number would read as a bug.
+     */
+    const unitValueText = (index) => {
+      const unit = asset.value?.units?.[index];
+      if (unit && unit.price !== null && unit.price !== undefined) {
+        return formatMoney(unit.price, rentalCurrency.value);
+      }
+      const fallback = priceBasis(rentalAsset.value, unit || null);
+      return fallback === null
+        ? '— no value'
+        : `${formatMoney(fallback, rentalCurrency.value)} · from the asset`;
+    };
+
+    /**
+     * The rates, as one patch.
+     *
+     * The units go back WHOLE — the server writes a unit as a complete record —
+     * so they are rebuilt from what is stored with only the rate replaced. An
+     * unsaved edit in the Units tab is therefore not picked up here, and, more
+     * importantly, not lost either.
+     */
+    const saveRental = async () => {
+      saving.value = true;
+      try {
+        const patch = { rental: cleanOverride(rentalForm.value.rental) };
+        if ((asset.value?.units || []).length) {
+          patch.units = asset.value.units.map((unit, index) => ({
+            ...unit,
+            rental: cleanOverride(rentalForm.value.units[index]?.rental),
+          }));
+        }
+        await mutate('asset.update', { id: props.assetId, patch });
+        toast('Rental rates saved.', 'success');
+        rentalDirty.value = false;
+        rentalForm.value = rentalDraft(asset.value);
       } catch {
         /* toast already raised by the store */
       } finally {
@@ -566,6 +731,10 @@ export default {
       lines, outUnits, history, members, warrantyExpired, expiredUnits,
       warrantyMonths, warrantyIsAuto, warrantyUntilOf,
       unitsForm, unitsDirty, unitCode, unitDetail, touchUnits,
+      rentalForm, rentalDirty, rentalDays, rentalCurrency, touchRental, saveRental,
+      categoryRate, categoryRateText, activeTier, rentalUnitAt, rateText, rateSource,
+      unitValueText,
+      daysLabel, formatPercent, unitPriceOf,
       onUnitPurchased, unitWarrantyIsAuto,
       trackUnits, addUnit, removeUnit, saveUnits,
       MAX_PHOTOS, conditionFiles, conditionNote, conditionBusy, conditionLog,
@@ -628,6 +797,11 @@ export default {
         <li class="nav-item" v-if="isSet">
           <button class="nav-link" :class="{ active: tab === 'members' }" @click="tab = 'members'">
             Contents <span class="badge bg-secondary">{{ members.length }}</span>
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" :class="{ active: tab === 'rental' }" @click="tab = 'rental'">
+            Rental <i v-if="rentalDirty" class="bi bi-dot text-warning"></i>
           </button>
         </li>
         <li class="nav-item">
@@ -902,6 +1076,104 @@ export default {
             Save units
           </button>
         </div>
+      </div>
+
+      <!-- Rental rates. What the gear costs to HIRE, which is not what it is
+           worth: the price below is read-only here and is only ever the basis
+           a percentage rate is worked out from. -->
+      <div v-if="tab === 'rental' && !isNew">
+        <p v-if="isSet" class="small text-secondary">
+          A kit is hired out as its contents: every item inside it is charged at its own
+          rate, so a kit has no rate of its own. Open a member to change what it costs.
+        </p>
+
+        <template v-else>
+          <div class="alert alert-secondary py-2 px-3 small d-flex align-items-start gap-2">
+            <i class="bi bi-tags"></i>
+            <div>
+              {{ categoryRateText }}
+              <div class="text-secondary">
+                Edit it under Settings → Rental rates. Anything set below overrules it.
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-12 col-sm-6">
+              <label class="form-label small" for="f-rental-value">Value (read-only)</label>
+              <input id="f-rental-value" class="form-control form-control-sm" readonly
+                     :value="formatMoney(unitPriceOf(asset), rentalCurrency) || '—'">
+              <div class="form-text small">
+                Per unit<span v-if="unitPriced"> · the sum of the unit prices, divided by {{ asset?.quantity }}</span>.
+                Percentage rates are worked out from this.
+              </div>
+            </div>
+            <div class="col-12 col-sm-6">
+              <label class="form-label small" for="f-rental-days">Price a hire of</label>
+              <div class="input-group input-group-sm">
+                <input id="f-rental-days" class="form-control text-end" type="number" min="1" max="3650"
+                       v-model="rentalDays">
+                <span class="input-group-text">days</span>
+              </div>
+              <div class="form-text small">
+                <span v-if="activeTier">
+                  Discount step: from {{ activeTier.days }} days on.
+                </span>
+                <span v-else>Preview only — nothing here is stored.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <h3 class="trax-page-title">This asset's rate</h3>
+            <RentalRate :rule="rentalForm.rental" variant="override" :currency="rentalCurrency"
+                        :inherit-label="categoryRate.source === 'category'
+                          ? 'Use the category rate' : 'Use the default rate'"
+                        @change="touchRental" />
+            <div class="small text-secondary mt-1">
+              {{ rateText(null) }} <span class="text-body-secondary">· from {{ rateSource(null) }}</span>
+            </div>
+          </div>
+
+          <!-- Per unit. Only the rate is editable here; the price beside it is
+               the unit's own and is edited in the Units tab. -->
+          <div v-if="rentalForm.units.length" class="mt-3">
+            <h3 class="trax-page-title">Per unit</h3>
+            <ul class="list-group list-group-flush">
+              <li v-for="(row, ri) in rentalForm.units" :key="row.no"
+                  class="list-group-item bg-transparent px-0">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="font-monospace small">{{ asset.id }}.{{ row.no }}</span>
+                  <span v-if="asset?.units?.[ri]?.label"
+                        class="small text-secondary text-truncate">{{ asset.units[ri].label }}</span>
+                  <span class="flex-grow-1"></span>
+                  <span class="small text-secondary">{{ unitValueText(ri) }}</span>
+                </div>
+                <div class="mt-1">
+                  <RentalRate :rule="row.rental" variant="override" :dense="true"
+                              :currency="rentalCurrency"
+                              inherit-label="Use this asset's rate"
+                              @change="touchRental" />
+                </div>
+                <div class="small text-secondary mt-1">
+                  {{ rateText(rentalUnitAt(ri)) }}
+                  <span class="text-body-secondary">· from {{ rateSource(rentalUnitAt(ri)) }}</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div class="d-flex align-items-center gap-2 mt-3">
+            <span class="small text-secondary flex-grow-1">
+              Rates are never stored on a booking — a hire is always priced by what is in force now.
+            </span>
+            <button type="button" class="btn btn-sm btn-primary"
+                    :disabled="!rentalDirty || saving" @click="saveRental">
+              <span v-if="saving" class="spinner-border spinner-border-sm me-1"></span>
+              Save rates
+            </button>
+          </div>
+        </template>
       </div>
 
       <!-- Kit contents -->

@@ -138,6 +138,14 @@ const DEFAULT_SETTINGS = {
     locale: 'en-US',
     dateFormat: 'Y-m-d H:i',
   },
+  // What hiring the gear out costs. `default` is the fallback rate, and
+  // `categories` is a LIST of {category, ...rule} rather than a map keyed by
+  // name — settings are saved as a deep-merged patch, and a map would make
+  // removing a category's rate impossible. See app/lib/rental.js.
+  rental: {
+    default: { mode: 'PERCENT', percent: 0, fixed: 0, fixedPer: 'RENTAL', tiers: [] },
+    categories: [],
+  },
   cron: {
     secret: '',
     dueSoonHours: 24,
