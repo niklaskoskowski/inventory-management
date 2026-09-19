@@ -404,19 +404,13 @@ export function rentalOfLines(lines, assets, settings, days, unitChoice = null) 
   };
 }
 
-/** "5 %/day", "5 % → 3 %/day", "120.00 per rental" — one rate, as a label. */
-export function rateLabel(row, money) {
-  if (!row) return '—';
-  if (row.mixed) return 'mixed';
-  if (row.mode === 'FIXED') {
-    const amount = money ? money(row.unitAmount) : row.unitAmount;
-    return row.fixedPer === 'DAY' ? `${amount} · fixed/day` : `${amount} · fixed`;
-  }
-  if (row.rate === null || row.rate === undefined) return '—';
-  return `${formatPercent(row.rate)} %/day`;
-}
-
-/** A percentage without trailing zero noise: 3, 3.5, 3.75. */
+/**
+ * A percentage without trailing zero noise: 3, 3.5, 3.75.
+ *
+ * For the operator's screens only. A rate is a fraction of what the gear cost
+ * to buy, so it never reaches a document a customer is handed — the rental PDF
+ * prints money and nothing else.
+ */
 export function formatPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '0';

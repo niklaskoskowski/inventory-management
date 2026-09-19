@@ -279,6 +279,7 @@ described above.
   day"). A single item, or a single unit of one, can be priced differently in
   its own Rental tab. The selection drawer and the checkout list then show what
   a hire costs, and the **Rental PDF** is the quote you hand the customer — it
-  carries the price and never what the gear cost you.
+  carries prices only, never the percentage behind them or what the gear cost
+  you.
 - Anyone who finds a lost item can scan its label and reach you through the
   public page, without an account.

@@ -12,7 +12,7 @@ import {
   purchasedAtOf,
 } from './format.js';
 import { computeValue, valueOfLines, currencyOf, priceOf, unitsOf } from './insights.js';
-import { rentalOfLines, rateLabel, daysLabel } from './rental.js';
+import { rentalOfLines, daysLabel } from './rental.js';
 import { state } from '../store.js';
 
 /** The brand colour's fallback, matching lib/store.php's default. */
@@ -1039,9 +1039,11 @@ export async function exportBasketPdf(lines = [], assets = []) {
  * one answers "what is this worth" and is internal; this one answers "what does
  * this cost" and is the page a customer is handed. So:
  *
- * - No purchase values anywhere on it. The percentage rate is worked out FROM
- *   the value, but printing the value next to the price would tell a customer
- *   what the gear cost to buy.
+ * - No purchase values anywhere on it, and no rates either. What a hire costs
+ *   is the customer's business; HOW it was worked out is not. A percentage is
+ *   a fraction of what the gear cost to buy, so printing "3 %/day" beside
+ *   "€210.00" hands over the purchase value by division. Only money appears on
+ *   this page: the price for one unit over the period, and the line total.
  * - Every figure comes from rentalOfLines(), the same helper the drawer and the
  *   checkout list show, so the sheet cannot disagree with the screen.
  * - A line that has no rate, or no value to work a percentage from, is LISTED
@@ -1125,7 +1127,7 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
 
     doc.autoTable({
       startY: y,
-      head: [['', group.category, 'ID', 'Qty', 'Days', 'Rate', 'Total']],
+      head: [['', group.category, 'ID', 'Qty', 'Days', 'Per unit', 'Total']],
       body: group.rows.map((row) => [
         '', // the thumbnail is painted over this cell by didDrawCell
         String(row.asset.name || `#${row.asset.id}`)
@@ -1133,7 +1135,10 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
         `#${row.asset.id}`,
         String(row.qty),
         String(days),
-        rateLabel(row, (value) => formatMoney(value, row.currency)),
+        // What ONE of them costs for the whole period — money, never the rate
+        // it was worked out from. A line whose units are priced differently
+        // has no single per-unit figure, so it shows the total alone.
+        row.unitAmount === null ? DASH : formatMoney(row.unitAmount, row.currency),
         row.amount === null ? DASH : formatMoney(row.amount, row.currency),
       ]),
       foot: groupList.length > 1
@@ -1157,7 +1162,7 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
         2: { cellWidth: 15 },
         3: { cellWidth: 12, halign: 'right' },
         4: { cellWidth: 13, halign: 'right' },
-        5: { cellWidth: 30, halign: 'right' },
+        5: { cellWidth: 26, halign: 'right' },
         6: { cellWidth: 26, halign: 'right' },
       },
       margin: { left: 14, right: 14, top: CONTENT_TOP },
@@ -1206,16 +1211,15 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
     const names = quote.unpriced.slice(0, CAVEAT_NAMES).map((row) => row.name);
     const extra = quote.unpriced.length - names.length;
     caveats.push(
-      `${quote.unpricedUnits} unit(s) are charged by a percentage of a value that is not `
-      + `recorded, so they carry no price here: ${names.join(', ')}`
-      + `${extra > 0 ? ` +${extra} more` : ''}`,
+      `${quote.unpricedUnits} unit(s) could not be priced and are not in this total: `
+      + `${names.join(', ')}${extra > 0 ? ` +${extra} more` : ''}`,
     );
   }
   if (quote.unratedCount) {
     const names = quote.unrated.slice(0, CAVEAT_NAMES).map((row) => row.name);
     const extra = quote.unrated.length - names.length;
     caveats.push(
-      `${quote.unratedCount} line(s) have no rental rate set and are listed at zero: `
+      `${quote.unratedCount} line(s) are listed at zero: `
       + `${names.join(', ')}${extra > 0 ? ` +${extra} more` : ''}`,
     );
   }

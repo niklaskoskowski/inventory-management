@@ -34,9 +34,11 @@ only record. There is no git history to mine.
     hire was booked for.
   - **Rental PDF** (`exportRentalPdf()` `app/lib/pdf.js`), from the selection drawer and from each
     checkout card. The customer-facing sibling of the internal Value PDF: the same grouping and
-    subtotals, but the period, the rate and the line total — and **no purchase value anywhere on
-    it**. An unrated or unpriced line is listed with a dash and named in the caveat under the total
-    rather than quietly dropped.
+    subtotals, but the period, the price for one unit over that period and the line total. **Money
+    only** — no purchase value and no rate. A percentage is a fraction of what the gear cost to buy,
+    so "3 %/day" beside "€210.00" would hand the purchase value over by division; the rate stays on
+    the operator's screens. A line that could not be priced is listed with a dash and named in the
+    caveat under the total rather than quietly dropped.
   - `app/lib/rental.js` is the one place the arithmetic lives: `rentalDays()` (whole calendar days,
     minimum 1 — out on the 19th and back on the 26th is seven days whatever the hours say),
     `resolveRate()`, `rateForDays()`, `rentalOfUnit()` and `rentalOfLines()`, which takes the

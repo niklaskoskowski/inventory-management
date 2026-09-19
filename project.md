@@ -228,6 +228,12 @@ mutation, like the mail templates and the WhatsApp number) but never prices a hi
 figure is always worked out from the rules in force at that moment, which is why changing a rate
 re-prices what is still out.
 
+The **rental PDF prints money only** — the price for one unit over the period, and the line total.
+No purchase value, and no rate: a percentage is a fraction of what the gear cost to buy, so
+printing it beside the price would hand that value over by division. `formatPercent()` and the
+resolved rate belong to the operator's screens (settings, the asset sheet), never to a customer
+document.
+
 ## Derived availability & status rules
 
 Nothing about availability is stored. `trax_decorate_assets()` (`lib/store.php:2219-2277`) adds
