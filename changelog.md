@@ -6,6 +6,58 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-09-19
+
+### Added
+
+- **Rental pricing: what the gear costs to hire, next to what it is worth.**
+  - **Settings → Rental rates** (`SettingsView.js`, new section). A *default rate* for the whole
+    install and, per category, a rate of its own. A rate is either a percentage of the item's value
+    charged **per day**, or a **fixed price** charged once for the hire or once per day — some gear
+    is simply "95 for the job" whatever it cost. Under a percentage rate sits the discount ladder:
+    **+ Discount** adds a step, any number of them, each "from N days on → X %/day", applied to a
+    hire of that many days or more for every day of it. A live preview spells each rate out in money
+    ("3 %/day · €210.00 for 7 days (1 week) on a €1,000.00 item") for a duration the operator picks.
+  - **Asset sheet → Rental tab** (`AssetSheet.js`). The asset's value read-only (it is only ever the
+    basis a percentage is worked out from), the category rate it inherits, and the same three fields
+    to overrule it — per asset and, underneath, per **unit**. A unit that is worth more, or that is
+    hired out at a flat price, is priced as itself. Each row says what it resolves to and where the
+    rate came from ("4.8 %/day · €396.48 for 7 days (1 week) · from this unit").
+  - Resolution order is `unit → asset → category → default`. An override replaces the base rate but
+    keeps the ladder's shape — scaled by `tier/base` — so a discount stays a discount of the same
+    size instead of being lost on every overridden record.
+  - **Rental price in the selection drawer** (`BasketDrawer.js`), under the existing internal
+    "Selection value" line: priced for the window the drawer is showing (now → due date when
+    checking out, the reservation window when reserving), with a chip for lines that have no rate
+    and for lines charged by a percentage of a value nobody recorded.
+  - **Rental price in the checkout list** (`CheckoutsView.js`), per customer card, for the days the
+    hire was booked for.
+  - **Rental PDF** (`exportRentalPdf()` `app/lib/pdf.js`), from the selection drawer and from each
+    checkout card. The customer-facing sibling of the internal Value PDF: the same grouping and
+    subtotals, but the period, the price for one unit over that period and the line total. **Money
+    only** — no purchase value and no rate. A percentage is a fraction of what the gear cost to buy,
+    so "3 %/day" beside "€210.00" would hand the purchase value over by division; the rate stays on
+    the operator's screens. A line that could not be priced is listed with a dash and named in the
+    caveat under the total rather than quietly dropped.
+  - `app/lib/rental.js` is the one place the arithmetic lives: `rentalDays()` (whole calendar days,
+    minimum 1 — out on the 19th and back on the 26th is seven days whatever the hours say),
+    `resolveRate()`, `rateForDays()`, `rentalOfUnit()` and `rentalOfLines()`, which takes the
+    `[{id, qty, unitNos?}]` shape the basket, a checkout group and a reservation already have and
+    expands a kit into its members exactly as `valueOfLines()` does. Nothing is stored on a booking:
+    a hire is always priced by the rates in force when the figure is worked out, so correcting a
+    rate re-prices what is still out.
+  - Storage: `settings.rental` = `{default: rule, categories: [rule + {category}]}`, plus a
+    `rental` override on every asset and every unit (`lib/store.php`, `trax_normalize_rental*()`).
+    `categories` is a list rather than a map keyed by name because settings are saved as a
+    deep-merged patch — a map would merge key by key and a rate could never be removed. Renaming,
+    merging or deleting a category rewrites its rate inside the same mutation
+    (`trax_taxonomy_apply_rental()`); a merge keeps the target's rate. Every record written before
+    this reads back as `INHERIT` with null numbers, i.e. exactly as it behaved.
+  - `api.php` refuses a percentage outside 0..100, a negative fixed price and a discount step that
+    starts at fewer than one day **before** the mutation, with the reason — the same rule the mail
+    templates and the WhatsApp number are saved under, rather than normalising a bad number away
+    and leaving the operator an empty box.
+
 ## 2026-09-05
 
 ### Fixed

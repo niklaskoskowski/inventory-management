@@ -5,7 +5,8 @@ import {
   formatDateTime, daysOverdue, isOverdue, toLocalInput, parseDate, formatTotals,
 } from '../lib/format.js';
 import { valueOfLines } from '../lib/insights.js';
-import { exportBookingPdf } from '../lib/pdf.js';
+import { rentalDays as hireDays, rentalOfLines, daysLabel } from '../lib/rental.js';
+import { exportBookingPdf, exportRentalPdf } from '../lib/pdf.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 
 /**
@@ -73,13 +74,32 @@ export default {
         // What this customer is holding is worth. Valued off the LINE's qty,
         // so 3 of 8 units out counts 3. Internal only — the handover PDF and
         // the customer's emails carry none of it.
-        .map((group) => ({
-          ...group,
-          value: valueOfLines(
-            group.lines.map((line) => ({ id: line.assetId, qty: line.qty })),
-            getAsset,
-          ),
-        }))
+        .map((group) => {
+          // What this hire is billed for: the days it was booked for, priced by
+          // the rates in force now. Never stored on the line — see
+          // app/lib/rental.js — so a rate change re-prices what is still out.
+          const days = hireDays(group.lines[0]?.checkedOut, group.dueAt);
+          return {
+            ...group,
+            days,
+            value: valueOfLines(
+              group.lines.map((line) => ({ id: line.assetId, qty: line.qty })),
+              getAsset,
+            ),
+            rental: rentalOfLines(
+              group.lines.map((line) => ({
+                id: line.assetId,
+                qty: line.qty,
+                // The units that actually left, so a unit with its own rate is
+                // priced as itself rather than as the asset's average.
+                unitNos: line.unitNos || [],
+              })),
+              getAsset,
+              state.settings,
+              days,
+            ),
+          };
+        })
         .sort((a, b) => (parseDate(a.dueAt) || 0) - (parseDate(b.dueAt) || 0));
     });
 
@@ -382,6 +402,36 @@ export default {
       }
     };
 
+    /** The quote for one customer's open lines: no values, only what it costs. */
+    const rentalPdf = async (group) => {
+      exporting.value = true;
+      try {
+        const first = group.lines[0] || {};
+        await exportRentalPdf(
+          group.lines.map((line) => ({
+            id: line.assetId,
+            qty: line.qty,
+            unitNos: line.unitNos || [],
+          })),
+          state.assets,
+          {
+            days: group.days,
+            kind: 'checkout',
+            from: first.checkedOut,
+            to: group.dueAt,
+            customerName: group.customerName,
+            customerEmail: group.customerEmail,
+            reference: group.reservationId ? `Reservation #${group.reservationId}` : '',
+            notes: first.note || '',
+          },
+        );
+      } catch (error) {
+        toast(`Could not build the rental PDF: ${error.message}`, 'danger', 8000);
+      } finally {
+        exporting.value = false;
+      }
+    };
+
     const doReturn = async () => {
       confirmReturn.value = false;
       try {
@@ -442,6 +492,7 @@ export default {
       retryPhotos, discardPhotos,
       bookingOf, bookingUrl, copyLink, resendEmail,
       formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
+      rentalPdf, daysLabel,
     };
   },
   template: `
@@ -487,6 +538,17 @@ export default {
                 · {{ group.value.unpricedCount }} item(s) without a price
               </span>
             </div>
+            <!-- What the hire is billed for over the booked period. -->
+            <div class="small text-secondary">
+              Rental · {{ daysLabel(group.days) }}:
+              <strong>{{ formatTotals(group.rental.totals) }}</strong>
+              <span v-if="group.rental.unratedCount">
+                · {{ group.rental.unratedCount }} line(s) without a rate
+              </span>
+              <span v-if="group.rental.unpricedCount">
+                · {{ group.rental.unpricedCount }} without a value
+              </span>
+            </div>
           </div>
           <span v-for="setId in [...group.setIds]" :key="setId" class="trax-kind-chip">
             <i class="bi bi-box-seam"></i> {{ setName(setId) }}
@@ -495,6 +557,11 @@ export default {
                   @click="bookingPdf(group)"
                   :aria-label="'Handover PDF for ' + group.customerName">
             <i class="bi bi-filetype-pdf"></i> PDF
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
+                  @click="rentalPdf(group)"
+                  :aria-label="'Rental quote PDF for ' + group.customerName">
+            <i class="bi bi-receipt"></i> Rental
           </button>
           <button v-if="bookingOf(group)" class="btn btn-sm btn-outline-secondary"
                   @click="copyLink(group)"

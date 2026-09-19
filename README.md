@@ -273,5 +273,13 @@ described above.
   confirm.
 - **Sets** bundle several items into one thing to lend, e.g. a camera with its
   tripod.
+- **Rental rates** turn a loan into a price. Under Settings → Rental rates you
+  give each category a daily rate — a percentage of what the item is worth — or
+  a fixed price, and add as many discounts as you like ("from 7 days on, 3 % a
+  day"). A single item, or a single unit of one, can be priced differently in
+  its own Rental tab. The selection drawer and the checkout list then show what
+  a hire costs, and the **Rental PDF** is the quote you hand the customer — it
+  carries prices only, never the percentage behind them or what the gear cost
+  you.
 - Anyone who finds a lost item can scan its label and reach you through the
   public page, without an account.

@@ -578,6 +578,71 @@ function trax_whatsapp_error(mixed $value): ?string
     return null;
 }
 
+/**
+ * Why a rental patch cannot be stored, or null.
+ *
+ * The normaliser would drop a bad number silently and the operator would come
+ * back to an empty box and no explanation, so the numbers are checked BEFORE
+ * the mutation — the same rule the mail templates and the WhatsApp number are
+ * saved under. Only what was actually sent is checked: an absent key keeps
+ * whatever is stored.
+ */
+function trax_rental_patch_error(mixed $rental): ?string
+{
+    if (!is_array($rental)) {
+        return null;
+    }
+
+    $checkRule = static function (mixed $rule, string $where): ?string {
+        if (!is_array($rule)) {
+            return null;
+        }
+        if (array_key_exists('percent', $rule) && $rule['percent'] !== null && $rule['percent'] !== ''
+            && trax_rental_percent($rule['percent']) === null) {
+            return "{$where}: the daily rate must be a percentage between 0 and 100.";
+        }
+        if (array_key_exists('fixed', $rule) && $rule['fixed'] !== null && $rule['fixed'] !== ''
+            && trax_rental_amount($rule['fixed']) === null) {
+            return "{$where}: the fixed price must be a number and cannot be negative.";
+        }
+        foreach ((array)($rule['tiers'] ?? []) as $tier) {
+            if (!is_array($tier)) {
+                continue;
+            }
+            $days = trax_int($tier['days'] ?? null);
+            if ($days === null || $days < 1 || $days > TRAX_MAX_RENTAL_TIER_DAYS) {
+                return "{$where}: a discount starts at a whole number of days, 1 to "
+                    . TRAX_MAX_RENTAL_TIER_DAYS . '.';
+            }
+            if (trax_rental_percent($tier['percent'] ?? null) === null) {
+                return "{$where}: a discount's rate must be a percentage between 0 and 100.";
+            }
+        }
+        return null;
+    };
+
+    $error = $checkRule($rental['default'] ?? null, 'Default rate');
+    if ($error !== null) {
+        return $error;
+    }
+
+    if (isset($rental['categories']) && !is_array($rental['categories'])) {
+        return 'Field "rental.categories" must be a list of rates.';
+    }
+    foreach ((array)($rental['categories'] ?? []) as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $name  = trax_str($entry['category'] ?? '', 120);
+        $error = $checkRule($entry, $name !== '' ? $name : 'Category rate');
+        if ($error !== null) {
+            return $error;
+        }
+    }
+
+    return null;
+}
+
 /** Applies only the asset fields a client is allowed to set. */
 function apply_asset_patch(array $asset, array $patch): array
 {
@@ -585,6 +650,9 @@ function apply_asset_patch(array $asset, array $patch): array
         'name', 'status', 'notes', 'category', 'location',
         'serial', 'supplier', 'purchasedAt', 'price', 'currency',
         'warrantyUntil', 'condition', 'tags', 'members', 'quantity', 'units',
+        // The record's own hire rate. A rule, not a number: what it resolves
+        // to depends on the category rate above it — see lib/store.php.
+        'rental',
     ];
 
     foreach ($writable as $field) {
@@ -2669,6 +2737,13 @@ try {
                 if ($whatsappError !== null) {
                     trax_fail('BAD_REQUEST', 'WhatsApp number: ' . $whatsappError);
                 }
+            }
+
+            // Same rule again for the hire rates: a percentage nobody can store
+            // is refused with the reason rather than normalised away.
+            $rentalError = trax_rental_patch_error($patch['rental'] ?? null);
+            if ($rentalError !== null) {
+                trax_fail('BAD_REQUEST', $rentalError);
             }
 
             $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($patch): array {

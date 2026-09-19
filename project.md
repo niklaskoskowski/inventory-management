@@ -85,6 +85,7 @@ committing. Add a key only together with its normaliser.
 | `photo`, `tags` | file name in `uploads/`; unique tag strings ≤ 60 |
 | `conditionLog` | dated condition photos of the asset itself, independent of any loan |
 | `documents` | attached files, served only via `download.php` |
+| `rental` | `{mode: INHERIT\|PERCENT\|FIXED, percent, fixed, fixedPer: RENTAL\|DAY}` — what this record costs to **hire**, when it differs from its category's rate. `INHERIT` (and `null` numbers) on everything written before rental pricing existed — see [Rental pricing](#rental-pricing) |
 
 ### Units (per-unit tracking)
 
@@ -103,6 +104,7 @@ by `quantity` alone. A `SET` never has units; its members do.
 | `purchasedAt`, `warrantyUntil` | dates, `YYYY-MM-DD` or `null`. When *this* piece was bought and how long its cover runs — units of the same model are bought on different days. Normalised by `trax_date()`, exactly like the asset's own pair |
 | `outOfService` | bool — off the shelf by hand: broken, in the workshop. It stays part of the asset and keeps its number |
 | `note` | ≤ 500 |
+| `rental` | the same override shape as the asset's, for the one piece. Resolved first, before the asset's — see [Rental pricing](#rental-pricing). `saveUnits()` in the asset sheet carries it through untouched, because the server writes a unit whole |
 
 The high-water mark lives on the asset, not on the unit:
 
@@ -182,8 +184,55 @@ moment the gear came back.
 `faviconFile`, `labelHeading`, `whatsapp`), `defaults.*` (`loanDays`, `dueHour`,
 `reservationStartHour`, `warrantyMonths` — 0..120, default 24, months added to a purchase date to
 auto-fill the warranty date in the asset sheet, `0` off —, `currency`, `allowPartialDefault`,
-`overdueGraceDays`, `locale`, `dateFormat`) and `cron.*` (`secret`, `dueSoonHours`,
-`overdueRepeatDays`). Each key falls back to a `TRAX_*` constant.
+`overdueGraceDays`, `locale`, `dateFormat`), `rental.*` (see below) and `cron.*` (`secret`,
+`dueSoonHours`, `overdueRepeatDays`). Each key falls back to a `TRAX_*` constant.
+
+## Rental pricing
+
+What a piece of gear is **worth** is `price`. What it costs to **hire** is a rule, and the rule is
+resolved, never stored on a booking:
+
+```
+unit.rental  ->  asset.rental  ->  settings.rental.categories[category]  ->  settings.rental.default
+```
+
+`settings.rental` (`trax_normalize_rental()` `lib/store.php`) is `{default: rule, categories: [rule
++ {category}]}`. A **rule** is `{mode: PERCENT|FIXED, percent (0..100), fixed (≥0), fixedPer:
+RENTAL|DAY, tiers: [{days ≥ 1, percent}]}`:
+
+- `PERCENT` charges `percent` of the item's value **per day** of the hire.
+- `FIXED` charges `fixed` once for the hire (`fixedPer: RENTAL`) or once per day (`DAY`), whatever
+  the item is worth.
+- `tiers` is the discount ladder — "from 2 days on 4 %, from 7 days on 3 %". A step applies to a
+  hire of that many days **or more**, for every day of it. The ladder lives on the *category*: it
+  is a commercial decision about a class of gear, not about one camera.
+
+`categories` is a **list, not a map keyed by name**, on purpose: settings are saved as a deep-merged
+patch (`trax_deep_merge()`), and a map would merge key by key — removing a category's rate would be
+impossible. A list replaces wholesale. Renaming, merging or deleting a category rewrites the rates
+with it, inside the same mutation (`trax_taxonomy_apply_rental()`); a merge keeps the **target's**
+rate.
+
+An asset's or a unit's `rental` is an *override*: it may also say `INHERIT`, and its numbers may be
+`null` — an empty box means "not set on this one" and falls through, rather than charging zero.
+An override replaces the base rate and keeps the ladder's **shape**: the discounted rate is scaled
+by `tier/base`, so a unit overridden to 6 %/day under a category charging 5 %/day and 3 % from a
+week on is charged 6 × (3/5) = 3.6 %/day from a week on.
+
+All the arithmetic is client-side in `app/lib/rental.js` — `rentalDays()` (whole calendar days,
+minimum 1), `resolveRate()`, `rateForDays()`, `rentalOfUnit()` and `rentalOfLines()` (the basket,
+a checkout group and a reservation all already have its `[{id, qty, unitNos?}]` shape; a kit is
+expanded into its members, exactly as `valueOfLines()` does). The server stores and validates the
+rules (`trax_rental_patch_error()` `api.php` refuses an out-of-range percentage *before* the
+mutation, like the mail templates and the WhatsApp number) but never prices a hire itself: a rental
+figure is always worked out from the rules in force at that moment, which is why changing a rate
+re-prices what is still out.
+
+The **rental PDF prints money only** — the price for one unit over the period, and the line total.
+No purchase value, and no rate: a percentage is a fraction of what the gear cost to buy, so
+printing it beside the price would hand that value over by division. `formatPercent()` and the
+resolved rate belong to the operator's screens (settings, the asset sheet), never to a customer
+document.
 
 ## Derived availability & status rules
 
@@ -378,12 +427,15 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   under `traxAdminViewStateV2`, with a `columnsVersion` migration for columns added later.
 - `app/lib/` — `format.js` (dates, money, `STATUS_LABEL`/`STATUS_CLASS`, UI locale), `scroll-lock.js`
   (the counted `body.style.overflow` lock every full-screen layer shares), `schedule.js`
-  (interval conflicts and the calendar timeline), `insights.js` (utilisation maths), `pdf.js` (jsPDF
+  (interval conflicts and the calendar timeline), `insights.js` (utilisation maths), `rental.js`
+  (hire rates: resolution, the discount ladder, `rentalOfLines()`), `pdf.js` (jsPDF
   is a UMD bundle, so it is injected as a `<script>` on demand and read off `window` — ~400 KB kept
   out of the initial load).
 - `app/components/` — `AppShell` (nav, drawers, layout), `FilterBar`, `AssetTable` (desktop) /
   `AssetCards` (narrow), `AssetSheet`, `SetEditor`, `BasketDrawer`, `BulkEditDrawer`, `ScanDrawer`
-  (jsQR, loaded on demand), `LabelDrawer`, and the views `DashboardView`, `CheckoutsView`,
+  (jsQR, loaded on demand), `LabelDrawer`, `RentalRate` (one hire rate as a form — the install
+  default, a category's, an asset's and a unit's are the same three fields), and the views
+  `DashboardView`, `CheckoutsView`,
   `ReservationsView`, `CalendarView`, `InsightsView`, `SettingsView`. Shared primitives in
   `app/components/ui/`: `Drawer`, `ConfirmDialog`, `ToastHost`, `StatusBadge`, `Lightbox`.
 - `Lightbox` is mounted once by `AppShell` and driven only by `state.preview` —

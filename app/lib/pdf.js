@@ -12,6 +12,7 @@ import {
   purchasedAtOf,
 } from './format.js';
 import { computeValue, valueOfLines, currencyOf, priceOf, unitsOf } from './insights.js';
+import { rentalOfLines, daysLabel } from './rental.js';
 import { state } from '../store.js';
 
 /** The brand colour's fallback, matching lib/store.php's default. */
@@ -1028,6 +1029,216 @@ export async function exportBasketPdf(lines = [], assets = []) {
 
   footer(doc);
   doc.save(`${slug(appName(), 'assets')}-selection-${dateStamp(new Date())}.pdf`);
+}
+
+
+/**
+ * The rental quote: what a set of lines costs to HIRE for a given period.
+ *
+ * The sibling of exportBasketPdf() and deliberately a different document. That
+ * one answers "what is this worth" and is internal; this one answers "what does
+ * this cost" and is the page a customer is handed. So:
+ *
+ * - No purchase values anywhere on it, and no rates either. What a hire costs
+ *   is the customer's business; HOW it was worked out is not. A percentage is
+ *   a fraction of what the gear cost to buy, so printing "3 %/day" beside
+ *   "€210.00" hands over the purchase value by division. Only money appears on
+ *   this page: the price for one unit over the period, and the line total.
+ * - Every figure comes from rentalOfLines(), the same helper the drawer and the
+ *   checkout list show, so the sheet cannot disagree with the screen.
+ * - A line that has no rate, or no value to work a percentage from, is LISTED
+ *   with a dash and counted in the caveat under the total. Quietly dropping it
+ *   would understate the quote without saying so.
+ *
+ * `options`: { days, from, to, customerName, customerEmail, reference, notes,
+ *              kind: 'selection' | 'checkout' | 'reservation', unitChoice }
+ */
+export async function exportRentalPdf(lines = [], assets = [], options = {}) {
+  const lookup = assets instanceof Map
+    ? assets
+    : new Map((assets || []).map((asset) => [Number(asset.id), asset]));
+
+  const days = Math.max(1, Number(options.days) || 1);
+  const quote = rentalOfLines(lines, lookup, state.settings, days, options.unitChoice || null);
+  const rows = quote.rows.filter((row) => row.asset);
+
+  // No lines, no document — the same rule the value sheet is built under.
+  if (!rows.length) throw new Error('Nothing is selected.');
+
+  const [JsPDF, logo, thumbs] = await Promise.all([
+    jsPdf(),
+    brandLogo(),
+    loadThumbs(rows.map((row) => row.asset.photo)),
+  ]);
+
+  const doc = new JsPDF();
+  const id = reportId();
+  const title = 'Rental Quote';
+  const grandTotal = formatTotals(quote.totals);
+  const [r, g, b] = BRAND();
+
+  decorate(doc, title, id, logo);
+
+  // The period and who it is for. Written as a plain two-column block, like
+  // the handover sheet's, rather than as prose.
+  const details = [];
+  if (options.customerName) details.push(['Customer', String(options.customerName)]);
+  if (options.customerEmail) details.push(['Email', String(options.customerEmail)]);
+  if (options.from) details.push([options.kind === 'reservation' ? 'From' : 'Out', formatDateTime(options.from)]);
+  if (options.to) details.push([options.kind === 'reservation' ? 'Until' : 'Due back', formatDateTime(options.to)]);
+  details.push(['Period', daysLabel(days)]);
+  if (options.reference) details.push(['Reference', String(options.reference)]);
+  if (options.notes) details.push(['Notes', String(options.notes)]);
+
+  doc.autoTable({
+    startY: CONTENT_TOP,
+    body: details,
+    theme: 'plain',
+    styles: { fontSize: 9, cellPadding: 1.2 },
+    columnStyles: { 0: { fontStyle: 'bold', textColor: BRAND(), cellWidth: 32 } },
+    margin: { left: 14, right: 14 },
+  });
+
+  // Grouped by category, like the value sheet: a quote is read category by
+  // category, and the ladder that discounts it is a category's own.
+  const groups = new Map();
+  for (const row of rows) {
+    const key = categoryOf(row.asset);
+    const group = groups.get(key) || { category: key, rows: [], totals: new Map() };
+    group.rows.push(row);
+    if (row.amount !== null) {
+      group.totals.set(row.currency, (group.totals.get(row.currency) || 0) + row.amount);
+    }
+    groups.set(key, group);
+  }
+
+  const groupList = [...groups.values()].map((group) => ({
+    ...group,
+    sum: [...group.totals.entries()]
+      .map(([currency, amount]) => ({ currency, amount: Math.round(amount * 100) / 100 }))
+      .sort((a, b) => b.amount - a.amount || a.currency.localeCompare(b.currency)),
+  })).sort((a, b) => (b.sum[0]?.amount || 0) - (a.sum[0]?.amount || 0)
+    || a.category.localeCompare(b.category));
+
+  let y = doc.lastAutoTable.finalY + 6;
+
+  for (const group of groupList) {
+    const drawn = group.rows.map((row) => thumbs.get(String(row.asset.photo ?? '').trim()) || null);
+
+    doc.autoTable({
+      startY: y,
+      head: [['', group.category, 'ID', 'Qty', 'Days', 'Per unit', 'Total']],
+      body: group.rows.map((row) => [
+        '', // the thumbnail is painted over this cell by didDrawCell
+        String(row.asset.name || `#${row.asset.id}`)
+        + (row.via ? `  (in ${row.via.name})` : ''),
+        `#${row.asset.id}`,
+        String(row.qty),
+        String(days),
+        // What ONE of them costs for the whole period — money, never the rate
+        // it was worked out from. A line whose units are priced differently
+        // has no single per-unit figure, so it shows the total alone.
+        row.unitAmount === null ? DASH : formatMoney(row.unitAmount, row.currency),
+        row.amount === null ? DASH : formatMoney(row.amount, row.currency),
+      ]),
+      foot: groupList.length > 1
+        ? [[
+          { content: `Subtotal · ${group.category}`, colSpan: 2 },
+          '',
+          String(group.rows.reduce((sum, row) => sum + row.qty, 0)),
+          '',
+          '',
+          formatTotals(group.sum),
+        ]]
+        : [],
+      styles: { fontSize: 9, cellPadding: SCHEDULE_PAD, valign: 'middle' },
+      bodyStyles: { minCellHeight: SCHEDULE_ROW_HEIGHT },
+      headStyles: { fillColor: BRAND(), textColor: 255 },
+      footStyles: { fillColor: [232, 236, 243], textColor: BRAND(), fontStyle: 'bold' },
+      showFoot: 'lastPage',
+      alternateRowStyles: { fillColor: ZEBRA() },
+      columnStyles: {
+        0: { cellWidth: THUMB_COLUMN },
+        2: { cellWidth: 15 },
+        3: { cellWidth: 12, halign: 'right' },
+        4: { cellWidth: 13, halign: 'right' },
+        5: { cellWidth: 26, halign: 'right' },
+        6: { cellWidth: 26, halign: 'right' },
+      },
+      margin: { left: 14, right: 14, top: CONTENT_TOP },
+      didDrawPage: (data) => {
+        if (data.pageNumber > 1) decorate(doc, title, id, logo);
+      },
+      didDrawCell: (data) => {
+        if (data.section !== 'body' || data.column.index !== 0) return;
+        drawThumb(doc, data.cell, drawn[data.row.index], SCHEDULE_PAD);
+      },
+    });
+
+    y = doc.lastAutoTable.finalY + 6;
+    if (y > doc.internal.pageSize.getHeight() - 34) {
+      doc.addPage();
+      decorate(doc, title, id, logo);
+      y = CONTENT_TOP;
+    }
+  }
+
+  if (y > doc.internal.pageSize.getHeight() - 30) {
+    doc.addPage();
+    decorate(doc, title, id, logo);
+    y = CONTENT_TOP;
+  }
+
+  doc.setDrawColor(r, g, b);
+  doc.setLineWidth(0.4);
+  doc.line(14, y, doc.internal.pageSize.getWidth() - 14, y);
+  doc.setLineWidth(0.2);
+  doc.setDrawColor(0, 0, 0);
+  y += 6;
+
+  doc.setFontSize(12);
+  doc.setTextColor(r, g, b);
+  doc.text(`Rental total: ${grandTotal}`, 14, y);
+  doc.setTextColor(0, 0, 0);
+  y += 5;
+
+  doc.setFontSize(9);
+  doc.text(`${rows.length} line(s) · ${quote.units} unit(s) · ${daysLabel(days)}`, 14, y);
+  y += 4;
+
+  const caveats = [];
+  if (quote.unpricedCount) {
+    const names = quote.unpriced.slice(0, CAVEAT_NAMES).map((row) => row.name);
+    const extra = quote.unpriced.length - names.length;
+    caveats.push(
+      `${quote.unpricedUnits} unit(s) could not be priced and are not in this total: `
+      + `${names.join(', ')}${extra > 0 ? ` +${extra} more` : ''}`,
+    );
+  }
+  if (quote.unratedCount) {
+    const names = quote.unrated.slice(0, CAVEAT_NAMES).map((row) => row.name);
+    const extra = quote.unrated.length - names.length;
+    caveats.push(
+      `${quote.unratedCount} line(s) are listed at zero: `
+      + `${names.join(', ')}${extra > 0 ? ` +${extra} more` : ''}`,
+    );
+  }
+
+  if (caveats.length) {
+    doc.setFontSize(8);
+    doc.setTextColor(110, 120, 140);
+    const room = doc.internal.pageSize.getWidth() - 28;
+    for (const caveat of caveats) {
+      for (const line of doc.splitTextToSize(caveat, room)) {
+        doc.text(line, 14, y);
+        y += 3.6;
+      }
+    }
+    doc.setTextColor(0, 0, 0);
+  }
+
+  footer(doc);
+  doc.save(`${slug(appName(), 'assets')}-rental-${dateStamp(new Date())}.pdf`);
 }
 
 // --- Booking (one checkout group, or one reservation) ----------------------

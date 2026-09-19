@@ -327,6 +327,9 @@ function trax_normalize_unit(mixed $raw): ?array
         // It stays part of the asset and keeps its number.
         'outOfService'  => !empty($raw['outOfService']),
         'note'          => trax_str($raw['note'] ?? '', 500),
+        // What THIS one costs to hire, when it differs from the asset's rate.
+        // INHERIT on every unit written before rental pricing existed.
+        'rental'        => trax_normalize_rental_override($raw['rental'] ?? null),
     ];
 }
 
@@ -472,6 +475,9 @@ function trax_normalize_asset(mixed $raw, int $fallbackId = 0): array
         'conditionLog'  => $conditionLog,
         // Attached documents, oldest first. Served only through download.php.
         'documents'     => $documents,
+        // What this record costs to hire, when it differs from its category's
+        // rate. INHERIT on everything written before rental pricing existed.
+        'rental'        => trax_normalize_rental_override($raw['rental'] ?? null),
     ];
 }
 
@@ -999,6 +1005,218 @@ function trax_normalize_cron_state(mixed $raw): array
     ];
 }
 
+
+// ---------------------------------------------------------------------------
+// Rental pricing
+//
+// What a piece of gear costs to HIRE, as opposed to what it is worth. The
+// worth is `price` and is stored on the record; the hire rate is a rule, and
+// a rule is resolved rather than stored:
+//
+//     unit.rental  ->  asset.rental  ->  settings.rental.categories[category]
+//                                    ->  settings.rental.default
+//
+// A rule is either a daily PERCENT of the item's value or a FIXED amount, and
+// a PERCENT rule carries a ladder of `tiers` — the discounts: "from 2 days on
+// it is 4% a day, from 7 days on 3%". The tiers live on the CATEGORY rule
+// because the ladder is a commercial decision about a class of gear; an asset
+// or a unit overrides the base rate, and the ladder then applies to it in
+// proportion (see trax_rental_rate_for_days() in app/lib/rental.js, which is
+// where the arithmetic actually happens — the server only stores the rule).
+// ---------------------------------------------------------------------------
+
+/** How a rate is worked out. A category rule is one of these two. */
+const TRAX_RENTAL_MODES = ['PERCENT', 'FIXED'];
+/** An asset's or a unit's own rate may also say "whatever is above me". */
+const TRAX_RENTAL_OVERRIDE_MODES = ['INHERIT', 'PERCENT', 'FIXED'];
+/** A fixed amount is charged once for the hire, or once per day of it. */
+const TRAX_RENTAL_FIXED_PER = ['RENTAL', 'DAY'];
+/** How many discount steps one rule may carry. */
+const TRAX_MAX_RENTAL_TIERS = 24;
+/** How many categories may carry a rule of their own. */
+const TRAX_MAX_RENTAL_CATEGORIES = 200;
+/** The longest duration a discount step may start at. */
+const TRAX_MAX_RENTAL_TIER_DAYS = 3650;
+
+/** A percentage, 0..100, three decimals. Null when it is not a number. */
+function trax_rental_percent(mixed $value): ?float
+{
+    $number = trax_float($value);
+    if ($number === null || $number < 0 || $number > 100) {
+        return null;
+    }
+    return round($number, 3);
+}
+
+/** A money amount, >= 0, two decimals. Null when it is not a number. */
+function trax_rental_amount(mixed $value): ?float
+{
+    $number = trax_float($value);
+    if ($number === null || $number < 0) {
+        return null;
+    }
+    return round($number, 2);
+}
+
+/**
+ * The discount ladder: [{days, percent}], by duration, no duplicates.
+ *
+ * `days` is the duration the step STARTS at — a hire of that many days or more
+ * is charged its percent. Sorted here rather than at the point of use so the
+ * lookup is a plain scan and the stored file reads in the order it is shown.
+ */
+function trax_normalize_rental_tiers(mixed $raw): array
+{
+    $tiers = [];
+    $seen  = [];
+
+    foreach ((array)$raw as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $days    = trax_int($entry['days'] ?? null);
+        $percent = trax_rental_percent($entry['percent'] ?? null);
+        if ($days === null || $days < 1 || $days > TRAX_MAX_RENTAL_TIER_DAYS || $percent === null) {
+            continue;   // a step that names no duration or no rate is not a step
+        }
+        if (isset($seen[$days])) {
+            continue;   // one rate per duration; the first one wins
+        }
+        $seen[$days] = true;
+        $tiers[]     = ['days' => $days, 'percent' => $percent];
+        if (count($tiers) >= TRAX_MAX_RENTAL_TIERS) {
+            break;
+        }
+    }
+
+    usort($tiers, static fn(array $a, array $b): int => $a['days'] <=> $b['days']);
+    return $tiers;
+}
+
+/** A complete rate: what a category, or the install, charges. */
+function trax_normalize_rental_rule(mixed $raw): array
+{
+    $raw = is_array($raw) ? $raw : [];
+
+    return [
+        'mode'     => trax_enum($raw['mode'] ?? null, TRAX_RENTAL_MODES, 'PERCENT'),
+        // 0 is a real value and the default: an install that has not been told
+        // a rate hires nothing out for money until somebody says so.
+        'percent'  => trax_rental_percent($raw['percent'] ?? null) ?? 0.0,
+        'fixed'    => trax_rental_amount($raw['fixed'] ?? null) ?? 0.0,
+        'fixedPer' => trax_enum($raw['fixedPer'] ?? null, TRAX_RENTAL_FIXED_PER, 'RENTAL'),
+        'tiers'    => trax_normalize_rental_tiers($raw['tiers'] ?? null),
+    ];
+}
+
+/**
+ * An asset's or a unit's own rate.
+ *
+ * Differs from a rule in two ways: it may say INHERIT (and does, on every
+ * record written before this existed), and its numbers may be null — an empty
+ * box means "not set on this one", which falls through to whatever is above it
+ * rather than charging zero.
+ */
+function trax_normalize_rental_override(mixed $raw): array
+{
+    $raw = is_array($raw) ? $raw : [];
+
+    return [
+        'mode'     => trax_enum($raw['mode'] ?? null, TRAX_RENTAL_OVERRIDE_MODES, 'INHERIT'),
+        'percent'  => trax_rental_percent($raw['percent'] ?? null),
+        'fixed'    => trax_rental_amount($raw['fixed'] ?? null),
+        'fixedPer' => trax_enum($raw['fixedPer'] ?? null, TRAX_RENTAL_FIXED_PER, 'RENTAL'),
+    ];
+}
+
+/**
+ * The per-category rates, as a LIST of {category, ...rule}.
+ *
+ * A list and not a map keyed by category on purpose: settings are saved as a
+ * deep-merged patch (trax_deep_merge()), and a map would merge key by key —
+ * which would make removing a category's rule impossible. A list replaces
+ * wholesale, so what the operator sees is what is stored.
+ */
+function trax_normalize_rental_categories(mixed $raw): array
+{
+    $out  = [];
+    $seen = [];
+
+    foreach ((array)$raw as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        // Matched against the asset's own field, which is trax_str-normalised
+        // to 120 characters — so the key is normalised exactly the same way or
+        // it would never match the records it prices.
+        $name = trax_str($entry['category'] ?? '', 120);
+        if ($name === '' || isset($seen[$name])) {
+            continue;
+        }
+        $seen[$name] = true;
+        $out[]       = ['category' => $name] + trax_normalize_rental_rule($entry);
+        if (count($out) >= TRAX_MAX_RENTAL_CATEGORIES) {
+            break;
+        }
+    }
+
+    usort($out, static fn(array $a, array $b): int => strcasecmp($a['category'], $b['category']));
+    return $out;
+}
+
+/** Normalises the whole rental block: the fallback rate and the per-category ones. */
+function trax_normalize_rental(mixed $raw): array
+{
+    $raw = is_array($raw) ? $raw : [];
+
+    return [
+        'default'    => trax_normalize_rental_rule($raw['default'] ?? null),
+        'categories' => trax_normalize_rental_categories($raw['categories'] ?? null),
+    ];
+}
+
+/**
+ * Rewrites the category names the rental rules are keyed by.
+ *
+ * Called from trax_taxonomy_apply() for `kind === 'category'`, under the same
+ * lock and in the same mutation, because a rename that moved the assets but
+ * left the rule behind would silently drop every one of them to the default
+ * rate. Merging into a category that already has a rule keeps the TARGET's
+ * rule — it is the one that survives the merge — and drops the source's.
+ *
+ * @param string[] $needles  category names being replaced
+ * @param ?string  $to       the new name, or null for "delete the rule too"
+ */
+function trax_taxonomy_apply_rental(array &$data, array $needles, ?string $to): void
+{
+    $rules = $data['settings']['rental']['categories'] ?? null;
+    if (!is_array($rules) || $rules === []) {
+        return;
+    }
+
+    $kept  = [];
+    $moved = [];
+
+    foreach ($rules as $rule) {
+        $name = trax_str($rule['category'] ?? '', 120);
+        if (!in_array($name, $needles, true)) {
+            $kept[] = $rule;
+            continue;
+        }
+        if ($to === null) {
+            continue;   // the category is gone; so is its rate
+        }
+        $rule['category'] = $to;
+        $moved[]          = $rule;
+    }
+
+    // The moved rules go LAST, and trax_normalize_rental_categories() keeps the
+    // first entry for a name — which is how a merge into a category that
+    // already has a rate keeps the target's rate rather than the source's.
+    $data['settings']['rental']['categories'] = trax_normalize_rental_categories(
+        array_merge($kept, $moved)
+    );
+}
 // ---------------------------------------------------------------------------
 // Settings
 //
@@ -1251,6 +1469,10 @@ function trax_normalize_settings(mixed $raw): array
             // mails, the public page. The browser uses `locale` instead.
             'dateFormat'           => trax_str($defaults['dateFormat'] ?? '', 40) ?: 'Y-m-d H:i',
         ],
+        // What hiring the gear out costs. Registered HERE or it is dropped on
+        // the next unrelated write, like the mail templates: trax_mutate()
+        // re-normalises the whole tree before it commits.
+        'rental' => trax_normalize_rental($raw['rental'] ?? null),
         'cron' => [
             // Shared secret for triggering cron.php over HTTP. Empty means the
             // HTTP trigger is refused outright; CLI never needs it.
@@ -2071,6 +2293,11 @@ function trax_taxonomy_apply(array &$data, string $kind, array $from, ?string $t
     }
     if ($needles === []) {
         throw new TraxInvalid('Name at least one value to change.');
+    }
+
+    // The rental rates are keyed by category name, so they move with it.
+    if ($kind === 'category') {
+        trax_taxonomy_apply_rental($data, $needles, $to);
     }
 
     $changed = 0;

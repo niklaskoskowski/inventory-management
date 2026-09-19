@@ -6,7 +6,8 @@ import {
 } from '../store.js';
 import { findConflicts } from '../lib/schedule.js';
 import { valueOfLines } from '../lib/insights.js';
-import { exportBasketPdf } from '../lib/pdf.js';
+import { rentalDays as hireDays, rentalOfLines, daysLabel } from '../lib/rental.js';
+import { exportBasketPdf, exportRentalPdf } from '../lib/pdf.js';
 import { parseDate, toLocalInput, formatTotals } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
 import StatusBadge from './ui/StatusBadge.js';
@@ -94,6 +95,23 @@ export default {
     const selectionValue = computed(() =>
       valueOfLines(selectedExpanded.value, assetById.value),
     );
+
+    // --- What the hire costs --------------------------------------------
+    // Priced off the window the drawer is showing: now to the due date when
+    // checking out, the reservation window when reserving. Nothing is stored —
+    // a hire is always priced by the rates in force when it is worked out.
+
+    const hireLength = computed(() => (mode.value === 'checkout'
+      ? hireDays(new Date(), dueAt.value)
+      : hireDays(startAt.value, endAt.value)));
+
+    const rentalQuote = computed(() => rentalOfLines(
+      selectedExpanded.value,
+      assetById.value,
+      state.settings,
+      hireLength.value,
+      state.unitChoice,
+    ));
 
     /** Selected items with fewer free units than the selection asks for. */
     const unavailable = computed(() =>
@@ -229,10 +247,38 @@ export default {
       }
     };
 
+    /**
+     * The same selection as a quote: what it costs to hire for the window
+     * above, with the rates but without a single purchase value on it. The one
+     * of the two documents a customer may see.
+     */
+    const exportingQuote = ref(false);
+    const rentalPdf = async () => {
+      if (exportingQuote.value || !selectedItemIds.value.length) return;
+      exportingQuote.value = true;
+      try {
+        await exportRentalPdf(selectedExpanded.value, assetById.value, {
+          days: hireLength.value,
+          kind: mode.value === 'checkout' ? 'checkout' : 'reservation',
+          from: mode.value === 'checkout' ? new Date() : startAt.value,
+          to: mode.value === 'checkout' ? dueAt.value : endAt.value,
+          customerName: customerName.value,
+          customerEmail: customerEmail.value,
+          notes: notes.value,
+          unitChoice: state.unitChoice,
+        });
+      } catch (error) {
+        toast(`Could not build the rental PDF: ${error.message}`, 'danger', 8000);
+      } finally {
+        exportingQuote.value = false;
+      }
+    };
+
     return {
       state, mode, customerName, customerEmail, notes, dueAt, startAt, endAt,
       busy, blocked, allowPartial, force, groups, unavailable, windowConflicts,
       selectionValue, formatTotals, exportingPdf, selectionPdf,
+      hireLength, rentalQuote, daysLabel, exportingQuote, rentalPdf,
       selectedItemIds, selectedUnitCount, toggleSelected, clearSelection,
       getAsset, getQuantity, setQuantity, submit, emit,
       unitsOf, showUnits, unitCode, unitChosen, unitDisabled, unitTitle, unitHint,
@@ -341,12 +387,31 @@ export default {
       <!-- What is in the tray is worth this much. Internal figure: it is not
            part of any payload, email or PDF. -->
       <div v-if="selectedItemIds.length"
-           class="d-flex align-items-center gap-2 small border-top border-secondary-subtle pt-2 mb-3">
-        <span class="text-secondary flex-grow-1">Selection value</span>
-        <span v-if="selectionValue.unpricedCount" class="trax-kind-chip">
-          {{ selectionValue.unpricedCount }} without a price
-        </span>
-        <strong>{{ formatTotals(selectionValue.totals) }}</strong>
+           class="border-top border-secondary-subtle pt-2 mb-3">
+        <div class="d-flex align-items-center gap-2 small">
+          <span class="text-secondary flex-grow-1">Selection value</span>
+          <span v-if="selectionValue.unpricedCount" class="trax-kind-chip">
+            {{ selectionValue.unpricedCount }} without a price
+          </span>
+          <strong>{{ formatTotals(selectionValue.totals) }}</strong>
+        </div>
+
+        <!-- What the hire costs over the window above. Also internal until it
+             is printed: the rental PDF is the customer's copy. -->
+        <div class="d-flex align-items-center gap-2 small mt-1">
+          <span class="text-secondary flex-grow-1">
+            Rental price · {{ daysLabel(hireLength) }}
+          </span>
+          <span v-if="rentalQuote.unratedCount" class="trax-kind-chip"
+                title="No rental rate is set for these — set one in Settings → Rental rates, or on the asset's Rental tab.">
+            {{ rentalQuote.unratedCount }} without a rate
+          </span>
+          <span v-if="rentalQuote.unpricedCount" class="trax-kind-chip"
+                title="Charged by a percentage of a value that is not recorded.">
+            {{ rentalQuote.unpricedCount }} without a value
+          </span>
+          <strong>{{ formatTotals(rentalQuote.totals) }}</strong>
+        </div>
       </div>
 
       <div v-if="unavailable.length" class="alert alert-warning py-2 px-3 small">
@@ -446,6 +511,16 @@ export default {
           <span v-if="exportingPdf" class="spinner-border spinner-border-sm me-1"></span>
           <i v-else class="bi bi-filetype-pdf"></i>
           Value PDF
+        </button>
+        <!-- The quote: the same lines priced for the window above, with no
+             purchase value anywhere on it. -->
+        <button class="btn btn-sm btn-outline-secondary"
+                :disabled="exportingQuote || !selectedItemIds.length"
+                @click="rentalPdf"
+                aria-label="Rental quote PDF for the current selection and period">
+          <span v-if="exportingQuote" class="spinner-border spinner-border-sm me-1"></span>
+          <i v-else class="bi bi-receipt"></i>
+          Rental PDF
         </button>
         <span class="flex-grow-1"></span>
         <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">Cancel</button>

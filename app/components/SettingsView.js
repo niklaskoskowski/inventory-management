@@ -1,7 +1,10 @@
 import { ref, computed, watch } from 'vue';
 import { state, settings, taxonomyUsage, mutate, toast } from '../store.js';
 import * as api from '../api.js';
+import { formatMoney } from '../lib/format.js';
+import { BLANK_RULE, daysLabel, formatPercent, tierFor } from '../lib/rental.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
+import RentalRate from './RentalRate.js';
 
 /**
  * Runtime settings, and the taxonomy editor that goes with them.
@@ -16,6 +19,7 @@ import ConfirmDialog from './ui/ConfirmDialog.js';
 
 const SECTIONS = [
   { id: 'taxonomy', label: 'Taxonomy', icon: 'bi-tags' },
+  { id: 'rental', label: 'Rental rates', icon: 'bi-cash-coin' },
   { id: 'email', label: 'Email', icon: 'bi-envelope' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
   { id: 'defaults', label: 'Defaults & automation', icon: 'bi-sliders' },
@@ -90,9 +94,36 @@ const expandTokens = (text, sample) =>
 const sameLeaf = (draftValue, storedValue) =>
   (typeof storedValue === 'number' ? Number(draftValue) === storedValue : draftValue === storedValue);
 
+/**
+ * The same question for a value that is a tree — the rental rates, whose leaves
+ * sit inside objects and lists.
+ *
+ * Keys are sorted and numeric strings are read as numbers before comparing, so
+ * a rate retyped identically is not "changed" and a rule rebuilt in a different
+ * key order is not either. Comparison only: nothing here is what gets sent.
+ */
+const numeric = (value) => {
+  if (Array.isArray(value)) return value.map(numeric);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = numeric(value[key]);
+    return out;
+  }
+  if (typeof value === 'string') {
+    const text = value.trim().replace(',', '.');
+    if (text !== '' && Number.isFinite(Number(text))) return Number(text);
+  }
+  return value;
+};
+
+const sameValue = (draftValue, storedValue) =>
+  (draftValue !== null && typeof draftValue === 'object'
+    ? JSON.stringify(numeric(draftValue)) === JSON.stringify(numeric(storedValue))
+    : sameLeaf(draftValue, storedValue));
+
 export default {
   name: 'SettingsView',
-  components: { ConfirmDialog },
+  components: { ConfirmDialog, RentalRate },
   setup() {
     const section = ref('taxonomy');
     const busy = ref(false);
@@ -121,6 +152,11 @@ export default {
       const next = clone(value);
       next.email = next.email || {};
       next.email.templates = next.email.templates || {};
+      // Same reason as the templates: the form binds to it before the first
+      // snapshot lands, and an undefined intermediate is a render error.
+      next.rental = next.rental || {};
+      next.rental.default = { ...clone(BLANK_RULE), ...(next.rental.default || {}) };
+      next.rental.categories = Array.isArray(next.rental.categories) ? next.rental.categories : [];
       for (const key of templateKeys.value) {
         next.email.templates[key] = { ...EMPTY_TEMPLATE, ...(next.email.templates[key] || {}) };
       }
@@ -167,7 +203,7 @@ export default {
           // templates is a map, not a leaf: comparing it with sameLeaf would
           // call it changed on every render and send all eight on every save.
           if (group === 'email' && key === 'templates') continue;
-          if (!sameLeaf(value, stored[key])) changed[key] = value;
+          if (!sameValue(value, stored[key])) changed[key] = value;
         }
         if (group === 'email' && Object.keys(changedTemplates.value).length) {
           changed.templates = changedTemplates.value;
@@ -264,6 +300,60 @@ export default {
       const entry = templateEntry(templateKey.value);
       return expandTokens(entry.body || spec.body, spec.sample);
     });
+
+    // --- Rental rates ---
+    // The rates are keyed by category name, which is free text on the assets —
+    // so the editor lists every category in use, plus any rate whose category
+    // no longer exists (renames move the rate with them, but a hand-edited
+    // data.json can still leave one behind).
+
+    /** The draft's rule for one category, or null. A reference, so editing it edits the draft. */
+    const rentalRuleFor = (name) =>
+      (draft.value.rental.categories || []).find((rule) => rule.category === name) || null;
+
+    const rentalRows = computed(() => {
+      const names = new Set(taxonomyUsage.value.categories.map((row) => row.value));
+      for (const rule of draft.value.rental.categories || []) names.add(rule.category);
+      return [...names]
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+        .map((name) => ({ name, count: usageOf('categories', name), rule: rentalRuleFor(name) }));
+    });
+
+    /** Give a category its own rate, seeded from the default so nothing jumps. */
+    const addRentalRule = (name) => {
+      if (rentalRuleFor(name)) return;
+      draft.value.rental.categories.push({
+        category: name,
+        ...clone(draft.value.rental.default),
+      });
+    };
+
+    const removeRentalRule = (name) => {
+      draft.value.rental.categories = (draft.value.rental.categories || [])
+        .filter((rule) => rule.category !== name);
+    };
+
+    /** What a rate means in money, on a made-up item, for a hire of `previewDays`. */
+    const SAMPLE_VALUE = 1000;
+    const previewDays = ref(7);
+
+    const currency = computed(() => draft.value.defaults?.currency || 'EUR');
+
+    const rulePreview = (rule) => {
+      if (!rule) return '';
+      const days = Math.max(1, Number(previewDays.value) || 1);
+      if (rule.mode === 'FIXED') {
+        const fixed = Number(rule.fixed) || 0;
+        const total = rule.fixedPer === 'DAY' ? fixed * days : fixed;
+        return `${formatMoney(total, currency.value)} for ${daysLabel(days)}`;
+      }
+      const tier = tierFor(rule.tiers, days);
+      const percent = Number(tier ? tier.percent : rule.percent) || 0;
+      const total = (SAMPLE_VALUE * percent) / 100 * days;
+      return `${formatPercent(percent)} %/day · ${formatMoney(total, currency.value)} for `
+        + `${daysLabel(days)} on a ${formatMoney(SAMPLE_VALUE, currency.value)} item`;
+    };
 
     // --- Taxonomy ---
 
@@ -543,6 +633,8 @@ export default {
       settings, taxonomyUsage,
       SECTIONS, AUTH_MODES, TAXONOMIES, CUSTOMER_MAIL, CRON_MAIL, HOURS, LOCALES,
       section, draft, busy, patch, dirty, save, revert,
+      rentalRows, addRentalRule, removeRentalRule, rulePreview, previewDays,
+      currency, daysLabel, formatPercent,
       editing, editValue, pending, usageOf, mergeOptions, isEditing,
       startEdit, cancelEdit, taxonomyPayload, applyTaxonomy,
       rename, askMerge, askDelete, runPending,
@@ -630,6 +722,79 @@ export default {
             <li v-if="!taxonomyUsage[group.key].length"
                 class="list-group-item bg-transparent small text-secondary">
               Nothing uses a {{ group.kind }} yet.
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rental rates ---------------------------------------------------- -->
+    <div v-else-if="section === 'rental'" class="row g-3">
+      <div class="col-12 col-xl-5">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title"><i class="bi bi-cash-coin"></i> Default rate</h2>
+            <p class="trax-page-sub">
+              What hiring gear out costs when its category says nothing else. A percentage
+              is charged per day of the hire, on what the item is worth; a fixed price
+              ignores the item's value altogether.
+            </p>
+          </div>
+          <div class="trax-card-pad pt-0">
+            <RentalRate :rule="draft.rental.default" variant="rule" :show-tiers="true"
+                        :currency="currency" />
+            <div class="d-flex align-items-center gap-2 mt-3 pt-2 border-top border-secondary-subtle">
+              <label class="form-label small mb-0" for="set-rental-preview">Preview for</label>
+              <input id="set-rental-preview" class="form-control form-control-sm text-end"
+                     style="width:5rem" type="number" min="1" max="3650" v-model="previewDays">
+              <span class="small text-secondary">days</span>
+            </div>
+            <div class="small text-secondary mt-1">{{ rulePreview(draft.rental.default) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-7">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">
+              <i class="bi bi-folder2"></i> Per category
+              <span class="text-secondary small">({{ rentalRows.length }})</span>
+            </h2>
+            <p class="trax-page-sub">
+              A category without a rate of its own is hired out at the default. An asset
+              or a single unit can still overrule both, in its own Rental tab.
+            </p>
+          </div>
+
+          <ul class="list-group list-group-flush">
+            <li v-for="row in rentalRows" :key="row.name" class="list-group-item bg-transparent">
+              <div class="d-flex align-items-center gap-2">
+                <span class="flex-grow-1 text-truncate">{{ row.name }}</span>
+                <span class="trax-kind-chip">{{ row.count }}</span>
+                <button v-if="!row.rule" type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                        :disabled="busy" @click="addRentalRule(row.name)">
+                  <i class="bi bi-plus"></i> Rate
+                </button>
+                <button v-else type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                        :disabled="busy" :title="'Hire ' + row.name + ' at the default rate again'"
+                        :aria-label="'Remove the rate for ' + row.name"
+                        @click="removeRentalRule(row.name)">
+                  <i class="bi bi-x"></i>
+                </button>
+              </div>
+
+              <div v-if="row.rule" class="mt-2">
+                <RentalRate :rule="row.rule" variant="rule" :show-tiers="true" :currency="currency" />
+                <div class="small text-secondary mt-1">{{ rulePreview(row.rule) }}</div>
+              </div>
+              <div v-else class="small text-secondary">
+                Default rate — {{ rulePreview(draft.rental.default) }}
+              </div>
+            </li>
+
+            <li v-if="!rentalRows.length" class="list-group-item bg-transparent small text-secondary">
+              Nothing uses a category yet, so there is nothing to price separately.
             </li>
           </ul>
         </div>
