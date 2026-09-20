@@ -427,6 +427,34 @@ function trax_normalize_asset(mixed $raw, int $fallbackId = 0): array
         }
     }
 
+    // Test records — "cable 183.5, tested on the 14th, passed". Kept on the
+    // asset and pointing at a unit number, so a units patch cannot rewrite
+    // them and a retired number keeps its history. Sorted newest first: the
+    // question asked of this list is nearly always "is it still valid".
+    $inspections = [];
+    $inspectionSeq = max(0, trax_int($raw['inspectionSeq'] ?? null, 0) ?? 0);
+    foreach ((array)($raw['inspections'] ?? []) as $entry) {
+        $record = trax_normalize_inspection_entry($entry);
+        if ($record === null) {
+            continue;   // an entry with no test date is not a record
+        }
+        $inspections[]  = $record;
+        $inspectionSeq  = max($inspectionSeq, (int)$record['id']);
+        if (count($inspections) >= TRAX_MAX_ASSET_INSPECTIONS) {
+            break;
+        }
+    }
+    // Ids are handed out by the server and never reused, so an entry that
+    // arrived without one gets the next free number rather than colliding.
+    foreach ($inspections as $index => $record) {
+        if ((int)$record['id'] <= 0) {
+            $inspections[$index]['id'] = ++$inspectionSeq;
+        }
+    }
+    usort($inspections, static function (array $a, array $b): int {
+        return [$b['at'], $b['id']] <=> [$a['at'], $a['id']];
+    });
+
     // Attached documents — manuals, receipts, insurance certificates. Like the
     // condition log this is the asset's own record and outlives every loan.
     $documents = [];
@@ -475,6 +503,12 @@ function trax_normalize_asset(mixed $raw, int $fallbackId = 0): array
         'conditionLog'  => $conditionLog,
         // Attached documents, oldest first. Served only through download.php.
         'documents'     => $documents,
+        // Test records, newest first, each naming the unit it is about (or
+        // null for the asset as a whole). Server-written: neither this nor
+        // `inspectionSeq` is in the apply_asset_patch() whitelist, because a
+        // record here can name a file on disk.
+        'inspections'   => $inspections,
+        'inspectionSeq' => $inspectionSeq,
         // What this record costs to hire, when it differs from its category's
         // rate. INHERIT on everything written before rental pricing existed.
         'rental'        => trax_normalize_rental_override($raw['rental'] ?? null),
@@ -1006,6 +1040,192 @@ function trax_normalize_cron_state(mixed $raw): array
 }
 
 
+
+// ---------------------------------------------------------------------------
+// Inspections
+//
+// The test record a piece of gear has to be able to show: "cable 183.5, tested
+// 2026-03-14, passed, next test 2027-03-14, here is the certificate".
+//
+// Switched on per CATEGORY, never globally — a folding table does not get
+// tested and a checkbox nobody ticked must not put an empty obligation on it.
+// The rule says what the test is called, how long it is valid and which
+// parameters are written down; the records themselves hang off the ASSET and
+// name the unit they are about, so 183.5 and 183.6 keep separate histories.
+//
+// Records live on the asset and not inside `units` on purpose: a units patch
+// rewrites that list whole, and a test certificate must not be something an
+// operator can delete by renaming a cable.
+// ---------------------------------------------------------------------------
+
+/** A test either passed or it did not. There is no third answer. */
+const TRAX_INSPECTION_RESULTS = ['PASS', 'FAIL'];
+/** How many categories may carry a test rule. */
+const TRAX_MAX_INSPECTION_CATEGORIES = 200;
+/** Parameters one rule may ask for — the DGUV V3 sheet has four. */
+const TRAX_MAX_INSPECTION_FIELDS = 12;
+/** Recorded values one entry may carry. Same ceiling, plus room for extras. */
+const TRAX_MAX_INSPECTION_VALUES = 24;
+/** Test records one asset may accumulate: 20 units tested yearly for 25 years. */
+const TRAX_MAX_ASSET_INSPECTIONS = 500;
+/** The longest a test may be declared valid for. */
+const TRAX_MAX_INSPECTION_MONTHS = 240;
+
+/** The parameter names a rule writes down: unique, in the order given. */
+function trax_normalize_inspection_fields(mixed $raw): array
+{
+    $out = [];
+    foreach ((array)$raw as $entry) {
+        $name = trax_str(is_array($entry) ? ($entry['name'] ?? '') : $entry, 120);
+        if ($name === '' || in_array($name, $out, true)) {
+            continue;
+        }
+        $out[] = $name;
+        if (count($out) >= TRAX_MAX_INSPECTION_FIELDS) {
+            break;
+        }
+    }
+    return $out;
+}
+
+/** One category's test rule. */
+function trax_normalize_inspection_rule(mixed $raw): array
+{
+    $raw = is_array($raw) ? $raw : [];
+
+    return [
+        // What the test is called on the paperwork. Never empty — it is printed
+        // on the record and on the PDF, and "" there says nothing.
+        'label'          => trax_str($raw['label'] ?? '', 120) ?: 'Inspection',
+        // How long a pass is good for. 0 means "no interval": the test is
+        // recorded, and no date falls due on its own.
+        'intervalMonths' => trax_clamp_int($raw['intervalMonths'] ?? null, 0, TRAX_MAX_INSPECTION_MONTHS, 12),
+        'fields'         => trax_normalize_inspection_fields($raw['fields'] ?? null),
+    ];
+}
+
+/**
+ * The categories that are tested, as a LIST of {category, ...rule}.
+ *
+ * A list and not a map, for the reason the rental rates are one: settings are
+ * saved as a deep-merged patch, and a map would merge key by key — un-ticking a
+ * category would be impossible. Being IN this list is what "tested" means.
+ */
+function trax_normalize_inspection_categories(mixed $raw): array
+{
+    $out  = [];
+    $seen = [];
+
+    foreach ((array)$raw as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        // Normalised exactly like the asset's own field, or it would never
+        // match the records it applies to.
+        $name = trax_str($entry['category'] ?? '', 120);
+        if ($name === '' || isset($seen[$name])) {
+            continue;
+        }
+        $seen[$name] = true;
+        $out[]       = ['category' => $name] + trax_normalize_inspection_rule($entry);
+        if (count($out) >= TRAX_MAX_INSPECTION_CATEGORIES) {
+            break;
+        }
+    }
+
+    usort($out, static fn(array $a, array $b): int => strcasecmp($a['category'], $b['category']));
+    return $out;
+}
+
+/** Normalises the whole inspection block. */
+function trax_normalize_inspections_settings(mixed $raw): array
+{
+    $raw = is_array($raw) ? $raw : [];
+    return ['categories' => trax_normalize_inspection_categories($raw['categories'] ?? null)];
+}
+
+/** The rule for a category, or null when that category is not tested. */
+function trax_inspection_rule_for(array $settings, string $category): ?array
+{
+    $category = trax_str($category, 120);
+    if ($category === '') {
+        return null;
+    }
+    foreach ((array)($settings['inspection']['categories'] ?? []) as $rule) {
+        if (trax_str($rule['category'] ?? '', 120) === $category) {
+            return $rule;
+        }
+    }
+    return null;
+}
+
+/** What was measured: [{name, value}], both free text, in the order recorded. */
+function trax_normalize_inspection_values(mixed $raw): array
+{
+    $out = [];
+    foreach ((array)$raw as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $name  = trax_str($entry['name'] ?? '', 120);
+        $value = trax_str($entry['value'] ?? '', 120);
+        if ($name === '' && $value === '') {
+            continue;   // an empty row is not a measurement
+        }
+        $out[] = ['name' => $name, 'value' => $value];
+        if (count($out) >= TRAX_MAX_INSPECTION_VALUES) {
+            break;
+        }
+    }
+    return $out;
+}
+
+/**
+ * One test record. Returns null for an entry that names no date — a test
+ * without a date is not documentation.
+ *
+ * The certificate is a document exactly like an attached manual: stored in
+ * TRAX_DOC_DIR under a name we chose, served only by download.php, and the
+ * three fields beside it are what the list needs to show without opening it.
+ */
+function trax_normalize_inspection_entry(mixed $raw): ?array
+{
+    $raw = is_array($raw) ? $raw : [];
+
+    $at = trax_date($raw['at'] ?? null);
+    if ($at === null) {
+        return null;
+    }
+
+    $unitNo = trax_int($raw['unitNo'] ?? null);
+    $file   = trax_document_name($raw['file'] ?? null);
+    $size   = trax_int($raw['fileSize'] ?? null);
+
+    return [
+        'id'       => max(0, trax_int($raw['id'] ?? null, 0) ?? 0),
+        // Which piece was tested. null is the asset as a whole, which is the
+        // only answer for a record that does not track its units one by one.
+        'unitNo'   => $unitNo !== null && $unitNo > 0 ? $unitNo : null,
+        'at'       => $at,
+        'result'   => trax_enum($raw['result'] ?? null, TRAX_INSPECTION_RESULTS, 'PASS'),
+        // Who tested it, and what the test was called when it was done — the
+        // rule can be renamed later, the record says what actually happened.
+        'by'       => trax_str($raw['by'] ?? '', 120),
+        'label'    => trax_str($raw['label'] ?? '', 120),
+        // When it is due again. Prefilled from the rule's interval and then
+        // editable: a re-test agreed for six months is a real answer, and so
+        // is null — "recorded, nothing falls due".
+        'nextAt'   => trax_date($raw['nextAt'] ?? null),
+        'note'     => trax_str($raw['note'] ?? '', 1000),
+        'values'   => trax_normalize_inspection_values($raw['values'] ?? null),
+        'file'     => $file,
+        'fileName' => $file === null ? null : trax_str($raw['fileName'] ?? '', TRAX_MAX_NAME),
+        'fileSize' => $file === null ? null : ($size !== null && $size > 0 ? $size : null),
+        // When the record was entered, as opposed to the day tested. Two
+        // different facts: a test done on Friday is often typed in on Monday.
+        'createdAt' => trax_iso($raw['createdAt'] ?? null) ?? gmdate('Y-m-d\TH:i:s.000\Z'),
+    ];
+}
 // ---------------------------------------------------------------------------
 // Rental pricing
 //
@@ -1173,6 +1393,44 @@ function trax_normalize_rental(mixed $raw): array
         'default'    => trax_normalize_rental_rule($raw['default'] ?? null),
         'categories' => trax_normalize_rental_categories($raw['categories'] ?? null),
     ];
+}
+
+/**
+ * Rewrites the category names the test rules are keyed by.
+ *
+ * The rental twin of this function, for the same reason and with the same
+ * merge rule: a rename that moved the assets but left the rule behind would
+ * quietly stop testing a whole category.
+ *
+ * @param string[] $needles  category names being replaced
+ * @param ?string  $to       the new name, or null for "delete the rule too"
+ */
+function trax_taxonomy_apply_inspection(array &$data, array $needles, ?string $to): void
+{
+    $rules = $data['settings']['inspection']['categories'] ?? null;
+    if (!is_array($rules) || $rules === []) {
+        return;
+    }
+
+    $kept  = [];
+    $moved = [];
+
+    foreach ($rules as $rule) {
+        $name = trax_str($rule['category'] ?? '', 120);
+        if (!in_array($name, $needles, true)) {
+            $kept[] = $rule;
+            continue;
+        }
+        if ($to === null) {
+            continue;   // the category is gone; so is its test rule
+        }
+        $rule['category'] = $to;
+        $moved[]          = $rule;
+    }
+
+    $data['settings']['inspection']['categories'] = trax_normalize_inspection_categories(
+        array_merge($kept, $moved)
+    );
 }
 
 /**
@@ -1473,6 +1731,8 @@ function trax_normalize_settings(mixed $raw): array
         // the next unrelated write, like the mail templates: trax_mutate()
         // re-normalises the whole tree before it commits.
         'rental' => trax_normalize_rental($raw['rental'] ?? null),
+        // Which categories have to show a test record, and what that test is.
+        'inspection' => trax_normalize_inspections_settings($raw['inspection'] ?? null),
         'cron' => [
             // Shared secret for triggering cron.php over HTTP. Empty means the
             // HTTP trigger is refused outright; CLI never needs it.
@@ -2295,9 +2555,11 @@ function trax_taxonomy_apply(array &$data, string $kind, array $from, ?string $t
         throw new TraxInvalid('Name at least one value to change.');
     }
 
-    // The rental rates are keyed by category name, so they move with it.
+    // The rental rates and the test rules are keyed by category name, so both
+    // move with it.
     if ($kind === 'category') {
         trax_taxonomy_apply_rental($data, $needles, $to);
+        trax_taxonomy_apply_inspection($data, $needles, $to);
     }
 
     $changed = 0;

@@ -3,6 +3,7 @@ import {
   state, getAsset, getLines, historyFor, membersOf, mutate, uploadPhoto,
   uploadConditionPhotos, uploadDocuments, deleteDocument, toast,
   categories, locations, openPreview, openAssetPhoto,
+  recordInspection, uploadInspectionCertificate, deleteInspection,
 } from '../store.js';
 import {
   STATUSES, CONDITIONS, CONDITION_LABEL, conditionSummary, statusLabel,
@@ -12,6 +13,12 @@ import {
 import {
   BLANK_OVERRIDE, daysLabel, formatPercent, priceBasis, rentalOfUnit, ruleFor, tierFor,
 } from '../lib/rental.js';
+import {
+  RESULTS, RESULT_LABEL, STATE_CLASS, STATE_LABEL,
+  assetState, blankRecord, inspectionRows, inspectionRule, needsAttention,
+  nextDueFrom, recordSummary, recordsOf,
+} from '../lib/inspection.js';
+import { exportInspectionPdf } from '../lib/pdf.js';
 import Drawer from './ui/Drawer.js';
 import StatusBadge from './ui/StatusBadge.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
@@ -717,6 +724,184 @@ export default {
       }
     };
 
+    // --- Inspections ------------------------------------------------------
+    // The test record for this piece of gear: when, by whom, passed or not,
+    // what was measured, and the certificate. Switched on by the asset's
+    // CATEGORY (Settings -> Inspections) — nothing is asked of the rest.
+
+    const testRule = computed(() => inspectionRule(state.settings, asset.value?.category));
+    const testEnabled = computed(() => testRule.value !== null);
+    const testRecords = computed(() => recordsOf(asset.value));
+    const testRows = computed(() => (asset.value ? inspectionRows(asset.value) : []));
+    const testState = computed(() => (asset.value ? assetState(asset.value) : 'OK'));
+    /** Records filed against the whole asset although it tracks units now. */
+    const testLoose = computed(() => (
+      (asset.value?.units || []).length
+        ? testRecords.value.filter((record) => record.unitNo === null || record.unitNo === undefined)
+        : []
+    ));
+
+    // The open form, or null. `testFor` is the row it belongs to, so the panel
+    // appears under the piece it is about rather than floating at the top.
+    const testForm = ref(null);
+    const testFor = ref(null);
+    const testFile = ref(null);
+    const testBusy = ref(false);
+    const testConfirm = ref(null);
+
+    const openTest = (row) => {
+      testFor.value = row.code;
+      testFile.value = null;
+      testForm.value = blankRecord(testRule.value, {
+        unitNo: row.unitNo,
+        by: state.meta?.actor || '',
+      });
+    };
+
+    const closeTest = () => {
+      testFor.value = null;
+      testForm.value = null;
+      testFile.value = null;
+      const input = document.getElementById('f-test-file');
+      if (input) input.value = '';
+    };
+
+    /**
+     * Re-derives the next test date while the test date is being typed, but
+     * only while it still matches what the interval said — a date somebody
+     * typed themselves is never moved.
+     */
+    const onTestDate = (next) => {
+      const previous = testForm.value.at;
+      const derived = nextDueFrom(previous, testRule.value?.intervalMonths);
+      testForm.value.at = next;
+      if (!testForm.value.nextAt || testForm.value.nextAt === derived) {
+        testForm.value.nextAt = nextDueFrom(next, testRule.value?.intervalMonths);
+      }
+    };
+
+    /**
+     * A failure does not start a new validity period.
+     *
+     * The interval says how long a PASS is good for, so the prefilled next
+     * date is taken back when the result is switched to failed — and put back
+     * if it is switched round again. A date typed by hand is left alone
+     * either way: "re-test by" is a real thing to write on a failure.
+     */
+    const onTestResult = (next) => {
+      const derived = nextDueFrom(testForm.value.at, testRule.value?.intervalMonths);
+      if (next === 'FAIL' && testForm.value.nextAt === derived) {
+        testForm.value.nextAt = '';
+      } else if (next === 'PASS' && !testForm.value.nextAt) {
+        testForm.value.nextAt = derived;
+      }
+      testForm.value.result = next;
+    };
+
+    const pickTestFile = (event) => {
+      testFile.value = event?.target?.files?.[0] || null;
+    };
+
+    /**
+     * Files the record, then attaches the certificate to it.
+     *
+     * Two calls on purpose: a record that is written stays written even if the
+     * upload then fails, and the operator is told which half did not happen
+     * rather than losing the test they just typed in.
+     */
+    const submitTest = async () => {
+      if (!testForm.value?.at) {
+        toast('A test record needs the date it was done.', 'warning');
+        return;
+      }
+      testBusy.value = true;
+      try {
+        const data = await recordInspection(props.assetId, {
+          unitNo: testForm.value.unitNo,
+          at: testForm.value.at,
+          result: testForm.value.result,
+          by: testForm.value.by,
+          label: testForm.value.label,
+          nextAt: testForm.value.nextAt || null,
+          note: testForm.value.note,
+          // Only what was actually filled in — an empty box is not a reading.
+          values: (testForm.value.values || []).filter((row) => String(row.value || '').trim() !== ''),
+        });
+
+        const file = testFile.value;
+        if (file && data?.inspectionId) {
+          try {
+            await uploadInspectionCertificate(props.assetId, data.inspectionId, file);
+            toast('Test recorded, certificate attached.', 'success');
+          } catch {
+            // The record survived; say so, or it looks like nothing was saved.
+            toast('Test recorded, but the certificate could not be stored. Attach it again.', 'warning', 8000);
+          }
+        } else {
+          toast('Test recorded.', 'success');
+        }
+        closeTest();
+      } catch {
+        /* toast already raised by the store */
+      } finally {
+        testBusy.value = false;
+      }
+    };
+
+    /** Attaches or replaces the certificate on a record that already exists. */
+    const attachCertificate = async (record, event) => {
+      const file = event?.target?.files?.[0];
+      if (event?.target) event.target.value = '';
+      if (!file) return;
+      testBusy.value = true;
+      try {
+        await uploadInspectionCertificate(props.assetId, record.id, file);
+        toast('Certificate attached.', 'success');
+      } catch {
+        /* toast already raised */
+      } finally {
+        testBusy.value = false;
+      }
+    };
+
+    const removeTest = async () => {
+      const record = testConfirm.value;
+      testConfirm.value = null;
+      if (!record) return;
+      try {
+        await deleteInspection(props.assetId, record.id);
+        toast('Test record removed.', 'success');
+      } catch { /* toast already raised */ }
+    };
+
+    /** The certificate in the preview overlay, exactly like an attached document. */
+    const openCertificate = (record) => {
+      const href = `download.php?file=${encodeURIComponent(record.file)}`;
+      const ext = String(record.file || '').split('.').pop().toLowerCase();
+      const kind = ext === 'pdf' ? 'pdf'
+        : (['jpg', 'jpeg', 'png', 'webp'].includes(ext) ? 'image' : 'file');
+      openPreview({
+        kind,
+        src: kind === 'file' ? href : `${href}&inline=1`,
+        downloadHref: href,
+        title: `${record.label || 'Inspection'} · ${formatDate(record.at)}`,
+        size: record.fileSize,
+      });
+    };
+
+    const exportingTest = ref(false);
+    const inspectionPdf = async () => {
+      if (exportingTest.value || !asset.value) return;
+      exportingTest.value = true;
+      try {
+        await exportInspectionPdf(asset.value, state.settings);
+      } catch (error) {
+        toast(`Could not build the test report: ${error.message}`, 'danger', 8000);
+      } finally {
+        exportingTest.value = false;
+      }
+    };
+
     const quickCheckIn = async () => {
       try {
         await mutate('checkout.checkin', { assetIds: [props.assetId] });
@@ -731,6 +916,12 @@ export default {
       lines, outUnits, history, members, warrantyExpired, expiredUnits,
       warrantyMonths, warrantyIsAuto, warrantyUntilOf,
       unitsForm, unitsDirty, unitCode, unitDetail, touchUnits,
+      testRule, testEnabled, testRecords, testRows, testState, testLoose,
+      testForm, testFor, testFile, testBusy, testConfirm,
+      openTest, closeTest, onTestDate, onTestResult, pickTestFile, submitTest,
+      attachCertificate, removeTest, openCertificate,
+      exportingTest, inspectionPdf,
+      RESULTS, RESULT_LABEL, STATE_CLASS, STATE_LABEL, recordSummary, needsAttention,
       rentalForm, rentalDirty, rentalDays, rentalCurrency, touchRental, saveRental,
       categoryRate, categoryRateText, activeTier, rentalUnitAt, rateText, rateSource,
       unitValueText,
@@ -779,6 +970,17 @@ export default {
         <button class="btn btn-sm btn-outline-light" @click="quickCheckIn">Check in all</button>
       </div>
 
+      <!-- The test record, when it is not in order. Says it on every tab, like
+           the warranty line: it is the kind of fact that must not need a click. -->
+      <div v-if="(testEnabled || testRecords.length) && needsAttention(testState)"
+           class="alert py-2 px-3 small" :class="'alert-' + STATE_CLASS[testState]">
+        <i class="bi bi-clipboard-x"></i>
+        {{ STATE_LABEL[testState] }}<span v-if="testRule"> · {{ testRule.label }}</span> —
+        <button class="btn btn-link btn-sm p-0 align-baseline" @click="tab = 'inspection'">
+          open the test record
+        </button>
+      </div>
+
       <div v-if="warrantyExpired" class="alert alert-warning py-2 px-3 small">
         <i class="bi bi-shield-exclamation"></i>
         <span v-if="expiredUnits.length">Warranty expired for {{ expiredUnits.join(', ') }}.</span>
@@ -802,6 +1004,16 @@ export default {
         <li class="nav-item">
           <button class="nav-link" :class="{ active: tab === 'rental' }" @click="tab = 'rental'">
             Rental <i v-if="rentalDirty" class="bi bi-dot text-warning"></i>
+          </button>
+        </li>
+        <!-- Only where a test is actually asked for — plus anywhere records
+             already exist, so un-ticking a category never hides documentation. -->
+        <li class="nav-item" v-if="testEnabled || testRecords.length">
+          <button class="nav-link" :class="{ active: tab === 'inspection' }"
+                  @click="tab = 'inspection'">
+            Tests <span class="badge" :class="'bg-' + (needsAttention(testState) ? STATE_CLASS[testState] : 'secondary')">
+              {{ testRecords.length }}
+            </span>
           </button>
         </li>
         <li class="nav-item">
@@ -1176,6 +1388,219 @@ export default {
         </template>
       </div>
 
+      <!-- Test records. One history per physical piece, because that is what a
+           test certificate is about: cable 183.5, not "cables". -->
+      <div v-if="tab === 'inspection' && !isNew">
+        <div v-if="!testEnabled" class="alert alert-secondary py-2 px-3 small">
+          <i class="bi bi-info-circle"></i>
+          <span v-if="asset?.category">
+            "{{ asset.category }}" is not set up for tests. Tick it under
+            Settings → Inspections and this asset starts asking for a record.
+          </span>
+          <span v-else>
+            This asset has no category, and tests are switched on per category
+            under Settings → Inspections.
+          </span>
+          <span v-if="testRecords.length"> The records below stay either way.</span>
+        </div>
+
+        <div v-else class="alert py-2 px-3 small d-flex align-items-start gap-2"
+             :class="'alert-' + STATE_CLASS[testState]">
+          <i class="bi bi-clipboard-check"></i>
+          <div>
+            <strong>{{ testRule.label }}</strong> — {{ STATE_LABEL[testState] }}
+            <div class="text-secondary">
+              <span v-if="testRule.intervalMonths">
+                Valid for {{ testRule.intervalMonths }} month(s) from each pass.
+              </span>
+              <span v-else>No repeat — nothing falls due on its own.</span>
+              <span v-if="(testRule.fields || []).length">
+                Records {{ testRule.fields.join(', ') }}.
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="small text-secondary flex-grow-1">
+            {{ testRecords.length }} record(s) on {{ testRows.length }} piece(s)
+          </span>
+          <button type="button" class="btn btn-sm btn-outline-secondary"
+                  :disabled="exportingTest || !testRecords.length" @click="inspectionPdf"
+                  aria-label="Test report PDF for this asset">
+            <span v-if="exportingTest" class="spinner-border spinner-border-sm me-1"></span>
+            <i v-else class="bi bi-file-earmark-text"></i>
+            Test report
+          </button>
+        </div>
+
+        <ul class="list-group list-group-flush">
+          <li v-for="row in testRows" :key="row.code" class="list-group-item bg-transparent px-0">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="font-monospace small">{{ row.code }}</span>
+              <span v-if="row.label" class="small text-secondary text-truncate">{{ row.label }}</span>
+              <span class="badge" :class="'bg-' + STATE_CLASS[row.state]">
+                {{ STATE_LABEL[row.state] }}
+              </span>
+              <span class="flex-grow-1"></span>
+              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                      :disabled="testBusy" @click="openTest(row)"
+                      :aria-label="'Record a test for ' + row.code">
+                <i class="bi bi-plus"></i> Record test
+              </button>
+            </div>
+            <!-- Only when there IS a last test: the badge and the empty-state
+                 line below already say "never tested", and a third copy of it
+                 is noise on every untested piece. -->
+            <div v-if="row.latest" class="small text-secondary">{{ recordSummary(row.latest) }}</div>
+
+            <!-- The form, under the piece it is about. -->
+            <div v-if="testFor === row.code && testForm" class="trax-card mt-2">
+              <div class="trax-card-pad">
+                <div class="row g-2">
+                  <div class="col-6 col-md-4">
+                    <label class="form-label small mb-1" for="f-test-at">Tested on</label>
+                    <input class="form-control form-control-sm" id="f-test-at" type="date"
+                           :value="testForm.at" @input="onTestDate($event.target.value)">
+                  </div>
+                  <div class="col-6 col-md-4">
+                    <label class="form-label small mb-1" for="f-test-result">Result</label>
+                    <!-- Bound by hand, not with v-model: onTestResult() needs
+                         to compare the next date against what the interval
+                         said before the result changed. -->
+                    <select class="form-select form-select-sm" id="f-test-result"
+                            :value="testForm.result" @change="onTestResult($event.target.value)">
+                      <option v-for="r in RESULTS" :key="r" :value="r">{{ RESULT_LABEL[r] }}</option>
+                    </select>
+                  </div>
+                  <div class="col-12 col-md-4">
+                    <label class="form-label small mb-1" for="f-test-next">Next test</label>
+                    <input class="form-control form-control-sm" id="f-test-next" type="date"
+                           v-model="testForm.nextAt">
+                  </div>
+                  <div class="col-12 col-md-6">
+                    <label class="form-label small mb-1" for="f-test-by">Tested by</label>
+                    <input class="form-control form-control-sm" id="f-test-by" maxlength="120"
+                           v-model="testForm.by" placeholder="Who did the test">
+                  </div>
+                  <div class="col-12 col-md-6">
+                    <label class="form-label small mb-1" for="f-test-label">Test</label>
+                    <input class="form-control form-control-sm" id="f-test-label" maxlength="120"
+                           v-model="testForm.label" placeholder="e.g. DGUV V3">
+                  </div>
+
+                  <!-- The parameters the category asks for, in its order. -->
+                  <div v-for="(field, vi) in testForm.values" :key="vi" class="col-12 col-md-6">
+                    <label class="form-label small mb-1" :for="'f-test-value-' + vi">
+                      {{ field.name || ('Parameter ' + (vi + 1)) }}
+                    </label>
+                    <input class="form-control form-control-sm" :id="'f-test-value-' + vi"
+                           maxlength="120" v-model="field.value" placeholder="Measured value">
+                  </div>
+
+                  <div class="col-12">
+                    <label class="form-label small mb-1" for="f-test-note">Note</label>
+                    <textarea class="form-control form-control-sm" id="f-test-note" rows="2"
+                              maxlength="1000" v-model="testForm.note"></textarea>
+                  </div>
+
+                  <div class="col-12">
+                    <label class="form-label small mb-1" for="f-test-file">
+                      Certificate (optional)
+                    </label>
+                    <input class="form-control form-control-sm" id="f-test-file" type="file"
+                           accept="application/pdf,image/jpeg,image/png,image/webp,text/plain"
+                           @change="pickTestFile">
+                    <div class="form-text small">
+                      PDF, image or text. It can also be attached to the record later.
+                    </div>
+                  </div>
+                </div>
+
+                <div class="d-flex align-items-center gap-2 mt-3">
+                  <span class="small text-secondary flex-grow-1">
+                    Filed against {{ row.code }}.
+                  </span>
+                  <button type="button" class="btn btn-sm btn-outline-secondary"
+                          :disabled="testBusy" @click="closeTest">Cancel</button>
+                  <button type="button" class="btn btn-sm btn-primary"
+                          :disabled="testBusy" @click="submitTest">
+                    <span v-if="testBusy" class="spinner-border spinner-border-sm me-1"></span>
+                    Save test
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- This piece's history, newest first. -->
+            <ol v-if="row.records.length" class="list-unstyled mb-0 mt-2 ps-3 border-start border-secondary-subtle">
+              <li v-for="record in row.records" :key="record.id" class="py-1">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span class="badge" :class="record.result === 'PASS' ? 'bg-success' : 'bg-danger'">
+                    {{ RESULT_LABEL[record.result] }}
+                  </span>
+                  <span class="small">{{ formatDate(record.at) }}</span>
+                  <span v-if="record.label" class="trax-kind-chip">{{ record.label }}</span>
+                  <span v-if="record.nextAt" class="small text-secondary">
+                    next {{ formatDate(record.nextAt) }}
+                  </span>
+                  <span v-if="record.by" class="small text-secondary">· {{ record.by }}</span>
+                  <span class="flex-grow-1"></span>
+                  <button v-if="record.file" type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                          @click="openCertificate(record)"
+                          :aria-label="'Open the certificate of the test on ' + formatDate(record.at)">
+                    <i class="bi bi-paperclip"></i> Certificate
+                  </button>
+                  <label v-else class="btn btn-sm btn-outline-secondary py-0 px-2 mb-0">
+                    <i class="bi bi-upload"></i> Certificate
+                    <input type="file" class="d-none" :disabled="testBusy"
+                           accept="application/pdf,image/jpeg,image/png,image/webp,text/plain"
+                           @change="attachCertificate(record, $event)">
+                  </label>
+                  <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                          :disabled="testBusy" @click="testConfirm = record"
+                          :aria-label="'Remove the test record of ' + formatDate(record.at)">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+                <div v-if="record.values.length" class="small text-secondary">
+                  <span v-for="(value, xi) in record.values" :key="xi">
+                    {{ value.name }}: <span class="font-monospace">{{ value.value }}</span><span
+                      v-if="xi < record.values.length - 1"> · </span>
+                  </span>
+                </div>
+                <div v-if="record.note" class="small text-secondary">{{ record.note }}</div>
+              </li>
+            </ol>
+            <div v-else class="small text-secondary mt-1">No test on record for this one yet.</div>
+          </li>
+        </ul>
+
+        <!-- Records filed before the units were listed. They belong to the
+             record as a whole and would otherwise simply vanish from view. -->
+        <div v-if="testLoose.length" class="mt-3">
+          <h3 class="trax-page-title">Filed against the whole asset</h3>
+          <ol class="list-unstyled mb-0 small">
+            <li v-for="record in testLoose" :key="record.id" class="d-flex align-items-center gap-2 py-1">
+              <span class="badge" :class="record.result === 'PASS' ? 'bg-success' : 'bg-danger'">
+                {{ RESULT_LABEL[record.result] }}
+              </span>
+              <span>{{ formatDate(record.at) }}</span>
+              <span v-if="record.by" class="text-secondary">· {{ record.by }}</span>
+              <span class="flex-grow-1"></span>
+              <button v-if="record.file" type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                      @click="openCertificate(record)">
+                <i class="bi bi-paperclip"></i>
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                      :disabled="testBusy" @click="testConfirm = record">
+                <i class="bi bi-trash"></i>
+              </button>
+            </li>
+          </ol>
+        </div>
+      </div>
+
       <!-- Kit contents -->
       <div v-show="tab === 'members'">
         <p class="small text-secondary">
@@ -1382,5 +1807,15 @@ export default {
                      : 'This removes the asset and its photo. History entries are kept.'"
                    confirm-label="Delete" danger
                    @confirm="remove" @cancel="confirmDelete = false" />
+
+    <!-- A test record is documentation, so removing one asks first and says
+         what goes with it. -->
+    <ConfirmDialog v-if="testConfirm"
+                   title="Remove this test record?"
+                   :message="'The ' + (testConfirm.label || 'test') + ' of ' + formatDate(testConfirm.at)
+                     + ' is deleted' + (testConfirm.file ? ', together with its certificate.' : '.')
+                     + ' This cannot be undone.'"
+                   confirm-label="Remove" danger
+                   @confirm="removeTest" @cancel="testConfirm = null" />
   `,
 };

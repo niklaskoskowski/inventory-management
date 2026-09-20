@@ -15,7 +15,9 @@
  *      encodings: the name may contain nothing but [0-9a-f], one dot and a
  *      known extension, which no traversal, absolute path, backslash, encoded
  *      separator or NUL byte can satisfy.
- *   3. The name must actually appear in some asset's `documents` in data.json.
+ *   3. The name must actually appear in some asset's `documents` — or in one
+ *      of its `inspections`, which store a test certificate the same way — in
+ *      data.json.
  *      This is the guard that matters. Even a bypassed regex reaches only
  *      files this application deliberately wrote and still tracks; there is no
  *      arbitrary read behind it.
@@ -76,6 +78,16 @@ foreach ($data['assets'] as $asset) {
     foreach ($asset['documents'] ?? [] as $doc) {
         if (($doc['file'] ?? '') === $file) {
             $reference = $doc;
+            break 2;
+        }
+    }
+    // A test certificate is stored exactly like an attached document and is
+    // read through exactly this proxy, so it has to satisfy the same check —
+    // it is simply referenced from the asset's test records instead of its
+    // documents. `fileName` is what the record kept of the original name.
+    foreach ($asset['inspections'] ?? [] as $record) {
+        if (($record['file'] ?? '') === $file) {
+            $reference = ['name' => $record['fileName'] ?? ''];
             break 2;
         }
     }

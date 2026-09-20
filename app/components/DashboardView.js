@@ -3,12 +3,18 @@ import {
   state, overdueCheckouts, activeReservations, sets, items, getAsset, toast,
 } from '../store.js';
 import {
-  formatDateTime, daysOverdue, parseDate, isOverdue, formatMoney, formatTotals,
+  formatDate, formatDateTime, daysOverdue, parseDate, isOverdue, formatMoney, formatTotals,
   warrantyUntilOf,
 } from '../lib/format.js';
 import { computeValue } from '../lib/insights.js';
+import {
+  STATE_CLASS, STATE_LABEL, assetState, isTested, needsAttention, nextDueOf,
+} from '../lib/inspection.js';
 import { exportInsurancePdf } from '../lib/pdf.js';
 import StatusBadge from './ui/StatusBadge.js';
+
+/** Worst first, so the failures are at the top of the card and not the bottom. */
+const ATTENTION = { FAIL: 0, OVERDUE: 1, DUE: 2, NONE: 3, OK: 4 };
 
 /** At-a-glance view: what is out, what is late, what is coming up. */
 export default {
@@ -92,6 +98,21 @@ export default {
         .slice(0, 5);
     });
 
+    /**
+     * Gear whose test record is not in order — failed, overdue, due soon, or
+     * never tested at all. Only for categories that ask for a test: everything
+     * else has no record to be missing.
+     */
+    const inspectionDue = computed(() =>
+      items.value
+        .filter((asset) => isTested(state.settings, asset))
+        .map((asset) => ({ asset, state: assetState(asset), nextAt: nextDueOf(asset) }))
+        .filter((row) => needsAttention(row.state))
+        .sort((a, b) => (ATTENTION[a.state] - ATTENTION[b.state])
+          || String(a.nextAt || '9999').localeCompare(String(b.nextAt || '9999')))
+        .slice(0, 6),
+    );
+
     const recent = computed(() =>
       [...state.history]
         .sort((a, b) => (parseDate(b.at) || 0) - (parseDate(a.at) || 0))
@@ -122,7 +143,8 @@ export default {
 
     return {
       state, byStatus, value, zeroLabel, unpricedTop, totalUnits, unitsOut,
-      upcoming, dueSoon, warrantyExpiring, recent,
+      upcoming, dueSoon, warrantyExpiring, recent, inspectionDue,
+      STATE_CLASS, STATE_LABEL, formatDate,
       exportingInsurance, insurancePdf,
       overdueCheckouts, activeReservations, sets, items, getAsset,
       formatDateTime, daysOverdue, isOverdue, formatTotals, warrantyUntilOf, emit,
@@ -343,6 +365,29 @@ export default {
             </li>
             <li v-if="!upcoming.length" class="list-group-item bg-transparent text-secondary small">
               No reservations in the next two weeks.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Test records that are not in order. Only categories that ask for a
+           test appear here, so an install that tests nothing sees nothing. -->
+      <div v-if="inspectionDue.length" class="col-12">
+        <div class="trax-card">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">
+              <i class="bi bi-clipboard-x"></i> Tests needing attention
+              <span class="text-secondary small">({{ inspectionDue.length }})</span>
+            </h2>
+          </div>
+          <ul class="list-group list-group-flush">
+            <li v-for="row in inspectionDue" :key="row.asset.id"
+                class="list-group-item bg-transparent d-flex align-items-center gap-2">
+              <button class="trax-name-btn flex-grow-1" @click="emit('open', row.asset.id)">
+                {{ row.asset.name }}
+              </button>
+              <span v-if="row.nextAt" class="small text-secondary">{{ formatDate(row.nextAt) }}</span>
+              <span class="badge" :class="'bg-' + STATE_CLASS[row.state]">{{ STATE_LABEL[row.state] }}</span>
             </li>
           </ul>
         </div>
