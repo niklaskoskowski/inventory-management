@@ -138,6 +138,12 @@ const DEFAULT_SETTINGS = {
     locale: 'en-US',
     dateFormat: 'Y-m-d H:i',
   },
+  // Which categories have to show a test record, and what that test is.
+  // A category is tested by BEING in this list — there is no enabled flag to
+  // disagree with its own presence. See app/lib/inspection.js.
+  inspection: {
+    categories: [],
+  },
   // What hiring the gear out costs. `default` is the fallback rate, and
   // `categories` is a LIST of {category, ...rule} rather than a map keyed by
   // name — settings are saved as a deep-merged patch, and a map would make
@@ -779,6 +785,45 @@ export async function uploadDocuments(assetId, files, title = '') {
 /** Detaches one document and deletes its bytes. */
 export async function deleteDocument(assetId, file) {
   return mutate('asset.deleteDocument', { id: assetId, file });
+}
+
+// --- Inspections -----------------------------------------------------------
+// Test records are server-written: they carry ids the server hands out and can
+// point at a file on disk, so none of this goes through an asset patch.
+
+/** Files one test record, about a unit or about the asset as a whole. */
+export async function recordInspection(assetId, record) {
+  return mutate('asset.inspect', { id: assetId, ...record });
+}
+
+/**
+ * Attaches the certificate to a record that already exists.
+ *
+ * Two steps rather than one multipart request, which is what makes "the test
+ * is documented, the PDF arrives next week" a normal thing to do rather than a
+ * reason to leave the record unfiled.
+ */
+export async function uploadInspectionCertificate(assetId, inspectionId, file) {
+  state.loading = true;
+  try {
+    const body = await api.uploadBatch('asset.inspectionDocument', 'documents[]', [file], {
+      id: assetId,
+      inspectionId,
+    });
+    applySnapshot(body.data);
+    state.rev = body.rev ?? state.rev;
+    return body.data;
+  } catch (error) {
+    toast(error.message, 'danger', 8000);
+    throw error;
+  } finally {
+    state.loading = false;
+  }
+}
+
+/** Removes one test record and its certificate. */
+export async function deleteInspection(assetId, inspectionId) {
+  return mutate('asset.inspectionDelete', { id: assetId, inspectionId });
 }
 
 // --- Lookups used across components ----------------------------------------

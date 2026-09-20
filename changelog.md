@@ -6,6 +6,43 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-09-20
+
+### Added
+
+- **Inspection records — the test documentation for one physical piece.**
+  - **Settings → Inspections**, a checkbox per category. Tick "Power" and every cable in it starts
+    asking for a record; leave "Furniture" unticked and nothing is asked of it — the obligation goes
+    where it belongs instead of onto every record in the install. A ticked category carries what the
+    test is **called** ("DGUV V3"), how many **months** a pass is valid for (0 = record it, let
+    nothing fall due) and the **measured parameters** to write down, added with a + button. Those
+    names become the boxes on the test form, in that order, so the same readings are taken every
+    time.
+  - **Asset sheet → Tests tab.** One history per physical piece: cable 183.5 and cable 183.6 keep
+    separate records, which is the whole point — an item that does not track units files against the
+    record as a whole. Each record carries the date, **passed / failed**, who tested it, the next
+    test date, the measured values, a note and one **certificate** (PDF, image or text), attached
+    with the record or added later. A failure does not start a new validity period: switching the
+    result to failed takes the prefilled next date back, and a date typed by hand is never moved.
+  - **Test report PDF** per asset (`exportInspectionPdf()`): one block per piece, every record on
+    file, failures in red, never-tested pieces listed as such rather than left out, certificates
+    named. This is the "show me the paperwork for 183.5" document.
+  - **Flagged where it is noticed**: a banner in the asset sheet on every tab (failed, overdue, due
+    within 30 days, never tested) and a **Tests needing attention** card on the dashboard, worst
+    first. Nothing is blocked from going out — the app documents, the operator decides.
+  - Storage: `settings.inspection.categories` (a list, like the rental rates, so un-ticking a
+    category actually removes it through a deep-merged patch) and `asset.inspections` +
+    `asset.inspectionSeq`. A record names the `unitNo` it is about and lives on the **asset**, not
+    inside `units`: a units patch rewrites that list whole, and a test certificate must not be
+    something an operator can delete by renaming a cable. Ids are server-issued and never reused.
+  - Written through `asset.inspect`, `asset.inspectionDocument` and `asset.inspectionDelete`, never
+    through an asset patch — a record can point at a file on disk. The certificate goes through the
+    same pipeline as an attached document (sniffed type, stored under a name we chose, in the denied
+    `documents/` directory) and `download.php` now accepts a file referenced by an inspection as
+    well as one in `documents`. Deleting the record, or the asset, deletes the certificate with it.
+  - Renaming or merging a category moves its test rule with it, in the same mutation as its rental
+    rate. Records already filed always stay — they document something that happened.
+
 ## 2026-09-19
 
 ### Added

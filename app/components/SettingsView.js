@@ -3,6 +3,7 @@ import { state, settings, taxonomyUsage, mutate, toast } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney } from '../lib/format.js';
 import { BLANK_RULE, daysLabel, formatPercent, tierFor } from '../lib/rental.js';
+import { BLANK_RULE as BLANK_INSPECTION } from '../lib/inspection.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 import RentalRate from './RentalRate.js';
 
@@ -20,6 +21,7 @@ import RentalRate from './RentalRate.js';
 const SECTIONS = [
   { id: 'taxonomy', label: 'Taxonomy', icon: 'bi-tags' },
   { id: 'rental', label: 'Rental rates', icon: 'bi-cash-coin' },
+  { id: 'inspection', label: 'Inspections', icon: 'bi-clipboard-check' },
   { id: 'email', label: 'Email', icon: 'bi-envelope' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
   { id: 'defaults', label: 'Defaults & automation', icon: 'bi-sliders' },
@@ -157,6 +159,10 @@ export default {
       next.rental = next.rental || {};
       next.rental.default = { ...clone(BLANK_RULE), ...(next.rental.default || {}) };
       next.rental.categories = Array.isArray(next.rental.categories) ? next.rental.categories : [];
+      next.inspection = next.inspection || {};
+      next.inspection.categories = Array.isArray(next.inspection.categories)
+        ? next.inspection.categories
+        : [];
       for (const key of templateKeys.value) {
         next.email.templates[key] = { ...EMPTY_TEMPLATE, ...(next.email.templates[key] || {}) };
       }
@@ -353,6 +359,58 @@ export default {
       const total = (SAMPLE_VALUE * percent) / 100 * days;
       return `${formatPercent(percent)} %/day · ${formatMoney(total, currency.value)} for `
         + `${daysLabel(days)} on a ${formatMoney(SAMPLE_VALUE, currency.value)} item`;
+    };
+
+    // --- Inspections ---
+    // Ticking a category is what switches testing on for it: the rule's
+    // PRESENCE in the list is the flag, so there is nothing that can disagree
+    // with it. Untick and the rule goes; the records already filed stay, they
+    // are documentation of something that happened.
+
+    const inspectionRuleFor = (name) =>
+      (draft.value.inspection.categories || []).find((rule) => rule.category === name) || null;
+
+    const inspectionRows = computed(() => {
+      const names = new Set(taxonomyUsage.value.categories.map((row) => row.value));
+      for (const rule of draft.value.inspection.categories || []) names.add(rule.category);
+      return [...names]
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+        .map((name) => ({ name, count: usageOf('categories', name), rule: inspectionRuleFor(name) }));
+    });
+
+    const toggleInspection = (name, on) => {
+      if (on) {
+        if (!inspectionRuleFor(name)) {
+          draft.value.inspection.categories.push({ category: name, ...clone(BLANK_INSPECTION) });
+        }
+        return;
+      }
+      draft.value.inspection.categories = (draft.value.inspection.categories || [])
+        .filter((rule) => rule.category !== name);
+    };
+
+    /** One more measurement to write down. Named here, filled in per test. */
+    const addInspectionField = (rule) => {
+      if (!Array.isArray(rule.fields)) rule.fields = [];
+      if (rule.fields.length >= 12) return;
+      rule.fields.push('');
+    };
+
+    const removeInspectionField = (rule, index) => {
+      rule.fields.splice(index, 1);
+    };
+
+    /** How a rule reads in one line, under the row. */
+    const inspectionSummary = (rule) => {
+      if (!rule) return 'Not tested — no record is asked for.';
+      const months = Math.max(0, Number(rule.intervalMonths) || 0);
+      const every = months
+        ? `every ${months} month${months === 1 ? '' : 's'}`
+        : 'no repeat — nothing falls due on its own';
+      const fields = (rule.fields || []).filter(Boolean);
+      return `${rule.label || 'Inspection'} · ${every}`
+        + (fields.length ? ` · records ${fields.join(', ')}` : ' · no measured parameters');
     };
 
     // --- Taxonomy ---
@@ -634,6 +692,8 @@ export default {
       SECTIONS, AUTH_MODES, TAXONOMIES, CUSTOMER_MAIL, CRON_MAIL, HOURS, LOCALES,
       section, draft, busy, patch, dirty, save, revert,
       rentalRows, addRentalRule, removeRentalRule, rulePreview, previewDays,
+      inspectionRows, toggleInspection, addInspectionField, removeInspectionField,
+      inspectionSummary,
       currency, daysLabel, formatPercent,
       editing, editValue, pending, usageOf, mergeOptions, isEditing,
       startEdit, cancelEdit, taxonomyPayload, applyTaxonomy,
@@ -797,6 +857,133 @@ export default {
               Nothing uses a category yet, so there is nothing to price separately.
             </li>
           </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inspections ------------------------------------------------------ -->
+    <div v-else-if="section === 'inspection'" class="row g-3">
+      <div class="col-12 col-xl-8">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">
+              <i class="bi bi-clipboard-check"></i> Tested categories
+              <span class="text-secondary small">({{ inspectionRows.length }})</span>
+            </h2>
+            <p class="trax-page-sub">
+              Tick a category and every item in it gets a Test tab: when it was tested, whether it
+              passed, what was measured and the certificate. Nothing is asked of the categories you
+              leave unticked — a folding table does not get a test record.
+            </p>
+          </div>
+
+          <ul class="list-group list-group-flush">
+            <li v-for="row in inspectionRows" :key="row.name" class="list-group-item bg-transparent">
+              <div class="d-flex align-items-center gap-2">
+                <div class="form-check mb-0 flex-grow-1 min-w-0">
+                  <input class="form-check-input" type="checkbox" :id="'insp-' + row.name"
+                         :checked="!!row.rule" :disabled="busy"
+                         @change="toggleInspection(row.name, $event.target.checked)">
+                  <label class="form-check-label text-truncate" :for="'insp-' + row.name">
+                    {{ row.name }}
+                  </label>
+                </div>
+                <span class="trax-kind-chip">{{ row.count }}</span>
+              </div>
+
+              <div v-if="row.rule" class="row g-2 mt-1">
+                <div class="col-12 col-sm-6">
+                  <label class="form-label small mb-1" :for="'insp-label-' + row.name">
+                    What the test is called
+                  </label>
+                  <input class="form-control form-control-sm" :id="'insp-label-' + row.name"
+                         v-model="row.rule.label" maxlength="120" placeholder="e.g. DGUV V3">
+                </div>
+                <div class="col-12 col-sm-6">
+                  <label class="form-label small mb-1" :for="'insp-months-' + row.name">
+                    Valid for
+                  </label>
+                  <div class="input-group input-group-sm">
+                    <input class="form-control text-end" :id="'insp-months-' + row.name"
+                           type="number" min="0" max="240" step="1"
+                           v-model="row.rule.intervalMonths">
+                    <span class="input-group-text">months</span>
+                  </div>
+                  <div class="form-text small">0 = record it, but let nothing fall due.</div>
+                </div>
+
+                <div class="col-12">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="small text-secondary flex-grow-1">
+                      Measured parameters
+                      <span v-if="(row.rule.fields || []).length">({{ row.rule.fields.length }})</span>
+                    </span>
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                            :disabled="busy || (row.rule.fields || []).length >= 12"
+                            @click="addInspectionField(row.rule)">
+                      <i class="bi bi-plus"></i> Parameter
+                    </button>
+                  </div>
+                  <div v-for="(field, fi) in (row.rule.fields || [])" :key="fi"
+                       class="d-flex align-items-center gap-1 mt-1">
+                    <input class="form-control form-control-sm" v-model="row.rule.fields[fi]"
+                           maxlength="120" placeholder="e.g. Insulation resistance"
+                           :aria-label="'Parameter ' + (fi + 1) + ' of ' + row.name">
+                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                            :aria-label="'Remove parameter ' + (fi + 1)"
+                            @click="removeInspectionField(row.rule, fi)">
+                      <i class="bi bi-x"></i>
+                    </button>
+                  </div>
+                  <p class="form-text small mb-0">
+                    These become the boxes on the test form, in this order, so the same readings are
+                    written down every time.
+                  </p>
+                </div>
+              </div>
+
+              <div class="small text-secondary">{{ inspectionSummary(row.rule) }}</div>
+            </li>
+
+            <li v-if="!inspectionRows.length"
+                class="list-group-item bg-transparent small text-secondary">
+              Nothing uses a category yet, so there is nothing to put a test on.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-4">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title"><i class="bi bi-info-circle"></i> How it works</h2>
+            <ul class="small text-secondary ps-3 mb-0">
+              <li class="mb-2">
+                A record belongs to <strong>one piece</strong>: cable 183.5 and cable 183.6 keep
+                separate histories, so each one can show its own documentation.
+              </li>
+              <li class="mb-2">
+                An item that does not track units individually files its records against the record
+                as a whole.
+              </li>
+              <li class="mb-2">
+                Each record carries the date, pass or fail, who tested it, the measured values, a
+                note and one certificate (PDF, image or text).
+              </li>
+              <li class="mb-2">
+                The next test date is filled in from the interval above and can be overruled per
+                record — a re-test agreed for six months is a real answer.
+              </li>
+              <li class="mb-2">
+                Overdue and failed pieces are flagged in the asset sheet and on the dashboard.
+                Nothing is blocked from going out: the app documents, the operator decides.
+              </li>
+              <li>
+                Un-ticking a category stops the asking. The records already filed stay — they are
+                documentation of something that happened.
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>

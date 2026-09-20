@@ -13,6 +13,9 @@ import {
 } from './format.js';
 import { computeValue, valueOfLines, currencyOf, priceOf, unitsOf } from './insights.js';
 import { rentalOfLines, daysLabel } from './rental.js';
+import {
+  RESULT_LABEL, STATE_LABEL, assetState, inspectionRows, inspectionRule, recordsFor,
+} from './inspection.js';
 import { state } from '../store.js';
 
 /** The brand colour's fallback, matching lib/store.php's default. */
@@ -1239,6 +1242,193 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
 
   footer(doc);
   doc.save(`${slug(appName(), 'assets')}-rental-${dateStamp(new Date())}.pdf`);
+}
+
+
+/**
+ * The test report: one asset's inspection history, piece by piece.
+ *
+ * This is the document the whole feature exists for — "show me the paperwork
+ * for cable 183.5". So it is built to be handed to whoever asks:
+ *
+ * - One block per physical piece, headed by its code, because a certificate is
+ *   about one cable and not about "cables".
+ * - Every record is listed, passes and failures alike. A report that showed
+ *   only the passes would be worth nothing.
+ * - The measured values are printed as recorded, under the row they belong to.
+ * - Where a certificate is attached the report says so by name; the file
+ *   itself stays in the app, behind the login.
+ * - No prices: what a thing is worth has nothing to do with whether it is safe.
+ */
+export async function exportInspectionPdf(asset, settings = null) {
+  if (!asset) throw new Error('No asset.');
+
+  const rule = inspectionRule(settings ?? state.settings, asset.category);
+  const rows = inspectionRows(asset);
+  // Records filed against the asset as a whole although it tracks units now —
+  // older than the unit list, and still part of its documentation.
+  const loose = (asset.units || []).length
+    ? recordsFor(asset, null)
+    : [];
+
+  const total = rows.reduce((sum, row) => sum + row.records.length, 0) + loose.length;
+  if (!total) throw new Error('Nothing has been tested yet.');
+
+  const [JsPDF, logo] = await Promise.all([jsPdf(), brandLogo()]);
+
+  const doc = new JsPDF();
+  const id = reportId();
+  const title = 'Test Report';
+  const [r, g, b] = BRAND();
+
+  decorate(doc, title, id, logo);
+
+  const details = [
+    ['Asset', `${asset.name || ''} (#${asset.id})`],
+    ['Category', asset.category || DASH],
+    ['Test', rule?.label || (rows.find((row) => row.latest)?.latest?.label) || 'Inspection'],
+  ];
+  if (asset.serial) details.push(['Serial', String(asset.serial)]);
+  if (rule?.intervalMonths) details.push(['Interval', `${rule.intervalMonths} month(s)`]);
+  details.push(['Status', STATE_LABEL[assetState(asset)] || '']);
+
+  doc.autoTable({
+    startY: CONTENT_TOP,
+    body: details,
+    theme: 'plain',
+    styles: { fontSize: 9, cellPadding: 1.2 },
+    columnStyles: { 0: { fontStyle: 'bold', textColor: BRAND(), cellWidth: 32 } },
+    margin: { left: 14, right: 14 },
+  });
+
+  let y = doc.lastAutoTable.finalY + 6;
+  const height = doc.internal.pageSize.getHeight();
+
+  /** One piece's history as its own table, headed by the piece. */
+  const block = (heading, note, records) => {
+    if (!records.length) return;
+
+    if (y > height - 40) {
+      doc.addPage();
+      decorate(doc, title, id, logo);
+      y = CONTENT_TOP;
+    }
+
+    doc.setFontSize(10);
+    doc.setTextColor(r, g, b);
+    doc.text(heading, 14, y);
+    if (note) {
+      doc.setFontSize(8);
+      doc.setTextColor(110, 120, 140);
+      doc.text(note, doc.internal.pageSize.getWidth() - 14, y, { align: 'right' });
+    }
+    doc.setTextColor(0, 0, 0);
+    y += 2;
+
+    doc.autoTable({
+      startY: y,
+      head: [['Tested', 'Result', 'Next', 'By', 'Readings and notes']],
+      body: records.map((record) => [
+        formatDate(record.at),
+        RESULT_LABEL[record.result] || record.result,
+        record.nextAt ? formatDate(record.nextAt) : DASH,
+        record.by || DASH,
+        [
+          (record.values || []).map((value) => `${value.name}: ${value.value}`).join(' · '),
+          record.note || '',
+          record.file ? `Certificate: ${record.fileName || record.file}` : '',
+        ].filter(Boolean).join('\n') || DASH,
+      ]),
+      styles: { fontSize: 9, cellPadding: 1.6, valign: 'top' },
+      headStyles: { fillColor: BRAND(), textColor: 255 },
+      alternateRowStyles: { fillColor: ZEBRA() },
+      columnStyles: {
+        0: { cellWidth: 24 },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 24 },
+        3: { cellWidth: 30 },
+      },
+      // A failure is the line somebody is looking for, so it is red rather
+      // than one row of five that happens to say "Failed".
+      didParseCell: (data) => {
+        if (data.section !== 'body') return;
+        if (records[data.row.index]?.result === 'FAIL') {
+          data.cell.styles.textColor = [176, 42, 42];
+          if (data.column.index === 1) data.cell.styles.fontStyle = 'bold';
+        }
+      },
+      margin: { left: 14, right: 14, top: CONTENT_TOP },
+      didDrawPage: (data) => {
+        if (data.pageNumber > 1) decorate(doc, title, id, logo);
+      },
+    });
+
+    y = doc.lastAutoTable.finalY + 7;
+  };
+
+  for (const row of rows) {
+    const heading = row.label ? `${row.code} — ${row.label}` : row.code;
+    block(heading, STATE_LABEL[row.state] || '', row.records);
+
+    // A piece with no record at all still belongs in the report: "never
+    // tested" is the finding, and leaving it out would hide it.
+    if (!row.records.length) {
+      if (y > height - 24) {
+        doc.addPage();
+        decorate(doc, title, id, logo);
+        y = CONTENT_TOP;
+      }
+      doc.setFontSize(10);
+      doc.setTextColor(r, g, b);
+      doc.text(row.label ? `${row.code} — ${row.label}` : row.code, 14, y);
+      doc.setFontSize(9);
+      doc.setTextColor(110, 120, 140);
+      doc.text('No test on record.', 14, y + 5);
+      doc.setTextColor(0, 0, 0);
+      y += 11;
+    }
+  }
+
+  block('Filed against the whole asset', '', loose);
+
+  if (y > height - 26) {
+    doc.addPage();
+    decorate(doc, title, id, logo);
+    y = CONTENT_TOP;
+  }
+
+  doc.setDrawColor(r, g, b);
+  doc.setLineWidth(0.4);
+  doc.line(14, y, doc.internal.pageSize.getWidth() - 14, y);
+  doc.setLineWidth(0.2);
+  doc.setDrawColor(0, 0, 0);
+  y += 6;
+
+  doc.setFontSize(9);
+  doc.text(
+    `${total} record(s) on ${rows.length} piece(s)`
+    + (rule?.intervalMonths ? ` · ${rule.label} every ${rule.intervalMonths} month(s)` : ''),
+    14,
+    y,
+  );
+  y += 4;
+
+  doc.setFontSize(8);
+  doc.setTextColor(110, 120, 140);
+  const room = doc.internal.pageSize.getWidth() - 28;
+  const caveat = 'Certificates named above are held in the system and are not part of this '
+    + 'printout. This report lists every record on file, passes and failures alike.';
+  for (const line of doc.splitTextToSize(caveat, room)) {
+    doc.text(line, 14, y);
+    y += 3.6;
+  }
+  doc.setTextColor(0, 0, 0);
+
+  footer(doc);
+  doc.save(
+    `${slug(appName(), 'assets')}-tests-${slug(asset.name, 'asset')}-${asset.id}`
+    + `-${dateStamp(new Date())}.pdf`,
+  );
 }
 
 // --- Booking (one checkout group, or one reservation) ----------------------

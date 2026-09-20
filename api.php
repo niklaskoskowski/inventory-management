@@ -155,6 +155,9 @@ if ($isPost) {
             'id'        => trax_int($_POST['id'] ?? null),
             'bookingId' => trax_int($_POST['bookingId'] ?? null),
             'assetId'   => trax_int($_POST['assetId'] ?? null),
+            // The test record a certificate is being attached to. Listed here
+            // to exist at all: this array IS the multipart payload.
+            'inspectionId' => trax_int($_POST['inspectionId'] ?? null),
             'note'      => trax_str($_POST['note'] ?? ''),
             // The operator's label for a document batch. It has to be listed
             // here to exist at all: this array IS the multipart payload.
@@ -643,6 +646,49 @@ function trax_rental_patch_error(mixed $rental): ?string
     return null;
 }
 
+/**
+ * Why an inspection patch cannot be stored, or null.
+ *
+ * Same rule as the rental rates: checked BEFORE the mutation, so a refused
+ * number writes nothing and the operator gets the reason instead of an empty
+ * box. Only what was sent is checked — an absent key keeps what is stored.
+ */
+function trax_inspection_patch_error(mixed $inspection): ?string
+{
+    if (!is_array($inspection)) {
+        return null;
+    }
+    if (isset($inspection['categories']) && !is_array($inspection['categories'])) {
+        return 'Field "inspection.categories" must be a list of rules.';
+    }
+
+    foreach ((array)($inspection['categories'] ?? []) as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $where = trax_str($entry['category'] ?? '', 120) ?: 'Inspection rule';
+
+        if (trax_str($entry['category'] ?? '', 120) === '') {
+            return 'An inspection rule has to name the category it applies to.';
+        }
+        if (array_key_exists('intervalMonths', $entry)) {
+            $months = trax_int($entry['intervalMonths'] ?? null);
+            if ($months === null || $months < 0 || $months > TRAX_MAX_INSPECTION_MONTHS) {
+                return "{$where}: the interval is a whole number of months, 0 to "
+                    . TRAX_MAX_INSPECTION_MONTHS . ' (0 = no repeat).';
+            }
+        }
+        if (isset($entry['fields']) && !is_array($entry['fields'])) {
+            return "{$where}: the measured parameters must be a list of names.";
+        }
+        if (is_array($entry['fields'] ?? null) && count($entry['fields']) > TRAX_MAX_INSPECTION_FIELDS) {
+            return "{$where}: at most " . TRAX_MAX_INSPECTION_FIELDS . ' parameters can be asked for.';
+        }
+    }
+
+    return null;
+}
+
 /** Applies only the asset fields a client is allowed to set. */
 function apply_asset_patch(array $asset, array $patch): array
 {
@@ -1117,6 +1163,14 @@ try {
                     trax_delete_document_file((string)$doc['file']);
                 }
 
+                // And every test certificate, which is stored the same way and
+                // would be just as orphaned.
+                foreach ($asset['inspections'] ?? [] as $record) {
+                    if (!empty($record['file'])) {
+                        trax_delete_document_file((string)$record['file']);
+                    }
+                }
+
                 return [];
             });
 
@@ -1455,6 +1509,233 @@ try {
                 trax_snapshot($result['data'], $result['checkouts']),
                 $result['result']
             ), $result['rev']);
+        }
+
+
+        // --- Inspections ---------------------------------------------------
+        // The test record for one piece of gear. Written here and never
+        // through a patch: an entry can name a file on disk, and the ids are
+        // the server's to hand out.
+
+        case 'asset.inspect': {
+            $id     = req_int($payload, 'id');
+            $unitNo = trax_int($payload['unitNo'] ?? null);
+            $at     = trax_date($payload['at'] ?? null);
+            if ($at === null) {
+                trax_fail('BAD_REQUEST', 'Field "at" must be the date the test was done.');
+            }
+            // Documentation of something that has happened. A date in the
+            // future is a typo, and one stored is a certificate that says the
+            // gear was tested on a day that has not come.
+            if ($at > date('Y-m-d', time() + 86400)) {
+                trax_fail('BAD_REQUEST', 'A test cannot be dated in the future.');
+            }
+
+            $result = trax_enum($payload['result'] ?? null, TRAX_INSPECTION_RESULTS, 'PASS');
+            $nextAt = trax_date($payload['nextAt'] ?? null);
+            if ($nextAt !== null && $nextAt < $at) {
+                trax_fail('BAD_REQUEST', 'The next test cannot fall before this one.');
+            }
+
+            $entry = [
+                'unitNo' => $unitNo,
+                'at'     => $at,
+                'result' => $result,
+                'by'     => trax_str($payload['by'] ?? '', 120) ?: $actor,
+                'label'  => trax_str($payload['label'] ?? '', 120),
+                'nextAt' => $nextAt,
+                'note'   => trax_str($payload['note'] ?? '', 1000),
+                'values' => is_array($payload['values'] ?? null) ? $payload['values'] : [],
+            ];
+
+            $mutation = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($id, $entry, $actor): array {
+                $asset = trax_find_asset($data['assets'], $id);
+                if ($asset === null) {
+                    throw new TraxInvalid("Asset #{$id} not found.");
+                }
+                if (count($asset['inspections'] ?? []) >= TRAX_MAX_ASSET_INSPECTIONS) {
+                    throw new TraxInvalid(
+                        'This asset already holds ' . TRAX_MAX_ASSET_INSPECTIONS . ' test records.'
+                    );
+                }
+
+                // A record has to point at a piece that exists, or at the whole
+                // asset — never at a unit number this asset has never had.
+                if ($entry['unitNo'] !== null) {
+                    $known = array_map(static fn(array $u): int => (int)$u['no'], $asset['units'] ?? []);
+                    if (!in_array((int)$entry['unitNo'], $known, true)) {
+                        throw new TraxInvalid(
+                            'Unit ' . trax_unit_code($id, (int)$entry['unitNo']) . ' is not part of this asset.'
+                        );
+                    }
+                }
+
+                // The rule names the test when the record does not, so an entry
+                // made from the sheet says "DGUV V3" rather than nothing.
+                if ($entry['label'] === '') {
+                    $rule = trax_inspection_rule_for($data['settings'], (string)$asset['category']);
+                    $entry['label'] = $rule['label'] ?? 'Inspection';
+                }
+
+                $newId = 0;
+                trax_update_asset($data, $id, static function (array $a) use ($entry, &$newId): array {
+                    $newId           = max(0, (int)($a['inspectionSeq'] ?? 0)) + 1;
+                    $a['inspectionSeq'] = $newId;
+                    $a['inspections'][] = $entry + ['id' => $newId];
+                    return $a;
+                });
+
+                $where = $entry['unitNo'] !== null
+                    ? trax_unit_code($id, (int)$entry['unitNo'])
+                    : '#' . $id;
+
+                trax_append_history($data, 'inspection_recorded', [
+                    'assetId' => $id,
+                    'unitNos' => $entry['unitNo'] !== null ? [$entry['unitNo']] : [],
+                    'note'    => $entry['label'] . ' on ' . $where . ': '
+                        . ($entry['result'] === 'PASS' ? 'passed' : 'failed') . ' ' . $entry['at'],
+                    'actor'   => $actor,
+                ]);
+
+                return ['id' => $id, 'inspectionId' => $newId];
+            });
+
+            trax_ok(array_merge(
+                trax_snapshot($mutation['data'], $mutation['checkouts']),
+                $mutation['result']
+            ), $mutation['rev']);
+        }
+
+        case 'asset.inspectionDocument': {
+            $id           = req_int($payload, 'id');
+            $inspectionId = req_int($payload, 'inspectionId');
+
+            if (!isset($_FILES['documents'])) {
+                trax_fail('BAD_REQUEST', 'No file was uploaded.');
+            }
+
+            // The bytes land first, exactly as the document and photo batches
+            // do — PHP's temporary upload is gone by the time a deferred write
+            // could run — and are removed again if the mutation is refused.
+            $stored = trax_store_documents($_FILES['documents']);
+            if (count($stored) !== 1) {
+                foreach ($stored as $doc) {
+                    trax_delete_document_file((string)$doc['file']);
+                }
+                trax_fail('BAD_REQUEST', 'A test record carries one certificate.');
+            }
+            $certificate = $stored[0];
+
+            try {
+                $mutation = trax_mutate(
+                    $clientRev,
+                    function (array &$data, array &$checkouts) use ($id, $inspectionId, $certificate, $actor): array {
+                        $replaced = null;
+                        $found    = false;
+
+                        $ok = trax_update_asset($data, $id, static function (array $a) use ($inspectionId, $certificate, &$replaced, &$found): array {
+                            foreach ($a['inspections'] as $index => $record) {
+                                if ((int)$record['id'] !== $inspectionId) {
+                                    continue;
+                                }
+                                $found    = true;
+                                // One certificate per record: attaching a second
+                                // replaces the first, which is then unlinked
+                                // below — after the write has committed.
+                                $replaced = $record['file'] ?? null;
+                                $a['inspections'][$index]['file']     = $certificate['file'];
+                                $a['inspections'][$index]['fileName'] = $certificate['name'];
+                                $a['inspections'][$index]['fileSize'] = $certificate['size'];
+                                break;
+                            }
+                            return $a;
+                        });
+
+                        if (!$ok) {
+                            throw new TraxInvalid("Asset #{$id} not found.");
+                        }
+                        if (!$found) {
+                            throw new TraxInvalid('That test record does not exist.');
+                        }
+
+                        trax_append_history($data, 'inspection_certificate', [
+                            'assetId' => $id,
+                            'note'    => 'Certificate attached',
+                            'actor'   => $actor,
+                        ]);
+
+                        return ['id' => $id, 'inspectionId' => $inspectionId, 'replaced' => $replaced];
+                    }
+                );
+            } catch (Throwable $e) {
+                trax_delete_document_file((string)$certificate['file']);
+                throw $e;
+            }
+
+            // Only once the record no longer points at it.
+            $replaced = $mutation['result']['replaced'] ?? null;
+            if (is_string($replaced) && $replaced !== '') {
+                trax_delete_document_file($replaced);
+            }
+            unset($mutation['result']['replaced']);
+
+            trax_ok(array_merge(
+                trax_snapshot($mutation['data'], $mutation['checkouts']),
+                $mutation['result']
+            ), $mutation['rev']);
+        }
+
+        case 'asset.inspectionDelete': {
+            $id           = req_int($payload, 'id');
+            $inspectionId = req_int($payload, 'inspectionId');
+
+            $mutation = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($id, $inspectionId, $actor): array {
+                $removed = null;
+                $hit     = false;
+
+                $found = trax_update_asset($data, $id, static function (array $a) use ($inspectionId, &$removed, &$hit): array {
+                    $kept = [];
+                    foreach ($a['inspections'] as $record) {
+                        if ((int)$record['id'] === $inspectionId) {
+                            $hit     = true;
+                            $removed = $record['file'] ?? null;
+                            continue;
+                        }
+                        $kept[] = $record;
+                    }
+                    $a['inspections'] = $kept;
+                    return $a;
+                });
+
+                if (!$found) {
+                    throw new TraxInvalid("Asset #{$id} not found.");
+                }
+                if (!$hit) {
+                    throw new TraxInvalid('That test record does not exist.');
+                }
+
+                trax_append_history($data, 'inspection_removed', [
+                    'assetId' => $id,
+                    'note'    => 'Test record removed',
+                    'actor'   => $actor,
+                ]);
+
+                return ['id' => $id, 'inspectionId' => $inspectionId, 'file' => $removed];
+            });
+
+            // Unlinked only once the write has committed, like a document: a
+            // mutation refused as stale must not leave a record pointing at
+            // nothing.
+            $file = $mutation['result']['file'] ?? null;
+            if (is_string($file) && $file !== '') {
+                trax_delete_document_file($file);
+            }
+            unset($mutation['result']['file']);
+
+            trax_ok(array_merge(
+                trax_snapshot($mutation['data'], $mutation['checkouts']),
+                $mutation['result']
+            ), $mutation['rev']);
         }
 
         // --- Sets ----------------------------------------------------------
@@ -2744,6 +3025,11 @@ try {
             $rentalError = trax_rental_patch_error($patch['rental'] ?? null);
             if ($rentalError !== null) {
                 trax_fail('BAD_REQUEST', $rentalError);
+            }
+
+            $inspectionError = trax_inspection_patch_error($patch['inspection'] ?? null);
+            if ($inspectionError !== null) {
+                trax_fail('BAD_REQUEST', $inspectionError);
             }
 
             $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($patch): array {

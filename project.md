@@ -86,6 +86,8 @@ committing. Add a key only together with its normaliser.
 | `conditionLog` | dated condition photos of the asset itself, independent of any loan |
 | `documents` | attached files, served only via `download.php` |
 | `rental` | `{mode: INHERIT\|PERCENT\|FIXED, percent, fixed, fixedPer: RENTAL\|DAY}` — what this record costs to **hire**, when it differs from its category's rate. `INHERIT` (and `null` numbers) on everything written before rental pricing existed — see [Rental pricing](#rental-pricing) |
+| `inspections` | test records, newest first, each naming the `unitNo` it is about — see [Inspections](#inspections). Server-written: not in the `apply_asset_patch()` whitelist, because a record can point at a file on disk |
+| `inspectionSeq` | int ≥ 0, the highest test-record id this asset has handed out. Server-managed and only ever up, so a deleted record's id is retired |
 
 ### Units (per-unit tracking)
 
@@ -184,8 +186,8 @@ moment the gear came back.
 `faviconFile`, `labelHeading`, `whatsapp`), `defaults.*` (`loanDays`, `dueHour`,
 `reservationStartHour`, `warrantyMonths` — 0..120, default 24, months added to a purchase date to
 auto-fill the warranty date in the asset sheet, `0` off —, `currency`, `allowPartialDefault`,
-`overdueGraceDays`, `locale`, `dateFormat`), `rental.*` (see below) and `cron.*` (`secret`,
-`dueSoonHours`, `overdueRepeatDays`). Each key falls back to a `TRAX_*` constant.
+`overdueGraceDays`, `locale`, `dateFormat`), `rental.*` and `inspection.*` (see below) and `cron.*`
+(`secret`, `dueSoonHours`, `overdueRepeatDays`). Each key falls back to a `TRAX_*` constant.
 
 ## Rental pricing
 
@@ -233,6 +235,45 @@ No purchase value, and no rate: a percentage is a fraction of what the gear cost
 printing it beside the price would hand that value over by division. `formatPercent()` and the
 resolved rate belong to the operator's screens (settings, the asset sheet), never to a customer
 document.
+
+## Inspections
+
+The test documentation for one physical piece: "cable 183.5, tested 2026-03-14, passed, next test
+2027-03-14, certificate attached".
+
+Switched on **per category and nowhere else**. `settings.inspection.categories` is a list of
+`{category, label, intervalMonths (0..240, 0 = no repeat), fields: [name]}`, and **being in that
+list is the checkbox** — there is no `enabled` flag that could disagree with an entry's own
+presence. A list rather than a map for the reason the rental rates are one: settings are saved as a
+deep-merged patch, so a map could never have a key removed. `fields` are the measured parameters
+(`Schutzleiterwiderstand`, …) and become the boxes on the test form, in that order.
+
+A record (`trax_normalize_inspection_entry()`) is
+`{id, unitNo, at, result: PASS|FAIL, by, label, nextAt, note, values: [{name, value}], file,
+fileName, fileSize, createdAt}`:
+
+- `unitNo` names the piece; `null` is the asset as a whole, which is the only answer for a record
+  that does not track its units. Validated against the asset's actual unit numbers.
+- Records live on the **asset**, not inside `units`. A units patch rewrites that list whole, and a
+  test certificate must not be deletable by renaming a cable. Unit numbers are never reused, so the
+  reference stays correct for the life of the install.
+- `at` cannot be in the future — it documents something that has happened.
+- `nextAt` is prefilled from `intervalMonths` and then editable; `null` means nothing falls due.
+- `file` is a certificate stored by `trax_store_document()`, exactly like an attached document, and
+  read through `download.php`, whose reference check accepts `inspections[].file` as well as
+  `documents[].file`. Deleting the record or the asset unlinks it.
+
+Written only through `asset.inspect`, `asset.inspectionDocument` (multipart) and
+`asset.inspectionDelete`; `inspections` and `inspectionSeq` are absent from the
+`apply_asset_patch()` whitelist. `trax_inspection_patch_error()` (`api.php`) refuses a bad interval
+or field list before the mutation, like the rental rates. A category rename/merge/delete moves the
+rule with it (`trax_taxonomy_apply_inspection()`); records already filed always stay.
+
+State is **derived, never stored** — `app/lib/inspection.js`: `stateOf()` answers `NONE` (never
+tested), `FAIL` (the last test failed, whatever the date), `OVERDUE`, `DUE` (inside
+`DUE_SOON_DAYS`, 30) or `OK`; `inspectionRows()` is one row per testable piece; `assetState()` is
+the worst of them. The asset sheet's Tests tab, its banner, the dashboard card and
+`exportInspectionPdf()` all read those and nothing else.
 
 ## Derived availability & status rules
 
@@ -428,7 +469,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
 - `app/lib/` — `format.js` (dates, money, `STATUS_LABEL`/`STATUS_CLASS`, UI locale), `scroll-lock.js`
   (the counted `body.style.overflow` lock every full-screen layer shares), `schedule.js`
   (interval conflicts and the calendar timeline), `insights.js` (utilisation maths), `rental.js`
-  (hire rates: resolution, the discount ladder, `rentalOfLines()`), `pdf.js` (jsPDF
+  (hire rates: resolution, the discount ladder, `rentalOfLines()`), `inspection.js` (test rules,
+  per-piece histories and the derived due state), `pdf.js` (jsPDF
   is a UMD bundle, so it is injected as a `<script>` on demand and read off `window` — ~400 KB kept
   out of the initial load).
 - `app/components/` — `AppShell` (nav, drawers, layout), `FilterBar`, `AssetTable` (desktop) /

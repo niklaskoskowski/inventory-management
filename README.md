@@ -281,5 +281,12 @@ described above.
   a hire costs, and the **Rental PDF** is the quote you hand the customer — it
   carries prices only, never the percentage behind them or what the gear cost
   you.
+- **Test records** for the gear that needs them. Under Settings → Inspections
+  you tick the categories that get tested — cables, say — and say what the test
+  is called, how long it is valid and which readings to write down. Each item
+  then has a Tests tab where you record, per single unit, when it was tested,
+  whether it passed, the measured values and the certificate. Cable 183.5 keeps
+  its own history, overdue and failed pieces show up on the dashboard, and the
+  **Test report** PDF is the documentation for one item, piece by piece.
 - Anyone who finds a lost item can scan its label and reach you through the
   public page, without an account.
