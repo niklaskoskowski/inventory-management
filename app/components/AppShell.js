@@ -11,7 +11,7 @@ import AssetTable from './AssetTable.js';
 import AssetCards from './AssetCards.js';
 import AssetSheet from './AssetSheet.js';
 import DashboardView from './DashboardView.js';
-import CheckoutsView from './CheckoutsView.js';
+import CheckoutsView, { openCheckout } from './CheckoutsView.js';
 import ReservationsView from './ReservationsView.js';
 import EventsView from './EventsView.js';
 import EventSheet from './EventSheet.js';
@@ -90,6 +90,12 @@ export default {
       return api.get('auth.me')
         .then((body) => { fetchedActor.value = body.data?.username || ''; })
         .catch(() => { /* no name in the footer, nothing else */ });
+    };
+
+    /** A scanned hand-over sheet: Checkouts, with that booking's card open. */
+    const openHandover = (bookingId) => {
+      setView('checkouts');
+      openCheckout(bookingId);
     };
 
     const openAsset = (id) => {
@@ -219,7 +225,7 @@ export default {
       sheetId, sheetOpen, labelId, showBasket, showScanner, showBulk,
       showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName,
       selectedItemIds, selectedUnitCount, account, loadAccount, csrf: api.csrf,
-      openAsset, openNewAsset, closeSheet, openSetEditor, openLabel, labelTarget,
+      openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, openLabel, labelTarget,
       showEventSheet, eventSheetId, openEvent,
       // Not used by the template — exposed so the shortcut table can be driven
       // with synthetic events instead of a browser.
@@ -434,7 +440,8 @@ export default {
     <LabelDrawer v-if="labelId" :asset-id="labelId" @close="labelId = null" />
 
     <ScanDrawer v-if="showScanner" @close="showScanner = false"
-                @open="openAsset" @basket="showBasket = true" />
+                @open="openAsset" @basket="showBasket = true"
+                @booking="openHandover" />
 
     <ToastHost />
 

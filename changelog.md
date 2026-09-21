@@ -19,8 +19,10 @@ only record. There is no git history to mine.
     e-mailed link can never point at different pages. The endpoint is `booking.php?t=<token>&qr=1`,
     guarded by the same token as the page, and it encodes the link for **that token only**, never
     text from the request.
-  - **The scanner reads that code too**: scanning a hand-over sheet in the admin jumps straight to
-    the booking page it was printed from, instead of refusing it as "not a label".
+  - **The scanner reads that code too**: scanning a hand-over sheet in the admin opens that
+    hand-over's card in **Checkouts**, instead of refusing it as "not a label". The sheet carries
+    a token, not an id — the admin already holds the bookings, so it is one lookup in this tab and
+    the token never leaves it.
   - **The booking page can download the very same sheet** — one button, no server round trip. The
     sheet doubles as the packing checklist (a tick box per unit), and whoever is loading the van
     needs it more often than the paper survives the journey.
@@ -30,6 +32,14 @@ only record. There is no git history to mine.
     admin's API client and reactive state onto a public URL.
   - The customer's copy has its own allow-list: no operator notes, no e-mail address, and **no
     `handedOverBy`** — that is a login name, and their copy has no business carrying it.
+
+- **One checkout card, opened in full.** The Checkouts overview now shows only what is needed to
+  read the list: who has what, how much of it, when it is due — plus the job, the kits and whether
+  it is signed, as chips. Everything that *does* something moved behind a **Details** button, into
+  a panel per hand-over: the value out and what the hire bills, the handover and rental PDFs, the
+  booking link, re-sending the confirmation, and taking or removing the signature. The list stays
+  readable with twenty customers out, and the panel is addressed by **booking id** — which is what
+  a scanned hand-over sheet resolves to.
 
 - **One signature on the hand-over, stored and shown everywhere it matters.**
   - The handover sheet used to print **four** rules — *Handed over by / Received by* and
