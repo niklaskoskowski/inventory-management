@@ -403,6 +403,10 @@ export default {
           // prints the rule to sign on paper.
           handedOverBy: booking?.handedOverBy || '',
           signature: booking?.signature || null,
+          // Printed as a QR code: the sheet is the checklist the gear travels
+          // with, and the code is how the customer gets from paper back to
+          // their own page — to sign, or to pull the sheet again.
+          bookingUrl: bookingUrl(booking),
           reference: group.reservationId ? `Reservation #${group.reservationId}` : '',
           startAt: first.checkedOut,
           endAt: group.dueAt,

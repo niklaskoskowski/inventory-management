@@ -282,6 +282,31 @@ without auth, which is also what lets the customer's page and the PDF read it ba
 **dark on white**, not on transparency, so the same picture travels from tablet to page to PDF
 without an inversion anywhere.
 
+## The hand-over sheet, twice
+
+`buildBookingDocument()` + `exportBookingPdf()` (`app/lib/pdf.js`) build **one** document, and two
+pages run it: the admin's checkout card and the customer's `booking.php`. So the sheet the customer
+downloads is the sheet they were handed — tick boxes, QR code and signature included.
+
+That is why **`pdf.js` imports no store**. Branding comes in through
+`configurePdf({ settings: () => … })`: `app/main.js` points it at the reactive settings, and
+`booking.php` hands it a three-field array (`appName`, `brandColor`, `logoFile`). Importing the
+store here would drag the API client, the CSRF token and the whole reactive state onto a public
+page that needs none of it.
+
+The customer's payload is its **own allow-list**, shorter than the page's: no operator notes, no
+e-mail address, and no `handedOverBy` — an operator's login name is the organisation's business.
+Dates go out raw, because the builder formats them.
+
+**The QR code** points at `bookingUrl`, and its picture is that link plus `&qr=1`. `booking.php`
+answers it with a PNG drawn by `phpqrcode` — already in the repo for the printed labels; both
+vendored JavaScript QR files are *decoders*, not encoders — from `trax_booking_url($token)`, the
+one place that builds this link. The endpoint encodes **only** that, never text from the request,
+so it cannot be used to print a code pointing somewhere else; an unknown or expired token gets the
+same 404 as the page. Drawn into the PDF with jsPDF's `'NONE'` compression: a QR code is a grid of
+hard edges, and letting the renderer interpolate it is how a printed code stops scanning. A
+reservation carries no token, so it gets no QR block and gives up no width for one.
+
 ## Events
 
 A job the gear goes out on: a festival, a conference, a shoot.

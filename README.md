@@ -303,5 +303,11 @@ described above.
   booking link. One signature, theirs; who handed it over is recorded
   automatically and never signed. It then shows on the handover PDF, on their
   booking page and in the checkout list. Sign it again by removing the old one.
+- **The hand-over sheet travels.** It prints a **QR code** of the customer's own
+  booking link, so scanning the paper leads straight back to the page — to sign
+  for the gear, to look at the condition photos, or to pull the sheet again from
+  the **Download checklist** button there. The sheet doubles as the packing list:
+  one tick box per unit, and whoever is loading the van needs it more often than
+  the paper survives the journey.
 - Anyone who finds a lost item can scan its label and reach you through the
   public page, without an account.

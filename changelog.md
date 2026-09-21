@@ -10,6 +10,25 @@ only record. There is no git history to mine.
 
 ### Added
 
+- **A QR code on the hand-over sheet, and the sheet itself on the booking page.**
+  - The **handover PDF now carries a QR code** of the customer's own booking link, top right of the
+    details block. Scanned off the paper it leads straight back to the page — to sign for the gear
+    when it was not signed at the counter, to look at the condition photos, or to pull the sheet
+    again. Encoded **server-side** by the `phpqrcode` the printed labels already use, from
+    `trax_booking_url()` — the one place that builds this link, so the printed code and the
+    e-mailed link can never point at different pages. The endpoint is `booking.php?t=<token>&qr=1`,
+    guarded by the same token as the page, and it encodes the link for **that token only**, never
+    text from the request.
+  - **The booking page can download the very same sheet** — one button, no server round trip. The
+    sheet doubles as the packing checklist (a tick box per unit), and whoever is loading the van
+    needs it more often than the paper survives the journey.
+  - To make that possible, `app/lib/pdf.js` **no longer imports the store**: branding is injected
+    through `configurePdf({ settings })` — from the store in the admin, from a three-field array in
+    `booking.php` — so one builder serves both pages and the customer's page does not drag the
+    admin's API client and reactive state onto a public URL.
+  - The customer's copy has its own allow-list: no operator notes, no e-mail address, and **no
+    `handedOverBy`** — that is a login name, and their copy has no business carrying it.
+
 - **One signature on the hand-over, stored and shown everywhere it matters.**
   - The handover sheet used to print **four** rules — *Handed over by / Received by* and
     *Packed by / Checked by*. It prints **one** now. The other side of a hand-over is never the

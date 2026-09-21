@@ -125,6 +125,41 @@ foreach ($booking['items'] as $line) {
 
 
 /**
+ * The QR code for THIS booking, as a PNG.
+ *
+ *   GET booking.php?t=<token>&qr=1
+ *
+ * It encodes a URL this file builds from the token it was given — never text
+ * from the request — so the endpoint cannot be used to print a QR code that
+ * points anywhere else. Guarded by the same token as the page, and answered
+ * with the same nothing for an unknown or expired one.
+ *
+ * Server-side because the repo already carries phpqrcode for the labels, and
+ * a second QR library — in JavaScript, for one small picture — would be a
+ * second thing to keep.
+ */
+if (($_GET['qr'] ?? '') === '1') {
+    $qrLibrary = __DIR__ . '/phpqrcode/qrlib.php';
+    if (!is_file($qrLibrary)) {
+        trax_booking_gone();
+    }
+    require_once $qrLibrary;
+
+    header('Content-Type: image/png');
+    header('Cache-Control: no-store');
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    // trax_booking_url() is the one place that builds this link — the mails
+    // and the admin's "copy link" use it too, so the printed code and the
+    // e-mailed link can never point at different pages.
+    // Level M: this is read off paper in a warehouse, and the URL is short
+    // enough that the extra correction costs nothing worth having.
+    QRcode::png(trax_booking_url($token), false, QR_ECLEVEL_M, 6, 2);
+    exit;
+}
+
+/**
  * The one write this public page accepts: the customer signing for the gear.
  *
  * The token in the URL is the capability, exactly as it is for reading — and
@@ -316,6 +351,68 @@ $statusClass = match ($view['status']) {
     default     => 's-open',
 };
 $dueLabel = $view['kind'] === 'reservation' ? 'Reserved until' : 'Return by';
+
+/**
+ * The hand-over sheet, as the document builder in app/lib/pdf.js wants it.
+ *
+ * The SAME builder the counter uses, handed the same booking — so what the
+ * customer downloads here is the sheet they were given, tick boxes and all.
+ * That is the point of the button: the paper doubles as the packing list, and
+ * whoever is loading the van needs it more often than it survives the journey.
+ *
+ * Its own allow-list, like $view above, and a shorter one: no operator notes,
+ * no e-mail address, and no `handedOverBy` — that is a login name, and the
+ * customer's copy has no business carrying it. Dates go out RAW here, not
+ * formatted, because the builder formats them itself.
+ */
+$pdfItems = [];
+foreach ($booking['items'] as $line) {
+    $assetId = (int)$line['assetId'];
+    $codes   = [];
+    foreach (trax_unit_nos($line['unitNos'] ?? null) as $no) {
+        $codes[] = trax_unit_code($assetId, $no);
+    }
+    $name = $line['name'] !== '' ? $line['name'] : 'Item';
+    $pdfItems[] = [
+        // The units are part of the name on a sheet somebody ticks off:
+        // "5m XLR cable (12.1, 12.3)" is what physically went out.
+        'name'    => $codes === [] ? $name : $name . ' (' . implode(', ', $codes) . ')',
+        'assetId' => $assetId,
+        'qty'     => max(1, (int)$line['qty']),
+        'setName' => (string)$line['setName'],
+    ];
+}
+
+$pdf = [
+    'kind'         => $view['kind'],
+    'customerName' => $view['customerName'],
+    // A checkout that never recorded a start was handed over when it was
+    // created; the sheet says a date either way.
+    'startAt'      => $booking['startAt'] ?? $booking['createdAt'],
+    'endAt'        => $booking['dueAt'],
+    'hire'         => (string)$booking['hire'],
+    'status'       => $statusText,
+    'items'        => $pdfItems,
+    // Printed as a QR code on the sheet, so the paper leads back here.
+    'bookingUrl'   => trax_booking_url($token),
+    'signature'    => ($booking['signature'] ?? null) === null ? null : [
+        'file' => (string)$booking['signature']['file'],
+        'name' => (string)$booking['signature']['name'],
+        'at'   => (string)$booking['signature']['at'],
+    ],
+];
+
+/**
+ * The three branding fields the document builder reads, and nothing else.
+ *
+ * It takes them from whoever is hosting it — the store in the admin, this
+ * array here — which is why app/lib/pdf.js imports no store at all.
+ */
+$pdfBranding = [
+    'appName'    => (string)trax_setting('branding.appName', 'Assets'),
+    'brandColor' => $view['brandColor'],
+    'logoFile'   => (string)trax_setting('branding.logoFile', ''),
+];
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
@@ -507,6 +604,14 @@ $dueLabel = $view['kind'] === 'reservation' ? 'Reserved until' : 'Return by';
         </div>
     <?php endif; ?>
 
+    <!-- The sheet, again. Hidden until the module below has wired it up: a
+         button that cannot do anything is worse than no button. -->
+    <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-outline-light btn-sm d-none" id="pdf-get" type="button">
+            <i class="bi bi-file-earmark-arrow-down"></i> Download checklist (PDF)
+        </button>
+    </div>
+
     <p class="text-secondary small mt-4 mb-0">
         This page is private to you. Please do not share the link.
     </p>
@@ -692,5 +797,41 @@ $dueLabel = $view['kind'] === 'reservation' ? 'Reserved until' : 'Return by';
 }());
 </script>
 <?php endif; ?>
+<script type="module">
+/**
+ * The hand-over sheet, built on the customer's own device.
+ *
+ * It is the very same builder the counter runs — app/lib/pdf.js, which takes
+ * its branding from whoever hosts it rather than importing a store — so this
+ * button hands back the sheet that was printed at hand-over, tick boxes, QR
+ * code and signature included. Nothing is generated on the server and nothing
+ * is stored: the booking is already on this page, and the PDF is one more way
+ * of reading it.
+ *
+ * A module, so a browser too old for one simply never reveals the button and
+ * the page stays exactly what it was.
+ */
+import { configurePdf, exportBookingPdf } from './app/lib/pdf.js';
+
+const button = document.getElementById('pdf-get');
+if (button) {
+    const booking = <?php echo json_encode($pdf); ?>;
+    const branding = <?php echo json_encode($pdfBranding); ?>;
+    configurePdf({ settings: () => ({ branding: branding }) });
+    button.classList.remove('d-none');
+
+    button.addEventListener('click', function () {
+        const label = button.innerHTML;
+        button.disabled = true;
+        // jsPDF is ~400 KB fetched on the first click and a big booking takes
+        // a moment to lay out, so the button says what it is doing.
+        button.textContent = 'Building…';
+        exportBookingPdf(booking)
+            .then(function () { button.innerHTML = label; })
+            .catch(function () { button.textContent = 'That did not work.'; })
+            .finally(function () { button.disabled = false; });
+    });
+}
+</script>
 </body>
 </html>
