@@ -34,12 +34,19 @@ only record. There is no git history to mine.
     `handedOverBy`** — that is a login name, and their copy has no business carrying it.
 
 - **One checkout card, opened in full.** The Checkouts overview now shows only what is needed to
-  read the list: who has what, how much of it, when it is due — plus the job, the kits and whether
-  it is signed, as chips. Everything that *does* something moved behind a **Details** button, into
-  a panel per hand-over: the value out and what the hire bills, the handover and rental PDFs, the
-  booking link, re-sending the confirmation, and taking or removing the signature. The list stays
-  readable with twenty customers out, and the panel is addressed by **booking id** — which is what
-  a scanned hand-over sheet resolves to.
+  read the list: who has it, **how many assets are in the booking**, when it is due — plus the job,
+  the kits and whether it is signed, as chips. **The whole card opens** the hand-over; only the
+  select-all box keeps its own click.
+
+  Everything else moved into that panel: the gear itself, line by line, with its units, the
+  condition-photo button and the partial-return steppers; the value out and what the hire bills;
+  the handover and rental PDFs; the booking link and re-sending the confirmation; taking or
+  removing the signature; and **Check in / Extend**, which act on what is ticked in the panel or on
+  the whole booking when nothing is — the same one path the selection bar uses, which is still
+  there for picking across several customers at once.
+
+  The list stays readable with twenty customers out, and the panel is addressed by **booking id** —
+  which is what a scanned hand-over sheet resolves to.
 
 - **One signature on the hand-over, stored and shown everywhere it matters.**
   - The handover sheet used to print **four** rules — *Handed over by / Received by* and

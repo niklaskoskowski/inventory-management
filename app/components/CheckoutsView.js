@@ -490,6 +490,26 @@ export default {
     );
 
     const openDetail = (group) => { detailKey.value = group.key; };
+
+    /**
+     * What the panel's two buttons act on: the lines ticked in it, or the
+     * whole hand-over when nothing is. Opening the panel and pressing Check in
+     * is the common case — a partial return is the one that needs ticking.
+     */
+    const detailLines = computed(() => {
+      const lines = detail.value?.lines || [];
+      const picked = lines.filter((line) => selected.value.includes(line.lineId));
+      return picked.length ? picked : lines;
+    });
+
+    const detailUnits = computed(
+      () => detailLines.value.reduce((sum, line) => sum + qtyFor(line.lineId), 0),
+    );
+
+    /** Hand the selection to the bar's own flow, so there is one check-in path. */
+    const takeDetail = () => { selected.value = detailLines.value.map((line) => line.lineId); };
+    const detailCheckIn = () => { takeDetail(); confirmReturn.value = true; };
+    const detailExtend = () => { takeDetail(); startExtend(); };
     const closeDetail = () => { detailKey.value = null; closeSignature(); };
 
     /**
@@ -632,6 +652,7 @@ export default {
       retryPhotos, discardPhotos,
       bookingOf, bookingUrl, copyLink, resendEmail,
       detailKey, detail, openDetail, closeDetail, showBooking,
+      detailLines, detailUnits, detailCheckIn, detailExtend,
       formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
       rentalPdf, daysLabel, HIRE_LABEL,
       signing, signName, signBusy, unsigning,
@@ -661,17 +682,24 @@ export default {
     </div>
 
     <div v-else class="d-flex flex-column gap-3">
-      <article v-for="group in groups" :key="group.key" class="trax-card">
-        <div class="trax-card-pad d-flex align-items-center gap-2 flex-wrap border-bottom border-secondary-subtle">
+      <!-- The whole card opens the hand-over. The one control that is not the
+           panel — select this customer's lines — stops the click itself. -->
+      <article v-for="group in groups" :key="group.key" class="trax-card"
+               role="button" tabindex="0" style="cursor:pointer"
+               :aria-label="'Open the hand-over for ' + group.customerName"
+               @click="openDetail(group)"
+               @keydown.enter.prevent="openDetail(group)"
+               @keydown.space.prevent="openDetail(group)">
+        <div class="trax-card-pad d-flex align-items-center gap-2 flex-wrap">
           <input class="form-check-input" type="checkbox"
                  :checked="group.lines.every(r => selected.includes(r.lineId))"
-                 @change="toggleGroup(group)"
+                 @click.stop @change="toggleGroup(group)"
                  :aria-label="'Select all items out with ' + group.customerName">
           <div class="flex-grow-1 min-w-0">
             <strong>{{ group.customerName }}</strong>
             <span class="text-secondary small ms-2">{{ group.customerEmail }}</span>
             <div class="small" :class="isOverdue(group.dueAt) ? 'text-danger' : 'text-secondary'">
-              {{ group.units }} unit(s) on {{ group.lines.length }} line(s) · due {{ formatDateTime(group.dueAt) }}
+              {{ group.lines.length }} asset(s) in booking · due {{ formatDateTime(group.dueAt) }}
               <span v-if="isOverdue(group.dueAt)">— {{ daysOverdue(group.dueAt) }} days late</span>
             </div>
           </div>
@@ -689,69 +717,8 @@ export default {
             <i class="bi bi-pen"></i> signed
           </span>
 
-          <button class="btn btn-sm btn-outline-secondary" @click="openDetail(group)"
-                  :aria-label="'Open the hand-over for ' + group.customerName">
-            <i class="bi bi-arrows-angle-expand"></i> Details
-          </button>
+          <i class="bi bi-chevron-right text-secondary"></i>
         </div>
-
-        <!-- Keyed by lineId: the same asset id can appear on several lines. -->
-        <ul class="list-group list-group-flush">
-          <li v-for="line in group.lines" :key="line.lineId"
-              class="list-group-item bg-transparent d-flex flex-wrap align-items-center gap-2">
-            <input class="form-check-input" type="checkbox"
-                   :checked="selected.includes(line.lineId)" @change="toggle(line.lineId)"
-                   :aria-label="'Select ' + line.name">
-            <button class="trax-name-btn flex-grow-1" @click="emit('open', line.assetId)">
-              {{ line.name || ('#' + line.assetId) }}
-            </button>
-            <span class="trax-kind-chip">×{{ line.qty }}</span>
-            <!-- Which physical units left, when the asset tracks them. -->
-            <span v-if="line.unitNos?.length" class="trax-kind-chip font-monospace"
-                  :title="unitTitle(line)">{{ unitCodes(line) }}</span>
-
-            <!-- Partial return: hand back some of the units on this line. -->
-            <div v-if="selected.includes(line.lineId) && !line.unitNos?.length && line.qty > 1"
-                 class="input-group input-group-sm" style="width:8rem">
-              <button class="btn btn-outline-secondary py-0 px-2"
-                      @click="setQtyFor(line.lineId, qtyFor(line.lineId) - 1)"
-                      :aria-label="'Return one fewer ' + line.name">−</button>
-              <input class="form-control text-center px-0" type="number" min="1" :max="line.qty"
-                     :value="qtyFor(line.lineId)"
-                     @input="setQtyFor(line.lineId, $event.target.value)"
-                     :aria-label="'Units of ' + line.name + ' to check in'">
-              <button class="btn btn-outline-secondary py-0 px-2"
-                      @click="setQtyFor(line.lineId, qtyFor(line.lineId) + 1)"
-                      :aria-label="'Return one more ' + line.name">+</button>
-            </div>
-
-            <!-- Photos belong to one piece of gear, so they are taken from
-                 the line rather than from the check-in dialog. -->
-            <button class="btn btn-sm btn-outline-secondary" @click="openPhotos(line)"
-                    :aria-label="'Condition photos of ' + (line.name || ('#' + line.assetId))">
-              <i class="bi bi-camera"></i>
-            </button>
-
-            <span class="text-secondary font-monospace small">#{{ line.assetId }}</span>
-            <span v-if="line.setId" class="trax-kind-chip">in kit</span>
-
-            <!-- Partial return, unit by unit: the numbers are the quantity, so
-                 a line that names them gets check boxes instead of a stepper. -->
-            <div v-if="selected.includes(line.lineId) && line.unitNos?.length && line.qty > 1"
-                 class="w-100 d-flex flex-wrap gap-3 ps-4">
-              <div v-for="no in line.unitNos" :key="no" class="form-check mb-0">
-                <input class="form-check-input" type="checkbox"
-                       :id="'ret-' + line.lineId + '-' + no"
-                       :checked="unitPicked(line.lineId, no)"
-                       @change="toggleUnitFor(line.lineId, no)">
-                <label class="form-check-label small" :for="'ret-' + line.lineId + '-' + no">
-                  <span class="font-monospace">{{ line.assetId }}.{{ no }}</span>
-                  <span v-if="unitLabel(line, no)" class="text-secondary ms-1">{{ unitLabel(line, no) }}</span>
-                </label>
-              </div>
-            </div>
-          </li>
-        </ul>
       </article>
     </div>
 
@@ -841,6 +808,67 @@ export default {
         </button>
       </div>
 
+      <!-- What is out, and where it is handed back: the check boxes here feed
+           the same selection the overview's bar acts on, so a partial return
+           picked in this panel is the one that is checked in. -->
+      <h3 class="trax-page-title mt-4 mb-2">{{ detail.lines.length }} asset(s) · {{ detail.units }} unit(s)</h3>
+      <ul class="list-group list-group-flush mb-3">
+        <li v-for="line in detail.lines" :key="line.lineId"
+            class="list-group-item bg-transparent d-flex flex-wrap align-items-center gap-2">
+          <input class="form-check-input" type="checkbox"
+                 :checked="selected.includes(line.lineId)" @change="toggle(line.lineId)"
+                 :aria-label="'Select ' + line.name">
+          <button class="trax-name-btn flex-grow-1" @click="emit('open', line.assetId)">
+            {{ line.name || ('#' + line.assetId) }}
+          </button>
+          <span class="trax-kind-chip">×{{ line.qty }}</span>
+          <!-- Which physical units left, when the asset tracks them. -->
+          <span v-if="line.unitNos?.length" class="trax-kind-chip font-monospace"
+                :title="unitTitle(line)">{{ unitCodes(line) }}</span>
+
+          <!-- Partial return: hand back some of the units on this line. -->
+          <div v-if="selected.includes(line.lineId) && !line.unitNos?.length && line.qty > 1"
+               class="input-group input-group-sm" style="width:8rem">
+            <button class="btn btn-outline-secondary py-0 px-2"
+                    @click="setQtyFor(line.lineId, qtyFor(line.lineId) - 1)"
+                    :aria-label="'Return one fewer ' + line.name">−</button>
+            <input class="form-control text-center px-0" type="number" min="1" :max="line.qty"
+                   :value="qtyFor(line.lineId)"
+                   @input="setQtyFor(line.lineId, $event.target.value)"
+                   :aria-label="'Units of ' + line.name + ' to check in'">
+            <button class="btn btn-outline-secondary py-0 px-2"
+                    @click="setQtyFor(line.lineId, qtyFor(line.lineId) + 1)"
+                    :aria-label="'Return one more ' + line.name">+</button>
+          </div>
+
+          <!-- Photos belong to one piece of gear, so they are taken from
+               the line rather than from the check-in dialog. -->
+          <button class="btn btn-sm btn-outline-secondary" @click="openPhotos(line)"
+                  :aria-label="'Condition photos of ' + (line.name || ('#' + line.assetId))">
+            <i class="bi bi-camera"></i>
+          </button>
+
+          <span class="text-secondary font-monospace small">#{{ line.assetId }}</span>
+          <span v-if="line.setId" class="trax-kind-chip">in kit</span>
+
+          <!-- Partial return, unit by unit: the numbers are the quantity, so
+               a line that names them gets check boxes instead of a stepper. -->
+          <div v-if="selected.includes(line.lineId) && line.unitNos?.length && line.qty > 1"
+               class="w-100 d-flex flex-wrap gap-3 ps-4">
+            <div v-for="no in line.unitNos" :key="no" class="form-check mb-0">
+              <input class="form-check-input" type="checkbox"
+                     :id="'ret-' + line.lineId + '-' + no"
+                     :checked="unitPicked(line.lineId, no)"
+                     @change="toggleUnitFor(line.lineId, no)">
+              <label class="form-check-label small" :for="'ret-' + line.lineId + '-' + no">
+                <span class="font-monospace">{{ line.assetId }}.{{ no }}</span>
+                <span v-if="unitLabel(line, no)" class="text-secondary ms-1">{{ unitLabel(line, no) }}</span>
+              </label>
+            </div>
+          </div>
+        </li>
+      </ul>
+
       <!-- What was signed for, once it has been. -->
       <div v-if="bookingOf(detail) && bookingOf(detail).signature"
            class="d-flex align-items-center gap-2 flex-wrap">
@@ -890,6 +918,20 @@ export default {
             themselves from their booking link.
           </p>
         </div>
+      </template>
+
+      <!-- The same two actions as the overview's bar, on this hand-over: what
+           is ticked here, or the whole booking when nothing is. -->
+      <template #footer>
+        <span class="small text-secondary flex-grow-1">
+          {{ detailLines.length }} line(s) · {{ detailUnits }} unit(s)
+        </span>
+        <button class="btn btn-sm btn-outline-secondary" @click="detailExtend">
+          <i class="bi bi-calendar-plus"></i> Extend
+        </button>
+        <button class="btn btn-sm btn-success" @click="detailCheckIn">
+          <i class="bi bi-box-arrow-in-left"></i> Check in
+        </button>
       </template>
     </Drawer>
 
