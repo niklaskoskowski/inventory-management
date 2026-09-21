@@ -6,6 +6,7 @@ import {
   BLANK_RULE, daysLabel, formatPercent, serviceFactorOf, tierFor,
 } from '../lib/rental.js';
 import { BLANK_RULE as BLANK_INSPECTION } from '../lib/inspection.js';
+import { DEFAULT_STATUSES } from '../lib/events.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 import RentalRate from './RentalRate.js';
 
@@ -24,6 +25,7 @@ const SECTIONS = [
   { id: 'taxonomy', label: 'Taxonomy', icon: 'bi-tags' },
   { id: 'rental', label: 'Rental rates', icon: 'bi-cash-coin' },
   { id: 'inspection', label: 'Inspections', icon: 'bi-clipboard-check' },
+  { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
   { id: 'email', label: 'Email', icon: 'bi-envelope' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
   { id: 'defaults', label: 'Defaults & automation', icon: 'bi-sliders' },
@@ -161,6 +163,14 @@ export default {
       next.rental = next.rental || {};
       next.rental.default = { ...clone(BLANK_RULE), ...(next.rental.default || {}) };
       next.rental.categories = Array.isArray(next.rental.categories) ? next.rental.categories : [];
+      next.events = next.events || {};
+      // The server ships the built-in workflow when an install has none, so an
+      // empty list here only happens before the first snapshot lands.
+      next.events.statuses = Array.isArray(next.events.statuses) && next.events.statuses.length
+        ? next.events.statuses
+        : clone(DEFAULT_STATUSES);
+      next.events.defaultStatus = next.events.defaultStatus || next.events.statuses[0].id;
+      next.events.enabled = next.events.enabled !== false;
       next.inspection = next.inspection || {};
       next.inspection.categories = Array.isArray(next.inspection.categories)
         ? next.inspection.categories
@@ -387,6 +397,58 @@ export default {
         + `${daysLabel(days)} on a ${formatMoney(SAMPLE_VALUE, currency.value)} item`
         + service(total);
     };
+
+    // --- Events ---
+    // The workflow an event walks through. Stored by ID and shown by LABEL, so
+    // renaming "Packed" to "Gepackt" leaves every packed event packed.
+
+    /** The same slug rule as trax_slug() on the server. */
+    const slugify = (value) => String(value ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+
+    const eventStatuses = computed(() => draft.value.events.statuses || []);
+
+    const addEventStatus = () => {
+      if (eventStatuses.value.length >= 12) return;
+      draft.value.events.statuses.push({ id: '', label: '', color: '#6B7280', closed: false });
+    };
+
+    /**
+     * A new row gets its id from its label, once — after that the id is fixed.
+     *
+     * That is what makes a rename safe: the events store the id, so changing
+     * the label must never change it. A row that has never been saved has no
+     * id yet, which is the only moment one may be handed out.
+     */
+    const nameEventStatus = (status) => {
+      if (!status.id) status.id = slugify(status.label);
+    };
+
+    const removeEventStatus = (index) => {
+      const [gone] = draft.value.events.statuses.splice(index, 1);
+      // The default has to point at something that still exists.
+      if (gone && draft.value.events.defaultStatus === gone.id) {
+        draft.value.events.defaultStatus = draft.value.events.statuses[0]?.id || '';
+      }
+    };
+
+    /** The workflow reads in order, so the order is editable. */
+    const moveEventStatus = (index, by) => {
+      const list = draft.value.events.statuses;
+      const to = index + by;
+      if (to < 0 || to >= list.length) return;
+      const [row] = list.splice(index, 1);
+      list.splice(to, 0, row);
+    };
+
+    /** How many events are on a status — what removing it would orphan. */
+    const eventsOnStatus = (id) =>
+      state.events.filter((event) => event.status === id).length;
 
     // --- Inspections ---
     // Ticking a category is what switches testing on for it: the rule's
@@ -720,6 +782,8 @@ export default {
       section, draft, busy, patch, dirty, save, revert,
       rentalRows, addRentalRule, removeRentalRule, rulePreview, previewDays,
       defaultFactor, factorOf, serviceFactorOf,
+      eventStatuses, addEventStatus, nameEventStatus, removeEventStatus,
+      moveEventStatus, eventsOnStatus,
       inspectionRows, toggleInspection, addInspectionField, removeInspectionField,
       inspectionSummary,
       currency, daysLabel, formatPercent,
@@ -889,6 +953,132 @@ export default {
               Nothing uses a category yet, so there is nothing to price separately.
             </li>
           </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Events ------------------------------------------------------------ -->
+    <div v-else-if="section === 'events'" class="row g-3">
+      <div class="col-12 col-xl-7">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">
+              <i class="bi bi-calendar-event"></i> Workflow
+              <span class="text-secondary small">({{ eventStatuses.length }})</span>
+            </h2>
+            <p class="trax-page-sub">
+              The states a job walks through — booked, in a case in the warehouse, out with the
+              customer. They read top to bottom; the arrows reorder them. A <strong>closed</strong>
+              status ends the job and drops it out of the open list.
+            </p>
+          </div>
+
+          <ul class="list-group list-group-flush">
+            <li v-for="(status, si) in eventStatuses" :key="si"
+                class="list-group-item bg-transparent">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <div class="btn-group btn-group-sm">
+                  <button type="button" class="btn btn-outline-secondary py-0 px-1"
+                          :disabled="si === 0" :aria-label="'Move ' + (status.label || 'status') + ' up'"
+                          @click="moveEventStatus(si, -1)">
+                    <i class="bi bi-chevron-up"></i>
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary py-0 px-1"
+                          :disabled="si === eventStatuses.length - 1"
+                          :aria-label="'Move ' + (status.label || 'status') + ' down'"
+                          @click="moveEventStatus(si, 1)">
+                    <i class="bi bi-chevron-down"></i>
+                  </button>
+                </div>
+
+                <input class="form-control form-control-sm" style="max-width:14rem"
+                       v-model="status.label" maxlength="40" placeholder="e.g. At customer"
+                       :aria-label="'Name of status ' + (si + 1)"
+                       @blur="nameEventStatus(status)">
+
+                <input class="form-control form-control-color form-control-sm" type="color"
+                       style="width:2.75rem" v-model="status.color"
+                       :aria-label="'Colour of ' + (status.label || 'status ' + (si + 1))">
+
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" role="switch"
+                         :id="'ev-closed-' + si" v-model="status.closed">
+                  <label class="form-check-label small" :for="'ev-closed-' + si">Closed</label>
+                </div>
+
+                <span class="flex-grow-1"></span>
+                <span v-if="status.id && eventsOnStatus(status.id)" class="trax-kind-chip">
+                  {{ eventsOnStatus(status.id) }}
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                        :disabled="eventStatuses.length <= 1"
+                        :aria-label="'Remove ' + (status.label || 'status ' + (si + 1))"
+                        @click="removeEventStatus(si)">
+                  <i class="bi bi-x"></i>
+                </button>
+              </div>
+              <div v-if="status.id" class="form-text small mb-0 font-monospace">{{ status.id }}</div>
+            </li>
+          </ul>
+
+          <div class="trax-card-pad d-flex align-items-center gap-2">
+            <span class="small text-secondary flex-grow-1">
+              A status is stored by its id, so renaming one leaves every event on it where it is.
+            </span>
+            <button type="button" class="btn btn-sm btn-outline-primary"
+                    :disabled="busy || eventStatuses.length >= 12" @click="addEventStatus()">
+              <i class="bi bi-plus"></i> Status
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-5">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title"><i class="bi bi-sliders"></i> Defaults</h2>
+
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" role="switch" id="ev-enabled"
+                     v-model="draft.events.enabled">
+              <label class="form-check-label small" for="ev-enabled">
+                Offer an event when checking out and reserving
+                <span class="d-block text-secondary" style="font-size:.72rem">
+                  Off hides the picker in the selection drawer. Events already booked keep theirs.
+                </span>
+              </label>
+            </div>
+
+            <label class="form-label small" for="ev-default">A new event starts as</label>
+            <select id="ev-default" class="form-select form-select-sm"
+                    v-model="draft.events.defaultStatus">
+              <option v-for="status in eventStatuses" :key="status.id || status.label"
+                      :value="status.id">
+                {{ status.label || status.id }}
+              </option>
+            </select>
+          </div>
+
+          <div class="trax-card-pad pt-0">
+            <h3 class="trax-page-title">How it works</h3>
+            <ul class="small text-secondary ps-3 mb-0">
+              <li class="mb-2">
+                An event is a <strong>job</strong>: a festival, a conference, a shoot. It is created
+                under Events and picked in the selection drawer when gear is checked out or reserved.
+              </li>
+              <li class="mb-2">
+                Gear is never "inside" an event. The checkout line and the reservation carry the
+                job's name, so availability is decided exactly where it was before.
+              </li>
+              <li class="mb-2">
+                The status is moved by hand, from the Events list, while somebody is holding the
+                flight case. It changes no stock: what is free is still what is not checked out.
+              </li>
+              <li>
+                Deleting an event never deletes gear — the bookings simply stop naming it.
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>

@@ -6,6 +6,36 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-09-21 (events)
+
+### Added
+
+- **Events — the jobs the gear goes out on.**
+  - A new **Events** view: create, edit and delete a job (name, client, location, on-site contact,
+    start and end, notes), filter by Open / Running / Closed / All, and see everything booked on it
+    — the checkout lines with their units and due dates, and the reservations — with the value and
+    what the job bills over its own window.
+  - **Statuses**, moved by hand from the list while somebody is holding a flight case: the workflow
+    ships as *Reserved → Packed → At customer → Returned* and is **configurable** under
+    **Settings → Events** — rename, recolour, reorder, add or remove, and mark the ones that end a
+    job as *closed* so it drops out of the open list. A status is stored by its **id**, so renaming
+    "At customer" to "Beim Kunden" leaves every event on it exactly where it was.
+  - **Pick an event when checking out or reserving**: an optional select in the selection drawer,
+    which stores `eventId` on the checkout line, the reservation and the booking. Optional by
+    design — plenty of gear leaves the building without a project behind it — and the picker can be
+    switched off entirely for an install that does no event work.
+  - The checkout list and the reservations list chip the job they belong to; the Events view can
+    export the **rental quote** for one job, priced over the event's own dates.
+  - **Gear is never "inside" an event.** It is checked out or reserved *against* one, so
+    availability is still decided exactly where it was before — no second opinion on what is free,
+    and no second place to change what is booked. Deleting an event deletes nothing else: the
+    bookings simply stop naming it, and the app says how many did.
+  - Storage: a top-level `events` list, `settings.events` (`statuses`, `defaultStatus`, `enabled`)
+    and a nullable `eventId` on the checkout line, the reservation and the booking. Everything
+    written before this reads back with no event, which is what it had. `api.php` refuses an
+    unknown event id, an end before its start, a workflow with no statuses left and two statuses
+    sharing a name — each with the reason, before the mutation.
+
 ## 2026-09-21
 
 ### Added

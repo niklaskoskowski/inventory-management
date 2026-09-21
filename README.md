@@ -291,5 +291,12 @@ described above.
   whether it passed, the measured values and the certificate. Cable 183.5 keeps
   its own history, overdue and failed pieces show up on the dashboard, and the
   **Test report** PDF is the documentation for one item, piece by piece.
+- **Events** are the jobs your gear goes out on — a festival, a conference, a
+  shoot. Create one under Events, then pick it when you check gear out or
+  reserve it, and everything on that job is listed together with what it is
+  worth and what it bills. Each job carries a status you move by hand as it
+  walks out of the building — *Reserved → Packed → At customer → Returned* by
+  default, and you can rename, recolour and reorder those under
+  Settings → Events. Deleting a job never deletes gear.
 - Anyone who finds a lost item can scan its label and reach you through the
   public page, without an account.
