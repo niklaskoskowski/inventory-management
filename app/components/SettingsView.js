@@ -1419,9 +1419,16 @@ export default {
             <label class="form-label small mt-2" for="set-logo">Logo file</label>
             <input id="set-logo" class="form-control form-control-sm" v-model="draft.branding.logoFile">
             <div class="form-text small">
-              A PNG or JPEG in the project root, e.g. <code>logo.png</code>. The label
-              renderer reads it off disk, so a name that points at nothing is dropped.
-              Leave it empty and labels print the organisation name as text instead.
+              A PNG or JPEG in the project root, e.g. <code>logo.png</code>, <strong>or an
+              absolute URL</strong> like <code>https://cdn.example.org/logo.png</code>.
+              A file name that points at nothing is dropped, and so is a URL that is not
+              plain <code>http(s)</code> — never one carrying a password.
+              <br>
+              The two are not interchangeable: <strong>labels</strong> are drawn on the server
+              and read the file off disk, so a URL prints the organisation name as text instead;
+              <strong>PDFs</strong> are built in the browser and load either, as long as the
+              host allows it (a CDN that sends no <code>Access-Control-Allow-Origin</code>
+              header leaves the header as text too). Leave it empty for no logo at all.
             </div>
 
             <label class="form-label small mt-2" for="set-favicon">Favicon file</label>

@@ -1862,6 +1862,34 @@ function trax_whatsapp(mixed $value): string
 }
 
 /**
+ * An absolute http(s) URL to an image, or ''.
+ *
+ * Deliberately narrow — a scheme, a host, no credentials, nothing that has to
+ * be escaped again downstream — and deliberately NOT an allow-list for an
+ * outbound request: nothing in this app fetches it server-side. It is handed to
+ * the browser, which decides whether it may load it. See trax_logo_file().
+ */
+function trax_image_url(mixed $value): string
+{
+    $s = trax_str($value, 500);
+    if ($s === '' || preg_match('~^https?://~i', $s) !== 1) {
+        return '';
+    }
+    // Whitespace, quotes and angle brackets would have to survive every
+    // context this string is printed into. A URL carrying them is refused
+    // rather than escaped into something that no longer resolves.
+    if (preg_match('/[\x00-\x20\x7f"\'<>\\\\]/', $s) === 1) {
+        return '';
+    }
+    $parts = parse_url($s);
+    if (!is_array($parts) || ($parts['host'] ?? '') === '') {
+        return '';
+    }
+    // user:pass in a logo URL is a credential in data.json. Never.
+    return isset($parts['user']) || isset($parts['pass']) ? '' : $s;
+}
+
+/**
  * An image file referenced by the settings — the label logo, the favicon.
  *
  * It is read off disk by the label renderer and emitted into a <link href>, so
@@ -1870,9 +1898,23 @@ function trax_whatsapp(mixed $value): string
  * '' — "there is no image". Every caller has to handle that anyway (a fresh
  * install ships no logo), so returning '' is strictly safer than returning a
  * filename that 404s or makes imagecreatefrom*() emit a warning.
+ *
+ * With `$allowUrl`, an absolute http(s) URL is kept as it stands — the logo may
+ * live on the operator's own site or a CDN rather than beside this install. It
+ * is never fetched here: the PDF builder loads it in the browser (and gets
+ * nothing, gracefully, where the host sends no CORS header), and the LABEL
+ * renderers still read a local file off disk, so a URL means a label prints the
+ * organisation name as text. That trade is documented in Settings.
  */
-function trax_logo_file(mixed $value, string $default = ''): string
+function trax_logo_file(mixed $value, string $default = '', bool $allowUrl = false): string
 {
+    if ($allowUrl) {
+        $url = trax_image_url($value);
+        if ($url !== '') {
+            return $url;
+        }
+    }
+
     $s = trax_str($value, 120);
     if ($s === '' || $s !== basename($s) || str_contains($s, '..')
         || preg_match('/^[A-Za-z0-9 ._\-]+$/', $s) !== 1) {
@@ -1971,7 +2013,10 @@ function trax_normalize_settings(mixed $raw): array
             // literal here would make normalising twice produce a different value.
             'brandColor'   => trax_hex_color($branding['brandColor'] ?? null) ?? '#1F2937',
             'publicPath'   => trax_public_path($branding['publicPath'] ?? null) ?? TRAX_PUBLIC_PATH,
-            'logoFile'     => trax_logo_file($branding['logoFile'] ?? null),
+            // The one image that may also be a URL: it is only ever loaded by
+            // a browser. The favicon below is not — it goes into a <link> on
+            // pages that must keep working offline of anything but this host.
+            'logoFile'     => trax_logo_file($branding['logoFile'] ?? null, '', true),
             // The generated placeholder favicon ships with the repo, so the
             // default resolves; an install that deletes it gets '' and the
             // templates simply emit no icon link.

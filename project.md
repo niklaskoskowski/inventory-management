@@ -191,6 +191,14 @@ auto-fill the warranty date in the asset sheet, `0` off —, `currency`, `allowP
 `overdueGraceDays`, `locale`, `dateFormat`), `rental.*` and `inspection.*` (see below) and `cron.*`
 (`secret`, `dueSoonHours`, `overdueRepeatDays`). Each key falls back to a `TRAX_*` constant.
 
+`branding.logoFile` is the one image setting that may also be an **absolute http(s) URL**
+(`trax_image_url()` — scheme, host, no credentials, nothing needing escaping downstream). Nothing
+fetches it server-side, so there is no request to make and no SSRF to have: the PDF builder loads
+it in the browser, and a host that sends no CORS header simply leaves the header as text. The
+**label** renderers read a local file off disk (`trax_label_logo_image()`, basename only), so a URL
+means a label prints the organisation name instead. `faviconFile` stays local-only — it goes into a
+`<link>` on pages that should not depend on a second host.
+
 ## Rental pricing
 
 What a piece of gear is **worth** is `price`. What it costs to **hire** is a rule, and the rule is

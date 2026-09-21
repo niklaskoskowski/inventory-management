@@ -33,6 +33,14 @@ only record. There is no git history to mine.
   - The customer's copy has its own allow-list: no operator notes, no e-mail address, and **no
     `handedOverBy`** — that is a login name, and their copy has no business carrying it.
 
+- **The branding logo can be a URL.** `Settings → Branding → Logo file` still takes a file name in
+  the project root, and now also an absolute `https://…` (or `http://`) address, so the mark can
+  live on the operator's own site or a CDN. Nothing is fetched on the server — the PDF builder
+  loads it in the browser, which is also why a host that sends no `Access-Control-Allow-Origin`
+  header leaves the PDF header as text. **Labels are drawn server-side off a local file**, so a URL
+  prints the organisation name there instead; the field says so. A URL carrying a password, or
+  anything that is not plain `http(s)`, is refused. The favicon is unchanged — local file only.
+
 - **One checkout card, opened in full.** The Checkouts overview now shows only what is needed to
   read the list: who has it, **how many assets are in the booking**, when it is due — plus the job,
   the kits and whether it is signed, as chips. **The whole card opens** the hand-over; only the
