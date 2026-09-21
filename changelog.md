@@ -19,6 +19,8 @@ only record. There is no git history to mine.
     e-mailed link can never point at different pages. The endpoint is `booking.php?t=<token>&qr=1`,
     guarded by the same token as the page, and it encodes the link for **that token only**, never
     text from the request.
+  - **The scanner reads that code too**: scanning a hand-over sheet in the admin jumps straight to
+    the booking page it was printed from, instead of refusing it as "not a label".
   - **The booking page can download the very same sheet** — one button, no server round trip. The
     sheet doubles as the packing checklist (a tick box per unit), and whoever is loading the van
     needs it more often than the paper survives the journey.

@@ -61,6 +61,27 @@ export function extractRef(text) {
   return path ? ref(path[1], path[2]) : null;
 }
 
+/**
+ * The booking link a hand-over sheet's QR code carries, or null.
+ *
+ * `https://host/booking.php?t=<64 hex>` — the code exportBookingPdf() prints,
+ * built by trax_booking_url(). `/booking` is the same page through the clean
+ * URL in .htaccess, so both spellings are read.
+ *
+ * Returned as the URL itself and not as an id: a booking has no id-addressable
+ * form anywhere in this app, deliberately — the token IS the address.
+ */
+export function extractBookingUrl(text) {
+  const raw = String(text || '').trim();
+  try {
+    const url = new URL(raw);
+    if (!/\/booking(?:\.php)?$/i.test(url.pathname)) return null;
+    return /^[0-9a-f]{64}$/i.test(url.searchParams.get('t') || '') ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Just the asset id of a label payload, or null. */
 export function extractId(text) {
   const ref = extractRef(text);
@@ -461,6 +482,15 @@ export default {
       if (text === lastCode && now - lastAt < 2500) return;
       lastCode = text;
       lastAt = now;
+
+      // A hand-over sheet's QR code is not a label — it is the booking. Scan
+      // the paper, land on the page it was printed from.
+      const booking = extractBookingUrl(text);
+      if (booking) {
+        toast('Opening the booking…', 'info', 2000);
+        stop().finally(() => { window.location.assign(booking); });
+        return;
+      }
 
       const ref = extractRef(text);
       if (!ref) {
