@@ -18,8 +18,19 @@
  * on. Anything else would mean either losing the discount on every overridden
  * record or making every override carry its own ladder.
  *
+ * A hire is also either DRY or SERVICE. Dry hire is the gear on its own and IS
+ * what every rate above says — which is why nothing had to declare it before
+ * this existed. On a serviced job the operator's own time is invoiced
+ * separately, so the equipment side of it is the dry-hire price times the
+ * category's `serviceFactor` (typically below 1). The factor is a commercial
+ * decision about a class of gear, so it lives on the RULE beside the discount
+ * ladder, and never on an asset or a unit.
+ *
  * Nothing here is stored: a rental figure is always worked out from the rule
- * that is in force now, exactly like availability and value.
+ * that is in force now, exactly like availability and value. What IS stored is
+ * which KIND of job a booking is — that is a fact about the booking, like the
+ * customer's name, and it rides on the checkout line, the reservation and the
+ * booking record.
  */
 
 import { parseDate, diffDays, unitPriceOf } from './format.js';
@@ -32,8 +43,21 @@ export const OVERRIDE_MODES = ['INHERIT', 'PERCENT', 'FIXED'];
 /** A fixed amount is charged once for the hire, or once per day of it. */
 export const FIXED_PER = ['RENTAL', 'DAY'];
 
+/** Dry hire, or the gear as part of a serviced job. Mirrors TRAX_HIRE_MODES. */
+export const HIRE_MODES = ['DRY', 'SERVICE'];
+
+export const HIRE_LABEL = { DRY: 'Dry hire', SERVICE: 'Full service' };
+
+/** What a record says it is, defaulted. Everything older than this is dry hire. */
+export function hireOf(record) {
+  const value = String(record?.hire ?? '').toUpperCase();
+  return HIRE_MODES.includes(value) ? value : 'DRY';
+}
+
 /** The shape of a complete rate, and what a missing one reads as. */
-export const BLANK_RULE = { mode: 'PERCENT', percent: 0, fixed: 0, fixedPer: 'RENTAL', tiers: [] };
+export const BLANK_RULE = {
+  mode: 'PERCENT', percent: 0, fixed: 0, fixedPer: 'RENTAL', tiers: [], serviceFactor: null,
+};
 /** The shape of a record's own rate. `null` means "not set on this one". */
 export const BLANK_OVERRIDE = { mode: 'INHERIT', percent: null, fixed: null, fixedPer: 'RENTAL' };
 
@@ -91,6 +115,25 @@ export function ruleFor(settings, category) {
   const own = categoryRule(settings, category);
   if (own) return { rule: own, source: 'category' };
   return { rule: rentalSettings(settings).default, source: 'default' };
+}
+
+/**
+ * What the gear costs on a serviced job, as a multiple of the dry-hire price.
+ *
+ * The category's answer, then the install's, then 1 — which means "the same
+ * money either way" and is what an install that has never been told a factor
+ * charges. Resolved separately from the rate itself because an asset or a unit
+ * may overrule the rate without overruling a commercial policy about the class
+ * of gear it belongs to.
+ */
+export function serviceFactorOf(settings, category) {
+  const own = categoryRule(settings, category);
+  if (own && own.serviceFactor !== null && own.serviceFactor !== undefined && own.serviceFactor !== '') {
+    const value = num(own.serviceFactor);
+    if (value !== null) return value;
+  }
+  const fallback = num(rentalSettings(settings).default.serviceFactor);
+  return fallback === null ? 1 : fallback;
 }
 
 /** One record's own rate, defaulted. Accepts an asset, a unit or nothing. */
@@ -225,14 +268,23 @@ export function isRated(resolved) {
  * `amount` is null when the rate is a percentage and nothing says what the
  * item is worth — an unpriced line is reported, never silently charged at 0.
  */
-export function rentalOfUnit(asset, unit, settings, days) {
+export function rentalOfUnit(asset, unit, settings, days, hire = 'DRY') {
   const resolved = resolveRate(asset, unit, settings);
   const rated = isRated(resolved);
+  // The factor multiplies the finished amount, whichever way it was worked
+  // out: "full service is 0.7 x dry hire" holds for a percentage of value and
+  // for a flat price alike.
+  const service = hireOf({ hire }) === 'SERVICE';
+  const factor = service ? serviceFactorOf(settings, asset?.category) : 1;
+  const charge = (amount) => round2(amount * factor);
 
   if (resolved.mode === 'FIXED') {
     const fixed = Number(resolved.fixed) || 0;
+    const dry = round2(resolved.fixedPer === 'DAY' ? fixed * days : fixed);
     return {
-      amount: round2(resolved.fixedPer === 'DAY' ? fixed * days : fixed),
+      amount: charge(dry),
+      dry,
+      factor,
       rate: null,
       basis: null,
       resolved,
@@ -244,10 +296,13 @@ export function rentalOfUnit(asset, unit, settings, days) {
   const rate = rateForDays(resolved, days);
   const basis = priceBasis(asset, unit);
   if (basis === null) {
-    return { amount: null, rate, basis: null, resolved, rated, unpriced: true };
+    return { amount: null, dry: null, factor, rate, basis: null, resolved, rated, unpriced: true };
   }
+  const dry = round2(basis * (rate / 100) * days);
   return {
-    amount: round2(basis * (rate / 100) * days),
+    amount: charge(dry),
+    dry,
+    factor,
     rate,
     basis,
     resolved,
@@ -311,10 +366,15 @@ function unitsForLine(asset, qty, chosen) {
  * into its members, exactly as valueOfLines() does, so a kit's own rate is
  * never charged on top of the gear inside it.
  *
- * `unitChoice` is the basket's assetId => [no] map, used when a line does not
- * carry `unitNos` itself.
+ * `options`:
+ *   - `unitChoice` — the basket's assetId => [no] map, used when a line does
+ *     not carry `unitNos` itself.
+ *   - `hire` — DRY or SERVICE for the whole set. A line that names its OWN
+ *     `hire` wins over it, which is what makes a checkout list of several
+ *     bookings price each of them as what it actually is.
  */
-export function rentalOfLines(lines, assets, settings, days, unitChoice = null) {
+export function rentalOfLines(lines, assets, settings, days, options = {}) {
+  const { unitChoice = null, hire = 'DRY' } = options;
   const find = lookupFor(assets);
   const bag = moneyBag();
   const rows = [];
@@ -322,7 +382,7 @@ export function rentalOfLines(lines, assets, settings, days, unitChoice = null) 
   const unrated = [];
   let units = 0;
 
-  const take = (asset, qty, chosen, via) => {
+  const take = (asset, qty, chosen, via, lineHire) => {
     if (!asset || qty <= 0) return;
     units += qty;
 
@@ -334,7 +394,7 @@ export function rentalOfLines(lines, assets, settings, days, unitChoice = null) 
     let unratedUnits = 0;
 
     for (let index = 0; index < qty; index++) {
-      const priced = rentalOfUnit(asset, picked[index] || null, settings, days);
+      const priced = rentalOfUnit(asset, picked[index] || null, settings, days, lineHire);
       bits.push(priced);
       if (priced.amount === null) missing += 1;
       else amount += priced.amount;
@@ -356,6 +416,7 @@ export function rentalOfLines(lines, assets, settings, days, unitChoice = null) 
       via,
       qty,
       days,
+      hire: lineHire,
       currency,
       amount: missing === qty ? null : amount,
       unitAmount: mixed ? null : first.amount,
@@ -378,21 +439,25 @@ export function rentalOfLines(lines, assets, settings, days, unitChoice = null) 
     const chosen = Array.isArray(line?.unitNos) && line.unitNos.length
       ? line.unitNos
       : (unitChoice ? unitChoice[Number(id)] || [] : []);
+    // The line's own answer when it has one — a checkout line and a
+    // reservation both carry it — otherwise what the caller is asking for.
+    const lineHire = line?.hire ? hireOf(line) : hireOf({ hire });
 
     if (asset.kind === 'SET') {
       for (const member of asset.members || []) {
         const target = find(Number(member?.assetId ?? member));
         if (target && target.kind !== 'SET') {
-          take(target, qty * Math.max(1, Number(member?.qty ?? 1)), [], asset);
+          take(target, qty * Math.max(1, Number(member?.qty ?? 1)), [], asset, lineHire);
         }
       }
     } else {
-      take(asset, qty, chosen, null);
+      take(asset, qty, chosen, null, lineHire);
     }
   }
 
   return {
     days,
+    hire: hireOf({ hire }),
     rows,
     totals: bag.totals(),
     units,

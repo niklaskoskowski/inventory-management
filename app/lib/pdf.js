@@ -12,7 +12,7 @@ import {
   purchasedAtOf,
 } from './format.js';
 import { computeValue, valueOfLines, currencyOf, priceOf, unitsOf } from './insights.js';
-import { rentalOfLines, daysLabel } from './rental.js';
+import { rentalOfLines, daysLabel, HIRE_LABEL, hireOf } from './rental.js';
 import {
   RESULT_LABEL, STATE_LABEL, assetState, inspectionRows, inspectionRule, recordsFor,
 } from './inspection.js';
@@ -1054,7 +1054,11 @@ export async function exportBasketPdf(lines = [], assets = []) {
  *   would understate the quote without saying so.
  *
  * `options`: { days, from, to, customerName, customerEmail, reference, notes,
- *              kind: 'selection' | 'checkout' | 'reservation', unitChoice }
+ *              kind: 'selection' | 'checkout' | 'reservation', unitChoice,
+ *              hire: 'DRY' | 'SERVICE' }
+ *
+ * A line that names its own `hire` is priced as that, so a quote covering
+ * several bookings stays right; `options.hire` is what the rest fall back to.
  */
 export async function exportRentalPdf(lines = [], assets = [], options = {}) {
   const lookup = assets instanceof Map
@@ -1062,7 +1066,11 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
     : new Map((assets || []).map((asset) => [Number(asset.id), asset]));
 
   const days = Math.max(1, Number(options.days) || 1);
-  const quote = rentalOfLines(lines, lookup, state.settings, days, options.unitChoice || null);
+  const hire = hireOf(options);
+  const quote = rentalOfLines(lines, lookup, state.settings, days, {
+    unitChoice: options.unitChoice || null,
+    hire,
+  });
   const rows = quote.rows.filter((row) => row.asset);
 
   // No lines, no document — the same rule the value sheet is built under.
@@ -1090,6 +1098,9 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
   if (options.from) details.push([options.kind === 'reservation' ? 'From' : 'Out', formatDateTime(options.from)]);
   if (options.to) details.push([options.kind === 'reservation' ? 'Until' : 'Due back', formatDateTime(options.to)]);
   details.push(['Period', daysLabel(days)]);
+  // What kind of job this is priced as. Said plainly — a customer reading
+  // "Full service" is reading what they booked, not how it was calculated.
+  details.push(['Hire', HIRE_LABEL[hire] || HIRE_LABEL.DRY]);
   if (options.reference) details.push(['Reference', String(options.reference)]);
   if (options.notes) details.push(['Notes', String(options.notes)]);
 
@@ -1206,7 +1217,12 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
   y += 5;
 
   doc.setFontSize(9);
-  doc.text(`${rows.length} line(s) · ${quote.units} unit(s) · ${daysLabel(days)}`, 14, y);
+  doc.text(
+    `${rows.length} line(s) · ${quote.units} unit(s) · ${daysLabel(days)}`
+    + ` · ${HIRE_LABEL[hire] || HIRE_LABEL.DRY}`,
+    14,
+    y,
+  );
   y += 4;
 
   const caveats = [];
@@ -1506,6 +1522,9 @@ export function buildBookingDocument(booking = {}) {
     ['Reference', booking.reference == null ? '' : String(booking.reference)],
     [reservation ? 'Starts' : 'Checked out', formatDateTime(booking.startAt)],
     [reservation ? 'Ends' : 'Due back', formatDateTime(booking.endAt)],
+    // Only when it is a serviced job: "Dry hire" on every sheet would be noise
+    // on the overwhelming majority of them, and the empty row is dropped below.
+    ['Hire', hireOf(booking) === 'SERVICE' ? HIRE_LABEL.SERVICE : ''],
     ['Status', String(booking.status || '').trim()],
     ['Notes', String(booking.notes || '').trim()],
   ].filter(([, value]) => value !== '');

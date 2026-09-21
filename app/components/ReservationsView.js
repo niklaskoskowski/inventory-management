@@ -2,6 +2,7 @@ import { ref, computed } from 'vue';
 import { state, mutate, toast, getAsset } from '../store.js';
 import { formatDateTime, parseDate, toLocalInput, formatTotals } from '../lib/format.js';
 import { valueOfLines } from '../lib/insights.js';
+import { HIRE_LABEL, hireOf } from '../lib/rental.js';
 import { exportBookingPdf } from '../lib/pdf.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 
@@ -70,6 +71,7 @@ export default {
           reference: `Reservation #${reservation.id}`,
           startAt: reservation.startAt,
           endAt: reservation.endAt,
+          hire: reservation.hire,
           status: reservation.status,
           notes: reservation.notes || '',
           items: items.map((item) => ({
@@ -137,7 +139,7 @@ export default {
       state, rows, filter, nameOf, STATUS_CLASS, blockedUnitCodes,
       converting, cancelling, convertDue, allowPartial, blocked,
       startConvert, doConvert, doCancel, formatDateTime, formatTotals, emit,
-      exporting, bookingPdf,
+      exporting, bookingPdf, HIRE_LABEL, hireOf,
     };
   },
   template: `
@@ -161,6 +163,11 @@ export default {
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <strong>{{ r.customerName }}</strong>
               <span class="trax-badge" :class="STATUS_CLASS[r.status]">{{ r.status }}</span>
+              <!-- Only a serviced job says so: dry hire is what almost every
+                   reservation is, and a chip on all of them says nothing. -->
+              <span v-if="hireOf(r) === 'SERVICE'" class="trax-kind-chip">
+                <i class="bi bi-person-gear"></i> {{ HIRE_LABEL.SERVICE }}
+              </span>
               <span class="text-secondary small">{{ r.customerEmail }}</span>
             </div>
             <div class="small text-secondary mt-1">

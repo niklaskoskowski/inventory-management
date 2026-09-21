@@ -277,10 +277,13 @@ described above.
   give each category a daily rate — a percentage of what the item is worth — or
   a fixed price, and add as many discounts as you like ("from 7 days on, 3 % a
   day"). A single item, or a single unit of one, can be priced differently in
-  its own Rental tab. The selection drawer and the checkout list then show what
-  a hire costs, and the **Rental PDF** is the quote you hand the customer — it
-  carries prices only, never the percentage behind them or what the gear cost
-  you.
+  its own Rental tab. Those rates are your **dry-hire** prices; a **full-service**
+  factor (say 0,7) says what the same gear costs on a job you staff yourself,
+  where your time is invoiced separately. When checking out or reserving you
+  flip one toggle — Dry hire or Full service — and the price follows; the
+  choice is kept with the booking. The **Rental PDF** is the quote you hand the
+  customer: prices only, never the percentage or the factor behind them, and
+  never what the gear cost you.
 - **Test records** for the gear that needs them. Under Settings → Inspections
   you tick the categories that get tested — cables, say — and say what the test
   is called, how long it is valid and which readings to write down. Each item

@@ -662,6 +662,9 @@ function trax_normalize_reservation(mixed $raw): array
         'startAt'       => trax_iso($raw['startAt'] ?? null) ?? $now,
         'endAt'         => trax_iso($raw['endAt'] ?? $raw['returnDate'] ?? $raw['dueAt'] ?? null) ?? $now,
         'status'        => trax_enum($raw['status'] ?? null, TRAX_RESERVATION_STATUSES, 'ACTIVE'),
+        // Carried onto the checkout lines when the reservation is converted, so
+        // a serviced job booked in March is still a serviced job in June.
+        'hire'          => trax_enum($raw['hire'] ?? null, TRAX_HIRE_MODES, 'DRY'),
         'notes'         => trax_str($raw['notes'] ?? ''),
         'createdAt'     => trax_iso($raw['createdAt'] ?? null) ?? $now,
         'convertedAt'   => trax_iso($raw['convertedAt'] ?? null),
@@ -752,6 +755,12 @@ function trax_normalize_checkout(mixed $raw): array
         // Which customer-facing booking this line belongs to, so a return can
         // close that booking without guessing from names and dates.
         'bookingId'     => trax_int($raw['bookingId'] ?? null),
+        // Dry hire or part of a serviced job. On the LINE and not only on the
+        // booking because the line is what gets priced, what survives a partial
+        // return, and what a legacy row has instead of a booking. DRY on
+        // everything written before the distinction existed, which is what it
+        // always was.
+        'hire'          => trax_enum($raw['hire'] ?? null, TRAX_HIRE_MODES, 'DRY'),
         'note'          => trax_str($raw['note'] ?? ''),
     ];
 }
@@ -904,6 +913,10 @@ function trax_normalize_booking(mixed $raw): array
         'dueAt'         => $dueAt,
         'expiresAt'     => $expiresAt,
         'status'        => trax_enum($raw['status'] ?? null, TRAX_BOOKING_STATUSES, 'OPEN'),
+        // The booking outlives its lines — they are deleted on a full return —
+        // so what kind of job it was is recorded here too, or the customer's
+        // own page would forget it the moment the gear came back.
+        'hire'          => trax_enum($raw['hire'] ?? null, TRAX_HIRE_MODES, 'DRY'),
         'items'         => $items,
         'notes'         => trax_str($raw['notes'] ?? ''),
         // What the reminder cron has already sent about this booking.
@@ -1245,6 +1258,17 @@ function trax_normalize_inspection_entry(mixed $raw): ?array
 // where the arithmetic actually happens — the server only stores the rule).
 // ---------------------------------------------------------------------------
 
+/**
+ * What kind of job a booking is.
+ *
+ * DRY is the gear on its own — the rate IS the dry-hire rate, which is why
+ * nothing had to say so before this existed and every record written until now
+ * reads back as DRY. SERVICE is the same gear as part of a serviced job, where
+ * the operator's own time is charged separately; the gear side of it is the
+ * dry-hire price times the category's `serviceFactor`.
+ */
+const TRAX_HIRE_MODES = ['DRY', 'SERVICE'];
+
 /** How a rate is worked out. A category rule is one of these two. */
 const TRAX_RENTAL_MODES = ['PERCENT', 'FIXED'];
 /** An asset's or a unit's own rate may also say "whatever is above me". */
@@ -1263,6 +1287,22 @@ function trax_rental_percent(mixed $value): ?float
 {
     $number = trax_float($value);
     if ($number === null || $number < 0 || $number > 100) {
+        return null;
+    }
+    return round($number, 3);
+}
+
+/**
+ * A multiplier, 0..10, three decimals. Null when it is not a number.
+ *
+ * Bounded above because it is a factor and not a price: 0.7 and 1.25 are real
+ * answers, 700 is a typo that would invoice a customer seven hundred times the
+ * dry-hire rate.
+ */
+function trax_rental_factor(mixed $value): ?float
+{
+    $number = trax_float($value);
+    if ($number === null || $number < 0 || $number > 10) {
         return null;
     }
     return round($number, 3);
@@ -1326,6 +1366,13 @@ function trax_normalize_rental_rule(mixed $raw): array
         'fixed'    => trax_rental_amount($raw['fixed'] ?? null) ?? 0.0,
         'fixedPer' => trax_enum($raw['fixedPer'] ?? null, TRAX_RENTAL_FIXED_PER, 'RENTAL'),
         'tiers'    => trax_normalize_rental_tiers($raw['tiers'] ?? null),
+        // What the gear costs on a SERVICED job, as a multiple of the dry-hire
+        // price. Typically below 1: the operator's own time is invoiced
+        // separately, so the equipment side of a serviced job is discounted.
+        // null means "not set here" — a category falls through to the default
+        // rule, and the default rule falling through means 1, i.e. the same
+        // money either way.
+        'serviceFactor' => trax_rental_factor($raw['serviceFactor'] ?? null),
     ];
 }
 

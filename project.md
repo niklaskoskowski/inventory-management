@@ -200,7 +200,7 @@ unit.rental  ->  asset.rental  ->  settings.rental.categories[category]  ->  set
 
 `settings.rental` (`trax_normalize_rental()` `lib/store.php`) is `{default: rule, categories: [rule
 + {category}]}`. A **rule** is `{mode: PERCENT|FIXED, percent (0..100), fixed (≥0), fixedPer:
-RENTAL|DAY, tiers: [{days ≥ 1, percent}]}`:
+RENTAL|DAY, tiers: [{days ≥ 1, percent}], serviceFactor (0..10 or null)}`:
 
 - `PERCENT` charges `percent` of the item's value **per day** of the hire.
 - `FIXED` charges `fixed` once for the hire (`fixedPer: RENTAL`) or once per day (`DAY`), whatever
@@ -221,6 +221,23 @@ An override replaces the base rate and keeps the ladder's **shape**: the discoun
 by `tier/base`, so a unit overridden to 6 %/day under a category charging 5 %/day and 3 % from a
 week on is charged 6 × (3/5) = 3.6 %/day from a week on.
 
+### Dry hire vs. full service
+
+Everything above is the **dry-hire** rate: the gear on its own, which is what every rate meant
+before the distinction existed. On a serviced job the operator's time is invoiced separately, so the
+equipment side is the dry-hire price times the rule's `serviceFactor` — typically below 1.
+`serviceFactorOf()` resolves category → default → **1**, so an install that has never set one
+charges the same either way. The factor lives on the rule beside the discount ladder and never on an
+asset or a unit: it is a commercial decision about a class of gear.
+
+Which kind a booking is **is stored** — it is a fact about the job, like the customer's name, not a
+price. `hire` (`DRY` | `SERVICE`, `TRAX_HIRE_MODES`) rides on the **checkout line**, the
+**reservation** and the **booking**: the line because that is what gets priced and what survives a
+partial return, the reservation so a conversion inherits it, the booking because it outlives its
+lines. Everything written before this reads back as `DRY`. `rentalOfLines()` takes
+`{hire}` for the whole set, and a line naming its own wins — which is what keeps a checkout list
+holding both kinds correct.
+
 All the arithmetic is client-side in `app/lib/rental.js` — `rentalDays()` (whole calendar days,
 minimum 1), `resolveRate()`, `rateForDays()`, `rentalOfUnit()` and `rentalOfLines()` (the basket,
 a checkout group and a reservation all already have its `[{id, qty, unitNos?}]` shape; a kit is
@@ -230,9 +247,10 @@ mutation, like the mail templates and the WhatsApp number) but never prices a hi
 figure is always worked out from the rules in force at that moment, which is why changing a rate
 re-prices what is still out.
 
-The **rental PDF prints money only** — the price for one unit over the period, and the line total.
-No purchase value, and no rate: a percentage is a fraction of what the gear cost to buy, so
-printing it beside the price would hand that value over by division. `formatPercent()` and the
+The **rental PDF prints money only** — the price for one unit over the period, the line total and a
+"Hire" row naming dry hire or full service. No purchase value, no rate and no factor: a percentage
+is a fraction of what the gear cost to buy, so printing it beside the price would hand that value
+over by division, and the factor is the same kind of internal number. `formatPercent()` and the
 resolved rate belong to the operator's screens (settings, the asset sheet), never to a customer
 document.
 

@@ -6,6 +6,38 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-09-21
+
+### Added
+
+- **Dry hire and full service.**
+  - The rental rates are, and always were, the **dry-hire** rates — the gear on its own. A serviced
+    job is the same gear with the operator's own time invoiced separately, so its equipment side is
+    the dry-hire price times a **full-service factor**, normally below 1. The factor sits under the
+    default rate in Settings → Rental rates and can be overruled per category (empty = inherit the
+    default); both previews now name both prices, e.g. "3 %/day · €210.00 for 7 days (1 week) on a
+    €1,000.00 item · full service €147.00".
+  - **A toggle in the selection drawer**, Dry hire / Full service, for a checkout and for a
+    reservation alike. The rental line follows it live, and on full service a hint says what the
+    gear is being charged at ("Gear at 50 %, 70 % of dry hire (€116.55). The crew is invoiced
+    separately.") so the two numbers are never a mystery.
+  - The choice is **stored**, because it is a fact about the job and not a price: on every checkout
+    line, on the reservation and on the booking. A reservation booked as full service is still full
+    service when it is converted months later, and the booking keeps the answer after the gear has
+    come back and its lines are gone.
+  - The checkout list shows a **Dry hire / Full service** chip per customer and prices each line by
+    what that line says — a list holding both kinds stays right. Reservations show the chip when
+    they are serviced. The rental PDF carries a "Hire" row and the handover sheet gains one when the
+    job is serviced; neither prints the factor, for the same reason neither prints the percentage.
+  - The factor lives on the RULE, beside the discount ladder, and never on an asset or a unit: it is
+    a commercial decision about a class of gear, not about one camera. `serviceFactorOf()` resolves
+    category → default → 1, so an install that has never been told a factor charges the same either
+    way and nothing changes until somebody says otherwise.
+  - Storage: `serviceFactor` (nullable, 0..10) on every rental rule, and `hire` (`DRY` | `SERVICE`)
+    on the checkout line, the reservation and the booking. Everything written before this reads back
+    as `DRY`, which is exactly what it was. `api.php` refuses a factor outside 0..10 before the
+    mutation, with the reason.
+
 ## 2026-09-20
 
 ### Added

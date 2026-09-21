@@ -6,7 +6,9 @@ import {
 } from '../store.js';
 import { findConflicts } from '../lib/schedule.js';
 import { valueOfLines } from '../lib/insights.js';
-import { rentalDays as hireDays, rentalOfLines, daysLabel } from '../lib/rental.js';
+import {
+  rentalDays as hireDays, rentalOfLines, daysLabel, HIRE_LABEL, serviceFactorOf,
+} from '../lib/rental.js';
 import { exportBasketPdf, exportRentalPdf } from '../lib/pdf.js';
 import { parseDate, toLocalInput, formatTotals } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
@@ -105,13 +107,40 @@ export default {
       ? hireDays(new Date(), dueAt.value)
       : hireDays(startAt.value, endAt.value)));
 
+    // Dry hire or a serviced job. Stored on what this drawer creates — the
+    // lines, the booking, the reservation — because it is a fact about the
+    // job, not a price: the price is worked out from it every time.
+    const hire = ref('DRY');
+
     const rentalQuote = computed(() => rentalOfLines(
       selectedExpanded.value,
       assetById.value,
       state.settings,
       hireLength.value,
-      state.unitChoice,
+      { unitChoice: state.unitChoice, hire: hire.value },
     ));
+
+    /** The same selection as dry hire, for the line that says what it saves. */
+    const dryQuote = computed(() => rentalOfLines(
+      selectedExpanded.value,
+      assetById.value,
+      state.settings,
+      hireLength.value,
+      { unitChoice: state.unitChoice, hire: 'DRY' },
+    ));
+
+    /**
+     * The factors actually in play, so the hint can say "70 % of dry hire"
+     * instead of naming a number that only applies to half the basket.
+     */
+    const serviceFactors = computed(() => {
+      const seen = new Set();
+      for (const row of selectedExpanded.value) {
+        const asset = assetById.value.get(Number(row.id));
+        if (asset) seen.add(serviceFactorOf(state.settings, asset.category));
+      }
+      return [...seen].sort((a, b) => a - b);
+    });
 
     /** Selected items with fewer free units than the selection asks for. */
     const unavailable = computed(() =>
@@ -154,6 +183,7 @@ export default {
             dueAt: dueAt.value,
             notes: notes.value,
             allowPartial: allowPartial.value,
+            hire: hire.value,
           });
           toast(
             `Checked out ${data.checkedOut} unit(s) on ${data.lines} line(s).`
@@ -169,6 +199,7 @@ export default {
             endAt: endAt.value,
             notes: notes.value,
             force: force.value,
+            hire: hire.value,
           });
           toast(`Reservation #${data.reservationId} created.`, 'success');
         }
@@ -266,6 +297,7 @@ export default {
           customerEmail: customerEmail.value,
           notes: notes.value,
           unitChoice: state.unitChoice,
+          hire: hire.value,
         });
       } catch (error) {
         toast(`Could not build the rental PDF: ${error.message}`, 'danger', 8000);
@@ -279,6 +311,7 @@ export default {
       busy, blocked, allowPartial, force, groups, unavailable, windowConflicts,
       selectionValue, formatTotals, exportingPdf, selectionPdf,
       hireLength, rentalQuote, daysLabel, exportingQuote, rentalPdf,
+      hire, dryQuote, serviceFactors, HIRE_LABEL,
       selectedItemIds, selectedUnitCount, toggleSelected, clearSelection,
       getAsset, getQuantity, setQuantity, submit, emit,
       unitsOf, showUnits, unitCode, unitChosen, unitDisabled, unitTitle, unitHint,
@@ -396,6 +429,27 @@ export default {
           <strong>{{ formatTotals(selectionValue.totals) }}</strong>
         </div>
 
+        <!-- Dry hire or a serviced job. The rates ARE the dry-hire rates; full
+             service multiplies them by the category's factor, because the
+             crew's time is invoiced separately. -->
+        <div class="d-flex align-items-center gap-2 small mt-2">
+          <span class="text-secondary flex-grow-1">Hire type</span>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Dry hire or full service">
+            <button type="button" class="btn"
+                    :class="hire === 'DRY' ? 'btn-secondary active' : 'btn-outline-secondary'"
+                    :aria-pressed="hire === 'DRY' ? 'true' : 'false'"
+                    @click="hire = 'DRY'">
+              <i class="bi bi-box"></i> {{ HIRE_LABEL.DRY }}
+            </button>
+            <button type="button" class="btn"
+                    :class="hire === 'SERVICE' ? 'btn-secondary active' : 'btn-outline-secondary'"
+                    :aria-pressed="hire === 'SERVICE' ? 'true' : 'false'"
+                    @click="hire = 'SERVICE'">
+              <i class="bi bi-person-gear"></i> {{ HIRE_LABEL.SERVICE }}
+            </button>
+          </div>
+        </div>
+
         <!-- What the hire costs over the window above. Also internal until it
              is printed: the rental PDF is the customer's copy. -->
         <div class="d-flex align-items-center gap-2 small mt-1">
@@ -411,6 +465,16 @@ export default {
             {{ rentalQuote.unpricedCount }} without a value
           </span>
           <strong>{{ formatTotals(rentalQuote.totals) }}</strong>
+        </div>
+
+        <!-- Only on full service, and only when it actually changes the price:
+             the factor is the whole reason the two numbers differ. -->
+        <div v-if="hire === 'SERVICE'" class="small text-secondary">
+          Gear at
+          <span v-for="(factor, fi) in serviceFactors" :key="factor">
+            {{ Math.round(factor * 1000) / 10 }} %<span v-if="fi < serviceFactors.length - 1">, </span>
+          </span>
+          of dry hire ({{ formatTotals(dryQuote.totals) }}). The crew is invoiced separately.
         </div>
       </div>
 
