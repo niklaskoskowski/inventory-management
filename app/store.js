@@ -841,6 +841,34 @@ export async function deleteInspection(assetId, inspectionId) {
   return mutate('asset.inspectionDelete', { id: assetId, inspectionId });
 }
 
+// --- Hand-over signature ---------------------------------------------------
+// One per booking, the customer's alone. The other side of the hand-over is
+// `booking.handedOverBy`, stamped from the operator at checkout — that half is
+// recorded, never signed.
+
+/** Stores the drawn signature. `blob` is what the pad produced. */
+export async function signBooking(bookingId, name, blob) {
+  state.loading = true;
+  try {
+    // `signedName`, not `name`: the multipart payload in api.php is an
+    // allow-list, and a field it does not name never reaches the action.
+    const body = await api.uploadMany('booking.sign', [blob], { bookingId, signedName: name });
+    applySnapshot(body.data);
+    state.rev = body.rev ?? state.rev;
+    return body.data;
+  } catch (error) {
+    toast(error.message, 'danger', 8000);
+    throw error;
+  } finally {
+    state.loading = false;
+  }
+}
+
+/** Clears it, and deletes the drawing. The only way a booking can be re-signed. */
+export async function unsignBooking(bookingId) {
+  return mutate('booking.unsign', { bookingId });
+}
+
 // --- Events ----------------------------------------------------------------
 // Plain records. Nothing here touches availability: an event is a label that
 // checkout lines and reservations carry, and what is booked against one is

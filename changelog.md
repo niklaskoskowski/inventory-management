@@ -6,6 +6,34 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-09-22
+
+### Added
+
+- **One signature on the hand-over, stored and shown everywhere it matters.**
+  - The handover sheet used to print **four** rules — *Handed over by / Received by* and
+    *Packed by / Checked by*. It prints **one** now. The other side of a hand-over is never the
+    part in dispute, so it is recorded rather than signed: `handedOverBy` is stamped from the
+    operator who made the checkout and printed as a fact.
+  - **Signed at the counter**, from the checkout card: hand the tablet over, the customer types
+    their name and signs, done. Pointer events, so a finger, a stylus and a mouse are one code
+    path, and the drawing is cropped to the ink before it is stored — storing the empty pad around
+    a signature means printing the signature small.
+  - **Or signed by the customer**, on their own booking link. This is the first write this public
+    page accepts, and it is narrow by construction: the token in the URL is the capability (it
+    already shows everything the page would tell you), plus a honeypot field, a per-session attempt
+    counter, and **one signature ever** — re-checked under the lock, so two taps on a slow phone
+    cannot produce two. Only the operator can clear it, from the admin, and then it can be signed
+    again. Answers are POST/redirect/GET, so a reload never re-posts.
+  - The signature shows in **all three places**: on the handover PDF (the drawing itself, over the
+    rule, with the typed name and the time), on the customer's own page, and on the checkout card —
+    with who signed, when, and whether it happened at the counter or on their link.
+  - Storage: `signature` (`{file, name, at, source, actor}`) and `handedOverBy` on the booking. The
+    drawing goes through the ordinary image pipeline — sniffed, decoded and re-encoded by GD — and
+    lands in `uploads/` under a 128-bit random name, which is what lets the customer's own page
+    show it back to them. Removing a signature deletes the file; so does deleting the asset it
+    hangs off.
+
 ## 2026-09-21 (events)
 
 ### Added

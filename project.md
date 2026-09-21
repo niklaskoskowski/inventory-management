@@ -256,6 +256,32 @@ over by division, and the factor is the same kind of internal number. `formatPer
 resolved rate belong to the operator's screens (settings, the asset sheet), never to a customer
 document.
 
+## Hand-over signature
+
+One per booking, the customer's alone — `signature` on the booking record:
+`{file, name, at, source: ADMIN|CUSTOMER, actor}`, or `null`. The other side of a hand-over is
+**`handedOverBy`**, stamped from the operator who made the checkout and never signed: that half is
+always known and never in dispute. `buildBookingDocument()` prints one rule instead of the four it
+used to (the *Packed by / Checked by* pair is gone).
+
+Captured in two places, landing in the same field:
+
+- **At the counter**, from the checkout card (`SignaturePad.js` → `booking.sign`, multipart). The
+  drawing is cropped to the ink before upload: everything downstream scales it to fit, and the
+  empty pad around a signature would print it small. `signedName` has to be listed in the
+  multipart payload allow-list in `api.php` — a field that array does not name never reaches the
+  action.
+- **On the customer's own link** (`booking.php`, the one write that page accepts). The token in the
+  URL is the capability; on top of it a honeypot, a per-session attempt counter, and one signature
+  ever — re-checked under the lock so a double tap cannot produce two. Only `booking.unsign` (admin)
+  clears it. POST/redirect/GET, so a reload never re-posts.
+
+The bitmap goes through `trax_store_photo_as()` like every other image — sniffed, decoded and
+re-encoded by GD — into `uploads/` under `sig-<32 hex>.jpg`. Random because `uploads/` is served
+without auth, which is also what lets the customer's page and the PDF read it back. It is drawn
+**dark on white**, not on transparency, so the same picture travels from tablet to page to PDF
+without an inversion anywhere.
+
 ## Events
 
 A job the gear goes out on: a festival, a conference, a shoot.

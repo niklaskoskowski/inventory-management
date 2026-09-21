@@ -269,6 +269,29 @@ function assetThumb(file) {
 }
 
 /**
+ * One stored hand-over signature, ready to draw.
+ *
+ * The FULL-size file, not the thumbnail: this is handwriting on a receipt, and
+ * the 78 mm it gets on the page deserves better than a 200 px crop. Same fetch
+ * and the same "a picture is never worth the document" rule as a thumb — a
+ * failure leaves the rule blank to be signed on paper.
+ */
+async function loadSignature(file) {
+  const name = String(file ?? '').trim();
+  if (!name) return null;
+  try {
+    const response = await fetch(`uploads/${encodeURIComponent(name)}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const meta = imageMeta(bytes);
+    if (!meta || !meta.width || !meta.height) return null;
+    return { ...meta, dataUri: `data:${meta.mime};base64,${base64Of(bytes)}` };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * filename => thumb|null for a whole document, fetched concurrently.
  *
  * Distinct filenames only: 28 rows of the same photo are one request and one
@@ -393,6 +416,72 @@ function signatures(doc, y, left, right) {
   doc.text(right, 112, y + 16);
   doc.setTextColor(0, 0, 0);
   doc.setDrawColor(0, 0, 0);
+}
+
+/** How tall the hand-over block is, so the caller can decide to break the page. */
+const HANDOVER_HEIGHT = 30;
+/** The box a stored signature is fitted into, in mm. */
+const SIGNATURE_BOX = { width: 78, height: 20 };
+
+/**
+ * The hand-over block: who handed it over, and the customer's signature.
+ *
+ * ONE signature, not four rules. The other side of a hand-over is never in
+ * dispute — whoever was at the counter is recorded at checkout and printed
+ * here as a fact — so the only thing worth a signature is the customer saying
+ * they received the gear.
+ *
+ * Signed, it prints the drawing itself over a caption naming who signed and
+ * when. Unsigned, it prints the rule to sign on paper, because a sheet walking
+ * out to a van has to work when the tablet stays behind.
+ */
+function handover(doc, y, model, signature) {
+  doc.setFontSize(8);
+  doc.setTextColor(100);
+  doc.text('Handed over by', 14, y + 16);
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(10);
+  doc.text(model.handedOverBy || DASH, 14, y + 11);
+
+  doc.setFontSize(8);
+  doc.setTextColor(100);
+  doc.text('Received by', 112, y + 16);
+  doc.setTextColor(0, 0, 0);
+
+  if (signature?.dataUri) {
+    try {
+      // Contained in the box at its own aspect ratio, sitting ON the rule —
+      // the same fit the header logo gets, for the same reason.
+      const scale = Math.min(
+        SIGNATURE_BOX.width / signature.width,
+        SIGNATURE_BOX.height / signature.height,
+      );
+      const drawWidth = signature.width * scale;
+      const drawHeight = signature.height * scale;
+      doc.addImage(
+        signature.dataUri,
+        signature.format,
+        112,
+        y + 11 - drawHeight,
+        drawWidth,
+        drawHeight,
+        undefined,
+        'FAST',
+      );
+    } catch { /* a drawing is never worth the document */ }
+  }
+
+  doc.setDrawColor(150);
+  doc.line(112, y + 12, 190, y + 12);
+  doc.setDrawColor(0, 0, 0);
+
+  if (model.signedName) {
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text(model.signedName, 112, y + 20);
+    if (model.signedAt) doc.text(model.signedAt, 112, y + 24);
+    doc.setTextColor(0, 0, 0);
+  }
 }
 
 /** Full inventory listing, grouped by category. */
@@ -1545,6 +1634,13 @@ export function buildBookingDocument(booking = {}) {
     summary: `${totalItems} item(s) · ${totalUnits} unit(s)`,
     // Only a handover gets signed; a reservation is not a transfer of custody.
     signature: !reservation,
+    // The half that is recorded rather than signed: whoever was at the counter.
+    handedOverBy: String(booking.handedOverBy || '').trim(),
+    // What the customer put their name to, when they have. Empty leaves the
+    // rule blank, to be signed on paper.
+    signedName: String(booking.signature?.name || '').trim(),
+    signedAt: booking.signature?.at ? formatDateTime(booking.signature.at) : '',
+    signatureFile: String(booking.signature?.file || '').trim(),
     filename: `${slug(appName(), 'assets')}-${kind}-${slug(booking.customerName, 'customer')}-${dateStamp(booking.startAt)}.pdf`,
   };
 }
@@ -1584,6 +1680,10 @@ export async function exportBookingPdf(booking) {
   const model = buildBookingDocument(booking);
   const JsPDF = await jsPdf();
   const logo = await brandLogo();
+  // The stored drawing, if there is one. Fetched exactly like a thumbnail —
+  // uploads/ is served without auth, which is also what lets the customer's
+  // own page show it back to them — and a failure just leaves the rule blank.
+  const drawing = model.signatureFile ? await loadSignature(model.signatureFile) : null;
   const doc = new JsPDF();
   const id = reportId();
   const height = doc.internal.pageSize.getHeight();
@@ -1630,16 +1730,12 @@ export async function exportBookingPdf(booking) {
   y += 4;
 
   if (model.signature) {
-    // Two rules now, so the taller block needs more room left on the page than
-    // the old single pair did.
-    if (y > height - 58) {
+    if (y > height - (HANDOVER_HEIGHT + 24)) {
       doc.addPage();
       decorate(doc, model.title, id, logo);
       y = CONTENT_TOP;
     }
-    signatures(doc, y, 'Handed over by', 'Received by');
-    // The ticked boxes above are only a packing record if someone owns them.
-    signatures(doc, y + 18, 'Packed by', 'Checked by');
+    handover(doc, y, model, drawing);
   }
 
   footer(doc);

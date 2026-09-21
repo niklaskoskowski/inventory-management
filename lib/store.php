@@ -857,6 +857,43 @@ function trax_normalize_booking_photo(mixed $raw): ?array
     ];
 }
 
+/** Where a signature was captured: at the counter, or on the customer's own link. */
+const TRAX_SIGNATURE_SOURCES = ['ADMIN', 'CUSTOMER'];
+
+/**
+ * The customer's hand-over signature, or null when nothing is signed.
+ *
+ * ONE per booking, and only for the hand-over: what goes out is what somebody
+ * puts their name to. The counterpart — who handed it over — is not signed at
+ * all; it is `handedOverBy` on the booking, stamped from the operator who did
+ * the checkout, because that side is always known and never in dispute.
+ *
+ * `name` is what the signer typed in block letters. A drawing on its own says
+ * that somebody signed; the typed name says who, and the pair is what makes
+ * the receipt worth keeping.
+ */
+function trax_normalize_signature(mixed $raw): ?array
+{
+    $raw = is_array($raw) ? $raw : [];
+
+    // Stored exactly like a condition photo: a name we generated, in uploads/.
+    // No file, no signature — an entry pointing at nothing is not a receipt.
+    $file = trax_photo_name($raw['file'] ?? null);
+    if ($file === null) {
+        return null;
+    }
+
+    return [
+        'file'   => $file,
+        'name'   => trax_str($raw['name'] ?? '', TRAX_MAX_NAME),
+        'at'     => trax_iso($raw['at'] ?? null) ?? gmdate('Y-m-d\TH:i:s.000\Z'),
+        'source' => trax_enum($raw['source'] ?? null, TRAX_SIGNATURE_SOURCES, 'ADMIN'),
+        // The operator on duty when it was signed at the counter. Empty when
+        // the customer signed it themselves, where there was none.
+        'actor'  => trax_str($raw['actor'] ?? '', 120),
+    ];
+}
+
 /**
  * Normalises one booking. Running it twice changes nothing — including the
  * token, which is only regenerated when the stored one is not exactly 64 hex
@@ -924,6 +961,12 @@ function trax_normalize_booking(mixed $raw): array
         'eventId'       => trax_int($raw['eventId'] ?? null),
         'items'         => $items,
         'notes'         => trax_str($raw['notes'] ?? ''),
+        // Who handed the gear over. Stamped from the operator who made the
+        // checkout: that side of a hand-over is never signed, because it is
+        // always known — the signature below is the customer's alone.
+        'handedOverBy'  => trax_str($raw['handedOverBy'] ?? '', 120),
+        // The customer's hand-over signature, or null.
+        'signature'     => trax_normalize_signature($raw['signature'] ?? null),
         // What the reminder cron has already sent about this booking.
         'notified'      => trax_normalize_notified($raw['notified'] ?? null),
         // Condition photos taken at hand-over or check-in.
@@ -974,6 +1017,17 @@ function trax_booking_expired(array $booking, ?int $nowTs = null): bool
         return true;    // an unreadable expiry is a dead link, not an eternal one
     }
     return $expires < ($nowTs ?? time());
+}
+
+/** Finds a booking by id, or null. The twin of trax_find_booking_by_token(). */
+function trax_find_booking(array $bookings, int $id): ?array
+{
+    foreach ($bookings as $booking) {
+        if ((int)$booking['id'] === $id) {
+            return $booking;
+        }
+    }
+    return null;
 }
 
 /** Applies a callback to the booking with the given id, in place. */

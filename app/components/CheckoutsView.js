@@ -1,5 +1,8 @@
 import { ref, computed } from 'vue';
-import { state, mutate, toast, getAsset, load, eventById } from '../store.js';
+import {
+  state, mutate, toast, getAsset, load, eventById, openPreview,
+  signBooking, unsignBooking,
+} from '../store.js';
 import * as api from '../api.js';
 import {
   formatDateTime, daysOverdue, isOverdue, toLocalInput, parseDate, formatTotals,
@@ -10,6 +13,7 @@ import {
 } from '../lib/rental.js';
 import { exportBookingPdf, exportRentalPdf } from '../lib/pdf.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
+import SignaturePad from './SignaturePad.js';
 
 /**
  * Open checkouts, grouped by customer.
@@ -20,7 +24,7 @@ import ConfirmDialog from './ui/ConfirmDialog.js';
  */
 export default {
   name: 'CheckoutsView',
-  components: { ConfirmDialog },
+  components: { ConfirmDialog, SignaturePad },
   emits: ['open'],
   setup(props, { emit }) {
     // Selection is by lineId now — an asset id can appear on several lines.
@@ -389,10 +393,16 @@ export default {
       exporting.value = true;
       try {
         const first = group.lines[0] || {};
+        const booking = bookingOf(group);
         await exportBookingPdf({
           kind: 'checkout',
           customerName: group.customerName,
           customerEmail: group.customerEmail,
+          // The hand-over block: who handed it over, and what the customer
+          // signed. Absent on a legacy line that has no booking, which then
+          // prints the rule to sign on paper.
+          handedOverBy: booking?.handedOverBy || '',
+          signature: booking?.signature || null,
           reference: group.reservationId ? `Reservation #${group.reservationId}` : '',
           startAt: first.checkedOut,
           endAt: group.dueAt,
@@ -446,6 +456,60 @@ export default {
       } finally {
         exporting.value = false;
       }
+    };
+
+    // --- Hand-over signature ---------------------------------------------
+    // One per booking, the customer's alone. Captured here at the counter, or
+    // by the customer on their own link — either way it lands in the same
+    // place and shows up on the sheet, the PDF and their page.
+
+    /** The group whose pad is open, or null. */
+    const signing = ref(null);
+    const signName = ref('');
+    const signBusy = ref(false);
+    const unsigning = ref(null);
+
+    const openSignature = (group) => {
+      signing.value = group.key;
+      // Prefilled with who the booking is for; whoever actually signs can
+      // overwrite it, which is the point of asking at all.
+      signName.value = group.customerName || '';
+    };
+
+    const closeSignature = () => { signing.value = null; signName.value = ''; };
+
+    const saveSignature = async (group, blob) => {
+      const booking = bookingOf(group);
+      if (!booking) return;
+      signBusy.value = true;
+      try {
+        await signBooking(booking.id, signName.value.trim(), blob);
+        toast('Signature stored.', 'success');
+        closeSignature();
+      } catch {
+        /* toast already raised by the store */
+      } finally {
+        signBusy.value = false;
+      }
+    };
+
+    const removeSignature = async () => {
+      const booking = unsigning.value;
+      unsigning.value = null;
+      if (!booking) return;
+      try {
+        await unsignBooking(booking.id);
+        toast('Signature removed.', 'success');
+      } catch { /* toast already raised */ }
+    };
+
+    /** The stored drawing in the preview overlay, at a readable size. */
+    const openSignatureImage = (booking) => {
+      openPreview({
+        kind: 'image',
+        src: `uploads/${booking.signature.file}`,
+        title: `${booking.signature.name} · ${formatDateTime(booking.signature.at)}`,
+      });
     };
 
     const doReturn = async () => {
@@ -509,6 +573,8 @@ export default {
       bookingOf, bookingUrl, copyLink, resendEmail,
       formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
       rentalPdf, daysLabel, HIRE_LABEL,
+      signing, signName, signBusy, unsigning,
+      openSignature, closeSignature, saveSignature, removeSignature, openSignatureImage,
     };
   },
   template: `
@@ -595,6 +661,57 @@ export default {
                   :aria-label="'Re-send the confirmation to ' + group.customerEmail">
             <i class="bi bi-envelope"></i> Resend email
           </button>
+          <!-- Only where there is a booking to hang it on: a legacy line
+               without one has nothing to sign for. -->
+          <button v-if="bookingOf(group) && !bookingOf(group).signature"
+                  class="btn btn-sm btn-outline-secondary"
+                  :aria-label="'Take a hand-over signature from ' + group.customerName"
+                  @click="openSignature(group)">
+            <i class="bi bi-pen"></i> Signature
+          </button>
+        </div>
+
+        <!-- What was signed for, once it has been. -->
+        <div v-if="bookingOf(group) && bookingOf(group).signature"
+             class="trax-card-pad py-2 d-flex align-items-center gap-2 flex-wrap border-bottom border-secondary-subtle">
+          <button type="button" class="trax-thumb-btn"
+                  :aria-label="'Show the signature of ' + bookingOf(group).signature.name"
+                  @click="openSignatureImage(bookingOf(group))">
+            <img class="trax-sig-thumb" :src="'uploads/thumb/' + bookingOf(group).signature.file"
+                 alt="">
+          </button>
+          <div class="small">
+            <strong>{{ bookingOf(group).signature.name }}</strong>
+            <span class="text-secondary"> signed {{ formatDateTime(bookingOf(group).signature.at) }}</span>
+            <div class="text-secondary">
+              <span v-if="bookingOf(group).signature.source === 'CUSTOMER'">
+                on their own booking link
+              </span>
+              <span v-else>at the counter</span>
+              <span v-if="bookingOf(group).handedOverBy">
+                · handed over by {{ bookingOf(group).handedOverBy }}
+              </span>
+            </div>
+          </div>
+          <span class="flex-grow-1"></span>
+          <button class="btn btn-sm btn-outline-danger py-0 px-1"
+                  :aria-label="'Remove the signature of ' + bookingOf(group).signature.name"
+                  @click="unsigning = bookingOf(group)">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+
+        <!-- The pad. Hand the tablet over; the customer signs and it is done. -->
+        <div v-if="signing === group.key" class="trax-card-pad border-bottom border-secondary-subtle">
+          <label class="form-label small" :for="'sig-name-' + group.key">Signed by</label>
+          <input class="form-control form-control-sm mb-2" :id="'sig-name-' + group.key"
+                 v-model="signName" maxlength="200" placeholder="Name in block letters">
+          <SignaturePad :busy="signBusy"
+                        @submit="saveSignature(group, $event)" @cancel="closeSignature" />
+          <p class="form-text small mb-0">
+            Confirms the customer received the items listed below. They can also sign it themselves
+            from their booking link.
+          </p>
         </div>
 
         <!-- Keyed by lineId: the same asset id can appear on several lines. -->
@@ -668,6 +785,13 @@ export default {
       </button>
       <button class="btn btn-sm btn-outline-secondary" @click="selected = []">Clear</button>
     </div>
+
+    <ConfirmDialog v-if="unsigning"
+                   title="Remove this signature?"
+                   :message="'The signature of ' + unsigning.signature.name + ' and its image are deleted. '
+                     + 'The hand-over can then be signed again, at the counter or on the booking link.'"
+                   confirm-label="Remove" danger
+                   @confirm="removeSignature" @cancel="unsigning = null" />
 
     <ConfirmDialog v-if="confirmReturn"
                    title="Check these items back in?"

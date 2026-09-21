@@ -298,5 +298,10 @@ described above.
   walks out of the building — *Reserved → Packed → At customer → Returned* by
   default, and you can rename, recolour and reorder those under
   Settings → Events. Deleting a job never deletes gear.
+- **Hand-over signatures.** When gear goes out, the customer signs for it —
+  either on your tablet from the checkout card, or themselves on their own
+  booking link. One signature, theirs; who handed it over is recorded
+  automatically and never signed. It then shows on the handover PDF, on their
+  booking page and in the checkout list. Sign it again by removing the old one.
 - Anyone who finds a lost item can scan its label and reach you through the
   public page, without an account.

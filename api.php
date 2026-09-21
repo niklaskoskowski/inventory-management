@@ -161,6 +161,10 @@ if ($isPost) {
             // The test record a certificate is being attached to. Listed here
             // to exist at all: this array IS the multipart payload.
             'inspectionId' => trax_int($_POST['inspectionId'] ?? null),
+            // Who signed the hand-over, in block letters. Same rule: a field
+            // this array does not name does not reach the action at all.
+            'signedName'   => trax_str($_POST['signedName'] ?? '', TRAX_MAX_NAME),
+            'bookingId'    => trax_int($_POST['bookingId'] ?? null),
             'note'      => trax_str($_POST['note'] ?? ''),
             // The operator's label for a document batch. It has to be listed
             // here to exist at all: this array IS the multipart payload.
@@ -1997,6 +2001,9 @@ try {
                     'items'         => trax_booking_items($granted, $byId, $setIds),
                     'hire'          => $hire,
                     'eventId'       => $eventId,
+                    // The other half of a hand-over, recorded rather than
+                    // signed: whoever was at the counter is always known.
+                    'handedOverBy'  => $actor,
                     'notes'         => $notes,
                 ]);
 
@@ -2446,6 +2453,120 @@ try {
         }
 
 
+
+        // --- Hand-over signature -------------------------------------------
+        // One per booking, the customer's alone. The other side of a hand-over
+        // is `handedOverBy`, stamped from the operator at checkout and never
+        // signed, because it is never the part in dispute.
+
+        case 'booking.sign': {
+            $bookingId = req_int($payload, 'bookingId');
+            $name      = trax_str($payload['signedName'] ?? '', TRAX_MAX_NAME);
+
+            if (!isset($_FILES['photos'])) {
+                trax_fail('BAD_REQUEST', 'No signature was sent.');
+            }
+
+            // Written before the mutation, like every other image: PHP's
+            // temporary upload is gone by the time a deferred write could run.
+            // Removed again below if the mutation is refused.
+            $file = trax_new_signature_name();
+            $entries = trax_photo_batch_entries($_FILES['photos']);
+            if (count($entries) !== 1) {
+                trax_fail('BAD_REQUEST', 'A hand-over carries one signature.');
+            }
+            trax_store_photo_as($file, $entries[0]);
+
+            try {
+                $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
+                    $bookingId, $name, $file, $actor
+                ): array {
+                    $booking = trax_find_booking($data['bookings'], $bookingId);
+                    if ($booking === null) {
+                        throw new TraxInvalid("Booking #{$bookingId} not found.");
+                    }
+
+                    $replaced = $booking['signature']['file'] ?? null;
+
+                    trax_update_booking($data, $bookingId, static function (array $b) use ($name, $file, $actor): array {
+                        $b['signature'] = [
+                            'file'   => $file,
+                            // What the signer typed, or who the booking is for
+                            // when they left it blank — never nothing.
+                            'name'   => $name !== '' ? $name : $b['customerName'],
+                            'at'     => gmdate('Y-m-d\TH:i:s.000\Z'),
+                            'source' => 'ADMIN',
+                            'actor'  => $actor,
+                        ];
+                        return $b;
+                    });
+
+                    trax_append_history($data, 'booking_signed', [
+                        'customerName' => $booking['customerName'],
+                        'note'         => 'Hand-over signed by ' . ($name !== '' ? $name : $booking['customerName']),
+                        'actor'        => $actor,
+                    ]);
+
+                    return ['bookingId' => $bookingId, 'file' => $file, 'replaced' => $replaced];
+                });
+            } catch (Throwable $e) {
+                trax_delete_photo_files($file);
+                throw $e;
+            }
+
+            // The one it replaced goes only once the record no longer points
+            // at it — a mutation refused as stale must not delete anything.
+            $replaced = $result['result']['replaced'] ?? null;
+            if (is_string($replaced) && $replaced !== '' && $replaced !== $file) {
+                trax_delete_photo_files($replaced);
+            }
+            unset($result['result']['replaced']);
+
+            trax_ok(array_merge(
+                trax_snapshot($result['data'], $result['checkouts']),
+                $result['result']
+            ), $result['rev']);
+        }
+
+        case 'booking.unsign': {
+            $bookingId = req_int($payload, 'bookingId');
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($bookingId, $actor): array {
+                $booking = trax_find_booking($data['bookings'], $bookingId);
+                if ($booking === null) {
+                    throw new TraxInvalid("Booking #{$bookingId} not found.");
+                }
+                $file = $booking['signature']['file'] ?? null;
+                if ($file === null) {
+                    throw new TraxInvalid('That booking is not signed.');
+                }
+
+                trax_update_booking($data, $bookingId, static function (array $b): array {
+                    $b['signature'] = null;
+                    return $b;
+                });
+
+                trax_append_history($data, 'booking_signature_removed', [
+                    'customerName' => $booking['customerName'],
+                    'note'         => 'Hand-over signature removed',
+                    'actor'        => $actor,
+                ]);
+
+                return ['bookingId' => $bookingId, 'file' => $file];
+            });
+
+            $file = $result['result']['file'] ?? null;
+            if (is_string($file) && $file !== '') {
+                trax_delete_photo_files($file);
+            }
+            unset($result['result']['file']);
+
+            trax_ok(array_merge(
+                trax_snapshot($result['data'], $result['checkouts']),
+                $result['result']
+            ), $result['rev']);
+        }
+
         // --- Events --------------------------------------------------------
         // A job gear goes out on. The records themselves are plain; what is
         // booked against one is the checkout lines and reservations that name
@@ -2841,6 +2962,7 @@ try {
                         'items'         => trax_booking_items($granted, $byId, $reservation['setIds']),
                         'hire'          => $reservation['hire'],
                         'eventId'       => $reservation['eventId'],
+                        'handedOverBy'  => $actor,
                         'notes'         => $reservation['notes'],
                     ]);
                 }

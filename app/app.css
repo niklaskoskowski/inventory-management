@@ -1219,3 +1219,28 @@ kbd {
   .trax-shell { grid-template-columns: 1fr; }
   body { background: #fff; color: #000; }
 }
+
+/* --- Signature ---------------------------------------------------------- */
+/* Dark ink on white, both on the pad and everywhere the drawing is shown
+   back: the same bitmap travels from the tablet to the customer's page to the
+   PDF, and a theme-coloured pad would be the one place it inverted. */
+.trax-sig-pad {
+  display: block;
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--trax-border);
+  border-radius: .5rem;
+  cursor: crosshair;
+  /* The browser must not treat a signature stroke as a scroll gesture. */
+  touch-action: none;
+}
+
+.trax-sig-thumb {
+  height: 36px;
+  width: auto;
+  max-width: 9rem;
+  object-fit: contain;
+  background: #fff;
+  border-radius: .25rem;
+  padding: 2px;
+}
