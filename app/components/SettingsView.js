@@ -2,7 +2,9 @@ import { ref, computed, watch } from 'vue';
 import { state, settings, taxonomyUsage, mutate, toast } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney } from '../lib/format.js';
-import { BLANK_RULE, daysLabel, formatPercent, tierFor } from '../lib/rental.js';
+import {
+  BLANK_RULE, daysLabel, formatPercent, serviceFactorOf, tierFor,
+} from '../lib/rental.js';
 import { BLANK_RULE as BLANK_INSPECTION } from '../lib/inspection.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 import RentalRate from './RentalRate.js';
@@ -346,19 +348,44 @@ export default {
 
     const currency = computed(() => draft.value.defaults?.currency || 'EUR');
 
+    /** The factor a category with an empty box falls back to. */
+    const defaultFactor = computed(() => {
+      const raw = draft.value.rental.default?.serviceFactor;
+      const value = raw === null || raw === undefined || raw === ''
+        ? 1
+        : Number(String(raw).replace(',', '.'));
+      return Number.isFinite(value) ? value : 1;
+    });
+
+    /** The factor a rule charges, its own or the inherited one. */
+    const factorOf = (rule) => {
+      const raw = rule?.serviceFactor;
+      if (raw === null || raw === undefined || raw === '') return defaultFactor.value;
+      const value = Number(String(raw).replace(',', '.'));
+      return Number.isFinite(value) ? value : defaultFactor.value;
+    };
+
     const rulePreview = (rule) => {
       if (!rule) return '';
       const days = Math.max(1, Number(previewDays.value) || 1);
+      // Both prices, because the pair is the point: dry hire is the rate, full
+      // service is that times the factor.
+      const service = (amount) => {
+        const factor = factorOf(rule);
+        return factor === 1 ? '' : ` · full service ${formatMoney(amount * factor, currency.value)}`;
+      };
+
       if (rule.mode === 'FIXED') {
         const fixed = Number(rule.fixed) || 0;
         const total = rule.fixedPer === 'DAY' ? fixed * days : fixed;
-        return `${formatMoney(total, currency.value)} for ${daysLabel(days)}`;
+        return `${formatMoney(total, currency.value)} for ${daysLabel(days)}${service(total)}`;
       }
       const tier = tierFor(rule.tiers, days);
       const percent = Number(tier ? tier.percent : rule.percent) || 0;
       const total = (SAMPLE_VALUE * percent) / 100 * days;
       return `${formatPercent(percent)} %/day · ${formatMoney(total, currency.value)} for `
-        + `${daysLabel(days)} on a ${formatMoney(SAMPLE_VALUE, currency.value)} item`;
+        + `${daysLabel(days)} on a ${formatMoney(SAMPLE_VALUE, currency.value)} item`
+        + service(total);
     };
 
     // --- Inspections ---
@@ -692,6 +719,7 @@ export default {
       SECTIONS, AUTH_MODES, TAXONOMIES, CUSTOMER_MAIL, CRON_MAIL, HOURS, LOCALES,
       section, draft, busy, patch, dirty, save, revert,
       rentalRows, addRentalRule, removeRentalRule, rulePreview, previewDays,
+      defaultFactor, factorOf, serviceFactorOf,
       inspectionRows, toggleInspection, addInspectionField, removeInspectionField,
       inspectionSummary,
       currency, daysLabel, formatPercent,
@@ -797,12 +825,14 @@ export default {
             <p class="trax-page-sub">
               What hiring gear out costs when its category says nothing else. A percentage
               is charged per day of the hire, on what the item is worth; a fixed price
-              ignores the item's value altogether.
+              ignores the item's value altogether. That rate <strong>is</strong> the dry-hire
+              price; full service is that times the factor below, because the crew's time is
+              invoiced separately.
             </p>
           </div>
           <div class="trax-card-pad pt-0">
             <RentalRate :rule="draft.rental.default" variant="rule" :show-tiers="true"
-                        :currency="currency" />
+                        :show-service="true" :inherit-factor="1" :currency="currency" />
             <div class="d-flex align-items-center gap-2 mt-3 pt-2 border-top border-secondary-subtle">
               <label class="form-label small mb-0" for="set-rental-preview">Preview for</label>
               <input id="set-rental-preview" class="form-control form-control-sm text-end"
@@ -845,7 +875,9 @@ export default {
               </div>
 
               <div v-if="row.rule" class="mt-2">
-                <RentalRate :rule="row.rule" variant="rule" :show-tiers="true" :currency="currency" />
+                <RentalRate :rule="row.rule" variant="rule" :show-tiers="true"
+                            :show-service="true" :inherit-factor="defaultFactor"
+                            :currency="currency" />
                 <div class="small text-secondary mt-1">{{ rulePreview(row.rule) }}</div>
               </div>
               <div v-else class="small text-secondary">

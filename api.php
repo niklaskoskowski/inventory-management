@@ -608,6 +608,11 @@ function trax_rental_patch_error(mixed $rental): ?string
             && trax_rental_amount($rule['fixed']) === null) {
             return "{$where}: the fixed price must be a number and cannot be negative.";
         }
+        if (array_key_exists('serviceFactor', $rule) && $rule['serviceFactor'] !== null
+            && $rule['serviceFactor'] !== '' && trax_rental_factor($rule['serviceFactor']) === null) {
+            return "{$where}: the full-service factor is a multiple of the dry-hire price, 0 to 10 "
+                . '(0.7 = 70 % of dry hire).';
+        }
         foreach ((array)($rule['tiers'] ?? []) as $tier) {
             if (!is_array($tier)) {
                 continue;
@@ -1841,9 +1846,12 @@ try {
             $notes         = trax_str($payload['notes'] ?? '');
             $reservationId = trax_int($payload['reservationId'] ?? null);
             $allowPartial  = !empty($payload['allowPartial']);
+            // Dry hire unless the operator said otherwise, which is what every
+            // checkout made before this existed was.
+            $hire          = trax_enum($payload['hire'] ?? null, TRAX_HIRE_MODES, 'DRY');
 
             $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
-                $items, $customerName, $customerEmail, $dueAt, $notes, $reservationId, $allowPartial, $actor
+                $items, $customerName, $customerEmail, $dueAt, $notes, $reservationId, $allowPartial, $hire, $actor
             ): array {
                 $byId = trax_index_assets($data['assets']);
 
@@ -1926,6 +1934,7 @@ try {
                     'createdAt'     => $now,
                     'dueAt'         => $dueAt,
                     'items'         => trax_booking_items($granted, $byId, $setIds),
+                    'hire'          => $hire,
                     'notes'         => $notes,
                 ]);
 
@@ -1956,6 +1965,7 @@ try {
                         'reservationId' => $reservationId,
                         'setId'         => $viaSet,
                         'bookingId'     => $booking['id'],
+                        'hire'          => $hire,
                         'note'          => $notes,
                     ]);
 
@@ -2382,6 +2392,7 @@ try {
             $endAt         = req_iso($payload, 'endAt');
             $notes         = trax_str($payload['notes'] ?? '');
             $force         = !empty($payload['force']);
+            $hire          = trax_enum($payload['hire'] ?? null, TRAX_HIRE_MODES, 'DRY');
 
             $startTs = trax_parse_datetime($startAt);
             $endTs   = trax_parse_datetime($endAt);
@@ -2390,7 +2401,8 @@ try {
             }
 
             $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
-                $items, $customerName, $customerEmail, $startAt, $endAt, $startTs, $endTs, $notes, $force, $actor
+                $items, $customerName, $customerEmail, $startAt, $endAt, $startTs, $endTs, $notes, $force,
+                $hire, $actor
             ): array {
                 $byId          = trax_index_assets($data['assets']);
                 [$setIds, ]    = trax_partition_ids($items, $byId);
@@ -2429,6 +2441,7 @@ try {
                     'startAt'       => $startAt,
                     'endAt'         => $endAt,
                     'status'        => 'ACTIVE',
+                    'hire'          => $hire,
                     'notes'         => $notes,
                     'createdAt'     => gmdate('Y-m-d\TH:i:s.000\Z'),
                 ]);
@@ -2446,6 +2459,7 @@ try {
                     'startAt'       => $startAt,
                     'dueAt'         => $endAt,
                     'items'         => trax_booking_items($reservation['items'], $byId, $setIds),
+                    'hire'          => $reservation['hire'],
                     'notes'         => $notes,
                 ]);
 
@@ -2619,6 +2633,7 @@ try {
                         'createdAt'     => $now,
                         'dueAt'         => $dueAt,
                         'items'         => trax_booking_items($granted, $byId, $reservation['setIds']),
+                        'hire'          => $reservation['hire'],
                         'notes'         => $reservation['notes'],
                     ]);
                 }
@@ -2669,6 +2684,9 @@ try {
                         'reservationId' => $reservation['id'],
                         'setId'         => $viaSet,
                         'bookingId'     => $booking['id'] ?? null,
+                        // What was booked is what is handed over: a serviced
+                        // job stays one when the reservation is converted.
+                        'hire'          => $reservation['hire'],
                         'note'          => $reservation['notes'],
                     ]);
 

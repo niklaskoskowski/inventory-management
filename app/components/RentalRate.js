@@ -30,6 +30,10 @@ export default {
     dense: { type: Boolean, default: false },
     // What a fixed amount is denominated in. Display only.
     currency: { type: String, default: 'EUR' },
+    // The full-service factor, on a rule. What a category leaving it empty
+    // falls back to is passed in as `inheritFactor`, so the box can say so.
+    showService: { type: Boolean, default: false },
+    inheritFactor: { type: Number, default: 1 },
     // What this rate falls back to, as a sentence, for the INHERIT option.
     inheritLabel: { type: String, default: 'Use the category rate' },
     disabled: { type: Boolean, default: false },
@@ -82,9 +86,22 @@ export default {
       touch();
     };
 
+    /** "0.7 × dry hire · 70 %" — what the factor in force actually means. */
+    const serviceHint = computed(() => {
+      const raw = props.rule.serviceFactor;
+      const own = raw === null || raw === undefined || raw === ''
+        ? null
+        : Number(String(raw).replace(',', '.'));
+      const factor = own !== null && Number.isFinite(own) ? own : props.inheritFactor;
+      const percent = formatPercent(Math.round(factor * 1000) / 10);
+      const source = own !== null && Number.isFinite(own) ? '' : ' (inherited)';
+      if (factor === 1) return `Same price as dry hire${source}`;
+      return `${percent} % of the dry-hire price${source}`;
+    });
+
     return {
       isOverride, tiers, setMode, addTier, removeTier, sortTiers, touch,
-      daysLabel, formatPercent,
+      daysLabel, formatPercent, serviceHint,
     };
   },
   template: `
@@ -132,6 +149,27 @@ export default {
             </select>
           </div>
         </template>
+      </div>
+
+      <!-- Full service. The gear on a serviced job, as a multiple of the
+           dry-hire price above — normally below 1, because the operator's own
+           time is invoiced separately. Empty on a category means "whatever the
+           default rate says". -->
+      <div v-if="showService" class="row g-2 mt-1 align-items-end">
+        <div class="col-12 col-md-5">
+          <label class="form-label small mb-1">Full service</label>
+          <div class="input-group input-group-sm">
+            <input class="form-control text-end" type="text" inputmode="decimal"
+                   v-model="rule.serviceFactor" :disabled="disabled"
+                   :placeholder="String(inheritFactor)"
+                   aria-label="Full-service factor: a multiple of the dry-hire price"
+                   @input="touch()">
+            <span class="input-group-text">× dry hire</span>
+          </div>
+        </div>
+        <div class="col-12 col-md-7">
+          <div class="form-text small mb-0">{{ serviceHint }}</div>
+        </div>
       </div>
 
       <!-- The discount ladder. A step is "from N days on, this rate" — so the

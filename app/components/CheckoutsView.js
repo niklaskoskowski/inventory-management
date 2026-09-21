@@ -5,7 +5,9 @@ import {
   formatDateTime, daysOverdue, isOverdue, toLocalInput, parseDate, formatTotals,
 } from '../lib/format.js';
 import { valueOfLines } from '../lib/insights.js';
-import { rentalDays as hireDays, rentalOfLines, daysLabel } from '../lib/rental.js';
+import {
+  rentalDays as hireDays, rentalOfLines, daysLabel, HIRE_LABEL, hireOf,
+} from '../lib/rental.js';
 import { exportBookingPdf, exportRentalPdf } from '../lib/pdf.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 
@@ -79,9 +81,14 @@ export default {
           // the rates in force now. Never stored on the line — see
           // app/lib/rental.js — so a rate change re-prices what is still out.
           const days = hireDays(group.lines[0]?.checkedOut, group.dueAt);
+          // Every line carries its own answer, so a group of lines that
+          // somehow disagree is priced line by line rather than averaged; this
+          // is only what the CHIP says.
+          const hire = hireOf(group.lines[0]);
           return {
             ...group,
             days,
+            hire,
             value: valueOfLines(
               group.lines.map((line) => ({ id: line.assetId, qty: line.qty })),
               getAsset,
@@ -93,6 +100,8 @@ export default {
                 // The units that actually left, so a unit with its own rate is
                 // priced as itself rather than as the asset's average.
                 unitNos: line.unitNos || [],
+                // Dry hire or a serviced job, as it was booked.
+                hire: line.hire,
               })),
               getAsset,
               state.settings,
@@ -383,6 +392,7 @@ export default {
           reference: group.reservationId ? `Reservation #${group.reservationId}` : '',
           startAt: first.checkedOut,
           endAt: group.dueAt,
+          hire: group.hire,
           status: isOverdue(group.dueAt)
             ? `Overdue by ${daysOverdue(group.dueAt)} day(s)`
             : 'Checked out',
@@ -412,10 +422,12 @@ export default {
             id: line.assetId,
             qty: line.qty,
             unitNos: line.unitNos || [],
+            hire: line.hire,
           })),
           state.assets,
           {
             days: group.days,
+            hire: group.hire,
             kind: 'checkout',
             from: first.checkedOut,
             to: group.dueAt,
@@ -492,7 +504,7 @@ export default {
       retryPhotos, discardPhotos,
       bookingOf, bookingUrl, copyLink, resendEmail,
       formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
-      rentalPdf, daysLabel,
+      rentalPdf, daysLabel, HIRE_LABEL,
     };
   },
   template: `
@@ -540,6 +552,7 @@ export default {
             </div>
             <!-- What the hire is billed for over the booked period. -->
             <div class="small text-secondary">
+              <span class="trax-kind-chip">{{ HIRE_LABEL[group.hire] }}</span>
               Rental · {{ daysLabel(group.days) }}:
               <strong>{{ formatTotals(group.rental.totals) }}</strong>
               <span v-if="group.rental.unratedCount">
