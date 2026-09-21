@@ -62,7 +62,9 @@ the `TRAX_DATA_DIR` environment variable when it names a readable directory): `d
 `uploads/`, `documents/`, `.trax.lock`.
 
 `trax_normalize_data()` (`lib/store.php:1329-1376`) **is** the schema: `rev`, `assets`, `events`,
-`reservations`, `rentalHistory`, `bookings`, `settings`, `cronState`. A top-level key not in that
+`reservations`, `rentalHistory`, `bookings`, `settings`, `cronState`. (`events` was an unused
+passthrough that install.php and the demo data both wrote as `[]`; it holds the jobs now — see
+[Events](#events).) A top-level key not in that
 literal is dropped on the next write, because `trax_mutate()` re-normalises the whole tree before
 committing. Add a key only together with its normaliser.
 
@@ -253,6 +255,37 @@ is a fraction of what the gear cost to buy, so printing it beside the price woul
 over by division, and the factor is the same kind of internal number. `formatPercent()` and the
 resolved rate belong to the operator's screens (settings, the asset sheet), never to a customer
 document.
+
+## Events
+
+A job the gear goes out on: a festival, a conference, a shoot.
+
+**Gear is never "inside" an event.** It is checked out or reserved *against* one, so an event is a
+label the existing booking machinery carries — a nullable `eventId` on the **checkout line**, the
+**reservation** and the **booking** — and never a second place where availability is decided. What
+is booked on an event is derived from the records that name it (`bookedOn()` in
+`app/lib/events.js`), so the Events view cannot drift from the counter.
+
+`trax_normalize_event()` (`lib/store.php`) is `{id, name, client, location, contact, startAt,
+endAt, status, notes, createdAt}`. Dates are instants (load-out at 06:00) and both are optional —
+an event pencilled in before anything is fixed is still an event.
+
+`settings.events` is `{statuses: [{id, label, color, closed}], defaultStatus, enabled}`:
+
+- The workflow ships as *Reserved → Packed → At customer → Returned* and is fully editable. The
+  list can never be empty: an event has to be able to say where it is, so an empty one normalises
+  back to the built-in four and `trax_events_patch_error()` refuses a save that would empty it.
+- An event stores the status **id**, never the label, so renaming a status leaves every event on
+  it. An id the workflow no longer has is **kept** rather than rewritten — the event still says
+  what it said — and `statusOf()` renders it as unknown.
+- `closed` ends a job: it drops out of the Open filter. `enabled` decides whether the selection
+  drawer offers the picker at all.
+- The status is a workflow marker the operator moves by hand. It is deliberately **not** wired into
+  availability — what is free is still decided by checkouts and reservations.
+
+Written through `event.create`, `event.update` and `event.delete`. Deleting an event deletes
+nothing else: the lines, reservations and bookings that named it have their `eventId` cleared and
+the action reports how many.
 
 ## Inspections
 
@@ -487,7 +520,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
 - `app/lib/` — `format.js` (dates, money, `STATUS_LABEL`/`STATUS_CLASS`, UI locale), `scroll-lock.js`
   (the counted `body.style.overflow` lock every full-screen layer shares), `schedule.js`
   (interval conflicts and the calendar timeline), `insights.js` (utilisation maths), `rental.js`
-  (hire rates: resolution, the discount ladder, `rentalOfLines()`), `inspection.js` (test rules,
+  (hire rates: resolution, the discount ladder, `rentalOfLines()`), `events.js` (jobs: the
+  configurable workflow, and what is booked on one), `inspection.js` (test rules,
   per-piece histories and the derived due state), `pdf.js` (jsPDF
   is a UMD bundle, so it is injected as a `<script>` on demand and read off `window` — ~400 KB kept
   out of the initial load).
@@ -495,8 +529,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   `AssetCards` (narrow), `AssetSheet`, `SetEditor`, `BasketDrawer`, `BulkEditDrawer`, `ScanDrawer`
   (jsQR, loaded on demand), `LabelDrawer`, `RentalRate` (one hire rate as a form — the install
   default, a category's, an asset's and a unit's are the same three fields), and the views
-  `DashboardView`, `CheckoutsView`,
-  `ReservationsView`, `CalendarView`, `InsightsView`, `SettingsView`. Shared primitives in
+  `EventSheet` (create/edit one job), `DashboardView`, `CheckoutsView`,
+  `ReservationsView`, `EventsView`, `CalendarView`, `InsightsView`, `SettingsView`. Shared primitives in
   `app/components/ui/`: `Drawer`, `ConfirmDialog`, `ToastHost`, `StatusBadge`, `Lightbox`.
 - `Lightbox` is mounted once by `AppShell` and driven only by `state.preview` —
   `{kind: 'image'|'pdf'|'file', src, title, downloadHref, size, items, index}`, `null` when nothing
@@ -505,8 +539,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   overlay with one store call. It sits at z-index 1070/1071, above `.trax-drawer` (1055), because
   most of the pictures being clicked are inside a drawer; a `pdf` preview points at
   `download.php?file=…&inline=1`, an `image` at `uploads/<file>`, and `items` makes it a gallery.
-- Navigation ids: `dashboard`, `inventory`, `kits`, `checkouts`, `reservations`, `calendar`,
-  `insights`, `settings` (`AppShell.js:24-32`). The table/cards switch and the mobile nav run off
+- Navigation ids: `dashboard`, `inventory`, `kits`, `checkouts`, `reservations`, `events`,
+  `calendar`, `insights`, `settings` (`AppShell.js:24-32`). The table/cards switch and the mobile nav run off
   `matchMedia('(max-width: 991.98px)')` (`AppShell.js:56`, `:184`).
 - CSS: `app/app.css` is a dark-only theme layer of `--trax-*` tokens that also re-points Bootstrap's
   `--bs-*` variables; `public.css` covers the public pages.

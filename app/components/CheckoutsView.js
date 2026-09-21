@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue';
-import { state, mutate, toast, getAsset, load } from '../store.js';
+import { state, mutate, toast, getAsset, load, eventById } from '../store.js';
 import * as api from '../api.js';
 import {
   formatDateTime, daysOverdue, isOverdue, toLocalInput, parseDate, formatTotals,
@@ -85,10 +85,14 @@ export default {
           // somehow disagree is priced line by line rather than averaged; this
           // is only what the CHIP says.
           const hire = hireOf(group.lines[0]);
+          // The job these went out on, when they name one. Read off the first
+          // line: a group is one hand-over, so they all carry the same answer.
+          const event = eventById.value.get(Number(group.lines[0]?.eventId)) || null;
           return {
             ...group,
             days,
             hire,
+            event,
             value: valueOfLines(
               group.lines.map((line) => ({ id: line.assetId, qty: line.qty })),
               getAsset,
@@ -539,6 +543,11 @@ export default {
           <div class="flex-grow-1 min-w-0">
             <strong>{{ group.customerName }}</strong>
             <span class="text-secondary small ms-2">{{ group.customerEmail }}</span>
+            <div v-if="group.event" class="small">
+              <span class="trax-kind-chip">
+                <i class="bi bi-calendar-event"></i> {{ group.event.name }}
+              </span>
+            </div>
             <div class="small" :class="isOverdue(group.dueAt) ? 'text-danger' : 'text-secondary'">
               {{ group.units }} unit(s) on {{ group.lines.length }} line(s) · due {{ formatDateTime(group.dueAt) }}
               <span v-if="isOverdue(group.dueAt)">— {{ daysOverdue(group.dueAt) }} days late</span>
