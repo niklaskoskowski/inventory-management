@@ -23,6 +23,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/lib/config.php';
 require_once __DIR__ . '/lib/store.php';
+require_once __DIR__ . '/lib/markdown.php';
 
 // These links must never turn up in a search index.
 header('X-Robots-Tag: noindex, nofollow');
@@ -173,7 +174,10 @@ if (($_GET['qr'] ?? '') === '1') {
  *   - a honeypot field, the same one index.php uses on its report form;
  *   - a per-session attempt counter, so a bot cannot sit on the endpoint;
  *   - the drawing goes through the ordinary image pipeline: sniffed, decoded
- *     and re-encoded by GD, so the bytes that land in uploads/ are ours.
+ *     and re-encoded by GD, so the bytes that land in uploads/ are ours;
+ *   - when terms & conditions are in force, the box must be ticked AND the
+ *     version the page showed must still be the one in force — re-checked
+ *     under the lock by trax_signature_terms(), the same rule the counter uses.
  *
  * Answers are POST/redirect/GET, so a reload never re-posts a signature.
  */
@@ -217,9 +221,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
         trax_booking_sign_redirect($token, 'no');
     }
 
-    $signedName = trax_str($_POST['signedName'] ?? '', TRAX_MAX_NAME);
-    $bookingId  = (int)$booking['id'];
-    $file       = trax_new_signature_name();
+    $signedName   = trax_str($_POST['signedName'] ?? '', TRAX_MAX_NAME);
+    $acceptTerms  = ($_POST['acceptTerms'] ?? '') === '1';
+    $termsVersion = trax_int($_POST['termsVersion'] ?? null);
+    $bookingId    = (int)$booking['id'];
+
+    // Asked before anything is stored, so the common case — the box was not
+    // ticked, or the terms changed while the page was open — says why and
+    // leaves no orphan file behind. The lock below asks again.
+    $termsCheck = trax_signature_terms($data, $acceptTerms, $termsVersion);
+    if ($termsCheck['error'] !== null) {
+        trax_booking_sign_redirect($token, $termsCheck['error'] === 'accept' ? 'terms' : 'changed');
+    }
+
+    $file = trax_new_signature_name();
 
     try {
         $entries = trax_photo_batch_entries($_FILES['photos']);
@@ -231,9 +246,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
         trax_booking_sign_redirect($token, 'no');
     }
 
+    $termsChanged = false;
     try {
         trax_mutate(null, static function (array &$data, array &$checkouts) use (
-            $bookingId, $signedName, $file
+            $bookingId, $signedName, $file, $acceptTerms, $termsVersion, &$termsChanged
         ): array {
             $current = trax_find_booking($data['bookings'], $bookingId);
             // Re-checked under the lock: two taps on a slow phone must not
@@ -242,13 +258,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
                 throw new TraxInvalid('Already signed.');
             }
 
-            trax_update_booking($data, $bookingId, static function (array $b) use ($signedName, $file): array {
+            // And the terms again: they may have changed since the check above.
+            $terms = trax_signature_terms($data, $acceptTerms, $termsVersion);
+            if ($terms['error'] !== null) {
+                $termsChanged = true;
+                throw new TraxInvalid('Terms changed.');
+            }
+
+            trax_update_booking($data, $bookingId, static function (array $b) use ($signedName, $file, $terms): array {
                 $b['signature'] = [
                     'file'   => $file,
                     'name'   => $signedName !== '' ? $signedName : $b['customerName'],
                     'at'     => gmdate('Y-m-d\TH:i:s.000\Z'),
                     'source' => 'CUSTOMER',
                     'actor'  => '',
+                    'terms'  => $terms['terms'],
                 ];
                 return $b;
             });
@@ -263,7 +287,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
         });
     } catch (Throwable $e) {
         trax_delete_photo_files($file);
-        trax_booking_sign_redirect($token, 'no');
+        trax_booking_sign_redirect($token, $termsChanged ? 'changed' : 'no');
     }
 
     // Signed: the counter is spent, and the redirect below re-reads the page.
@@ -303,6 +327,24 @@ foreach ((array)($booking['photos'] ?? []) as $photo) {
     $photos[] = $entry;
 }
 
+/**
+ * {version, at, url} for one version of the terms, for the page and the PDF.
+ * The URL names the version, so what is linked is what was accepted even
+ * after the terms have moved on.
+ */
+function trax_booking_terms_ref(int $version, ?string $at): array
+{
+    return [
+        'version' => $version,
+        'at'      => trax_booking_date($at),
+        'atRaw'   => $at,
+        'url'     => trax_terms_url($version),
+    ];
+}
+
+$currentTerms = trax_terms_current($data);
+$signedTerms  = $booking['signature']['terms'] ?? null;
+
 $view = [
     // An install that has not named an organisation falls back to the app name,
     // so the heading and the title always say something the customer recognises.
@@ -324,7 +366,17 @@ $view = [
         'src'  => 'uploads/' . $booking['signature']['file'],
         'name' => (string)$booking['signature']['name'],
         'at'   => trax_booking_date($booking['signature']['at']),
+        // What was accepted with it. Null for a signature given while no
+        // terms were in force — and for every one taken before they existed.
+        'terms' => $signedTerms === null ? null
+            : trax_booking_terms_ref((int)$signedTerms['version'], $signedTerms['at'] ?? null),
     ],
+    // The terms in force, shown and ticked under the pad. Rendered here by the
+    // one Markdown renderer terms.php uses too.
+    'terms'        => $currentTerms === null ? null : array_merge(
+        trax_booking_terms_ref($currentTerms['version'], $currentTerms['at']),
+        ['html' => trax_markdown($currentTerms['text'])]
+    ),
     // Whether this page may still be signed — see the POST handler above for
     // the same three conditions, which are the authority.
     'canSign'      => $booking['kind'] === 'checkout'
@@ -337,6 +389,8 @@ $signFlash = match ((string)($_GET['s'] ?? '')) {
     'ok'    => ['ok', 'Thank you — your signature has been recorded.'],
     'busy'  => ['warn', 'Too many attempts. Please reload the page and try again.'],
     'no'    => ['warn', 'That could not be signed. Please reload the page and try again.'],
+    'terms' => ['warn', 'Please accept the terms & conditions before signing.'],
+    'changed' => ['warn', 'The terms & conditions were just updated. Please read the new version and sign again.'],
     default => null,
 };
 
@@ -365,6 +419,25 @@ $dueLabel = $view['kind'] === 'reservation' ? 'Reserved until' : 'Return by';
  * customer's copy has no business carrying it. Dates go out RAW here, not
  * formatted, because the builder formats them itself.
  */
+/** {version, at, url} for the sheet's terms line, or null. */
+function trax_booking_pdf_terms(array $booking, ?array $current): ?array
+{
+    $signature = $booking['signature'] ?? null;
+    if ($signature !== null) {
+        $terms = $signature['terms'] ?? null;
+        return $terms === null ? null : [
+            'version' => (int)$terms['version'],
+            'at'      => $terms['at'] ?? null,
+            'url'     => trax_terms_url((int)$terms['version']),
+        ];
+    }
+    return $current === null ? null : [
+        'version' => $current['version'],
+        'at'      => $current['at'],
+        'url'     => trax_terms_url($current['version']),
+    ];
+}
+
 $pdfItems = [];
 foreach ($booking['items'] as $line) {
     $assetId = (int)$line['assetId'];
@@ -400,6 +473,9 @@ $pdf = [
         'name' => (string)$booking['signature']['name'],
         'at'   => (string)$booking['signature']['at'],
     ],
+    // The terms line under the signature: what was accepted when signed, what
+    // signing would accept when not. Nothing when neither applies.
+    'terms'        => trax_booking_pdf_terms($booking, $currentTerms),
 ];
 
 /**
@@ -449,6 +525,19 @@ $pdfBranding = [
         .sig-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
         .sig-ok { color: #7ee2a0; }
         .sig-warn { color: #f0c674; }
+        /* The terms, folded under the pad: readable in place on a phone
+           without leaving the page, and scrollable so they never push the
+           pad off the screen. */
+        .terms-box { border: 1px solid #1b232b; border-radius: .5rem; background: #0c0f12; }
+        .terms-box > summary { cursor: pointer; padding: .5rem .75rem; font-size: .85rem; color: #c9d1d9; }
+        .terms-body { max-height: 45vh; overflow-y: auto; padding: 0 .75rem .75rem; font-size: .85rem; color: #c9d1d9; }
+        .terms-body h2, .terms-body h3, .terms-body h4 { font-size: .95rem; margin: 1rem 0 .4rem; color: #e6edf3; }
+        .terms-body p, .terms-body ul, .terms-body ol, .terms-body blockquote { margin-bottom: .6rem; }
+        .terms-body a, .terms-link { color: #8ab4f8; }
+        .terms-accept { font-size: .9rem; }
+        .terms-accept .form-check-input { width: 1.15rem; height: 1.15rem; margin-top: .15rem; }
+        .foot { border-top: 1px solid #1b232b; margin-top: 2rem; padding-top: 1rem; font-size: .8rem; color: #8b98a5; }
+        .foot a { color: #8b98a5; }
         /* Deliberately no 16px focus-zoom rule: this sheet is read-only and has
            no form controls, and api_test.sh asserts the rendered page contains
            no at-sign at all, which any media block would violate. */
@@ -568,12 +657,22 @@ $pdfBranding = [
                  alt="Signature of <?php echo esc($view['signature']['name']); ?>">
             <div class="sig-name mt-2"><?php echo esc($view['signature']['name']); ?></div>
             <div class="kit"><?php echo esc($view['signature']['at']); ?></div>
+            <?php if ($view['signature']['terms'] !== null): ?>
+                <div class="kit mt-1">
+                    Accepted the
+                    <a class="terms-link" href="<?php echo esc($view['signature']['terms']['url']); ?>"
+                       target="_blank" rel="noopener noreferrer">terms &amp; conditions,
+                        version <?php echo esc((string)$view['signature']['terms']['version']); ?></a>
+                    of <?php echo esc($view['signature']['terms']['at']); ?>.
+                </div>
+            <?php endif; ?>
         </div>
     <?php elseif ($view['canSign']): ?>
         <div class="card-t p-3 mt-3">
             <div class="meta-label mb-2">Sign for the equipment</div>
             <p class="small text-secondary">
-                Signing confirms you received the items listed above.
+                Signing confirms you received the items listed above<?php
+                if ($view['terms'] !== null): ?> and accept our terms &amp; conditions<?php endif; ?>.
             </p>
 
             <form id="sig-form" method="post" enctype="multipart/form-data"
@@ -589,6 +688,30 @@ $pdfBranding = [
                        value="<?php echo esc($view['customerName']); ?>">
 
                 <canvas id="sig-pad" class="sig-pad"></canvas>
+
+                <?php if ($view['terms'] !== null): ?>
+                    <!-- What the signature is given under. The version rides
+                         along, so a change to the terms while this page was
+                         open is caught rather than accepted unread. -->
+                    <input type="hidden" name="termsVersion"
+                           value="<?php echo esc((string)$view['terms']['version']); ?>">
+                    <details class="terms-box mt-3">
+                        <summary>
+                            Terms &amp; conditions · version <?php echo esc((string)$view['terms']['version']); ?>
+                            of <?php echo esc($view['terms']['at']); ?>
+                        </summary>
+                        <div class="terms-body"><?php echo $view['terms']['html']; ?></div>
+                    </details>
+                    <div class="form-check terms-accept mt-2">
+                        <input class="form-check-input" type="checkbox" name="acceptTerms" value="1"
+                               id="sig-terms" required>
+                        <label class="form-check-label" for="sig-terms">
+                            I have read and accept the
+                            <a class="terms-link" href="<?php echo esc($view['terms']['url']); ?>"
+                               target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>.
+                        </label>
+                    </div>
+                <?php endif; ?>
 
                 <div class="d-flex gap-2 mt-2">
                     <button class="btn btn-outline-secondary btn-sm" type="button" id="sig-clear">
@@ -615,6 +738,12 @@ $pdfBranding = [
     <p class="text-secondary small mt-4 mb-0">
         This page is private to you. Please do not share the link.
     </p>
+
+    <?php if ($currentTerms !== null): ?>
+        <footer class="foot">
+            <a href="<?php echo esc(trax_terms_url()); ?>" target="_blank" rel="noopener noreferrer">Terms &amp; conditions</a>
+        </footer>
+    <?php endif; ?>
 </div>
 <?php if ($signFlash !== null): ?>
     <script>
@@ -787,7 +916,10 @@ $pdfBranding = [
             // reads; it is one file and it is checked as one.
             body.append('photos', blob, 'signature.png');
             fetch(endpoint, { method: 'POST', body: body, credentials: 'same-origin' })
-                .then(function () { window.location.replace(endpoint); })
+                // Where the server's redirect landed, flash and all — that is
+                // how "please accept the terms" reaches the page. The bare
+                // endpoint only when a browser does not report it.
+                .then(function (response) { window.location.replace(response.url || endpoint); })
                 .catch(function () {
                     if (hint) hint.textContent = 'That did not work. Please try again.';
                     send.disabled = false;

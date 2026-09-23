@@ -128,6 +128,33 @@ function trax_snapshot(array $data, array $checkouts): array
         // is worked out on the client from the lines that name it.
         'events'       => $data['events'] ?? [],
         'settings'     => trax_normalize_settings($data['settings'] ?? null),
+        'terms'        => trax_terms_snapshot($data),
+    ];
+}
+
+/**
+ * The terms & conditions as the admin sees them: the newest version in full,
+ * and the rest of the archive as a list without its text. Every version stays
+ * readable on terms.php?v=N, so the texts do not need to ride in every answer.
+ */
+function trax_terms_snapshot(array $data): array
+{
+    $latest = trax_terms_latest($data);
+
+    return [
+        // 0 before the first save. Sent back with a counter signature, so the
+        // server can tell whether what was ticked is still what is in force.
+        'version'  => $latest['version'] ?? 0,
+        'at'       => $latest['at'] ?? null,
+        'actor'    => $latest['actor'] ?? '',
+        'text'     => $latest['text'] ?? '',
+        'active'   => trax_terms_current($data) !== null,
+        'versions' => array_map(static fn (array $entry): array => [
+            'version' => $entry['version'],
+            'at'      => $entry['at'],
+            'actor'   => $entry['actor'],
+            'empty'   => $entry['text'] === '',
+        ], $data['terms']['versions'] ?? []),
     ];
 }
 
@@ -164,6 +191,10 @@ if ($isPost) {
             // Who signed the hand-over, in block letters. Same rule: a field
             // this array does not name does not reach the action at all.
             'signedName'   => trax_str($_POST['signedName'] ?? '', TRAX_MAX_NAME),
+            // The terms the signer ticked, and which version the page showed.
+            // Same rule: listed here to reach booking.sign at all.
+            'acceptTerms'  => ($_POST['acceptTerms'] ?? '') === '1',
+            'termsVersion' => trax_int($_POST['termsVersion'] ?? null),
             'bookingId'    => trax_int($_POST['bookingId'] ?? null),
             'note'      => trax_str($_POST['note'] ?? ''),
             // The operator's label for a document batch. It has to be listed
@@ -1015,6 +1046,7 @@ if ($action === 'bootstrap') {
             'mailTemplates'   => trax_mail_templates(),
             'mailSubjectMax'  => TRAX_MAX_MAIL_SUBJECT,
             'mailBodyMax'     => TRAX_MAX_MAIL_BODY,
+            'termsMax'        => TRAX_MAX_TERMS,
         ],
     ]), $data['rev']);
 }
@@ -2460,8 +2492,10 @@ try {
         // signed, because it is never the part in dispute.
 
         case 'booking.sign': {
-            $bookingId = req_int($payload, 'bookingId');
-            $name      = trax_str($payload['signedName'] ?? '', TRAX_MAX_NAME);
+            $bookingId    = req_int($payload, 'bookingId');
+            $name         = trax_str($payload['signedName'] ?? '', TRAX_MAX_NAME);
+            $acceptTerms  = ($payload['acceptTerms'] ?? false) === true;
+            $termsVersion = trax_int($payload['termsVersion'] ?? null);
 
             if (!isset($_FILES['photos'])) {
                 trax_fail('BAD_REQUEST', 'No signature was sent.');
@@ -2479,16 +2513,27 @@ try {
 
             try {
                 $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
-                    $bookingId, $name, $file, $actor
+                    $bookingId, $name, $file, $actor, $acceptTerms, $termsVersion
                 ): array {
                     $booking = trax_find_booking($data['bookings'], $bookingId);
                     if ($booking === null) {
                         throw new TraxInvalid("Booking #{$bookingId} not found.");
                     }
 
+                    // Checked under the lock, against the terms in force now:
+                    // a tab opened before the terms changed shows the old ones.
+                    $terms = trax_signature_terms($data, $acceptTerms, $termsVersion);
+                    if ($terms['error'] === 'accept') {
+                        throw new TraxInvalid('The customer has to accept the terms & conditions before signing.');
+                    }
+                    if ($terms['error'] === 'changed') {
+                        throw new TraxInvalid('The terms & conditions were changed since this page was loaded. '
+                            . 'Reload, let the customer read the new version and sign again.');
+                    }
+
                     $replaced = $booking['signature']['file'] ?? null;
 
-                    trax_update_booking($data, $bookingId, static function (array $b) use ($name, $file, $actor): array {
+                    trax_update_booking($data, $bookingId, static function (array $b) use ($name, $file, $actor, $terms): array {
                         $b['signature'] = [
                             'file'   => $file,
                             // What the signer typed, or who the booking is for
@@ -2497,6 +2542,7 @@ try {
                             'at'     => gmdate('Y-m-d\TH:i:s.000\Z'),
                             'source' => 'ADMIN',
                             'actor'  => $actor,
+                            'terms'  => $terms['terms'],
                         ];
                         return $b;
                     });
@@ -3396,6 +3442,61 @@ try {
             });
 
             trax_ok(trax_snapshot($result['data'], $result['checkouts']), $result['rev']);
+        }
+
+        // --- Terms & conditions --------------------------------------------
+        // Every save that changes the text publishes a new version; the old
+        // ones stay in the archive, because signatures point at them.
+
+        case 'terms.update': {
+            $raw = $payload['text'] ?? null;
+            if (!is_string($raw)) {
+                trax_fail('BAD_REQUEST', 'No text was sent.');
+            }
+            // Refused rather than cut: a legal text that silently loses its
+            // last paragraph is worse than one that is not saved.
+            if (mb_strlen(trim(str_replace(["\r\n", "\r"], "\n", $raw))) > TRAX_MAX_TERMS) {
+                trax_fail('BAD_REQUEST', 'The terms are longer than ' . TRAX_MAX_TERMS . ' characters.');
+            }
+            $text = trax_terms_text($raw);
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($text, $actor): array {
+                $latest = trax_terms_latest($data);
+                if (($latest['text'] ?? '') === $text) {
+                    throw new TraxInvalid('The terms are unchanged.');
+                }
+
+                $version = ($latest['version'] ?? 0) + 1;
+                $data['terms']['versions'][] = [
+                    'version' => $version,
+                    'at'      => gmdate('Y-m-d\TH:i:s.000\Z'),
+                    'actor'   => $actor,
+                    'text'    => $text,
+                ];
+
+                trax_append_history($data, 'terms_updated', [
+                    'note'  => $text === ''
+                        ? "Terms & conditions withdrawn (version {$version})"
+                        : "Terms & conditions published (version {$version})",
+                    'actor' => $actor,
+                ]);
+
+                return ['version' => $version];
+            });
+
+            trax_ok(array_merge(
+                trax_snapshot($result['data'], $result['checkouts']),
+                $result['result']
+            ), $result['rev']);
+        }
+
+        case 'terms.preview': {
+            // Saves nothing. A POST like auth.testInclude because it takes a
+            // body; the point is that the preview is the server's own renderer,
+            // byte for byte what terms.php and booking.php will show.
+            require_once __DIR__ . '/lib/markdown.php';
+            $text = trax_terms_text($payload['text'] ?? '');
+            trax_ok(['html' => trax_markdown($text)]);
         }
 
         // --- Account -------------------------------------------------------

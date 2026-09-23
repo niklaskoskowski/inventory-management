@@ -35,6 +35,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `public.php` | Public asset lookup, allow-list of safe fields. Feeds `index.php` and `view.php`. |
 | `view.php` | Public read-only inventory board, refreshes every 30s. |
 | `booking.php` | Customer booking page, addressed **only** by a 64-hex token (`?t=`). |
+| `terms.php` | Public terms & conditions: the version in force, or `?v=N` for one archived version. |
 | `captcha.php` | GD-rendered captcha PNG for the public report form; the code lives in the session. |
 | `label.php`, `label-w.php` | GD-rendered PNG labels, portrait 14×30 mm and wide 30×14 mm. |
 | `download.php` | The only read path into `documents/`; that directory denies the web outright. `?inline=1` switches the response to `Content-Disposition: inline` for PDFs and images so the app can preview them. |
@@ -49,6 +50,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `lib/public-session.php` | `trax_public_session()`, the auth-free session start for `index.php` and `captcha.php`. A standalone twin of `trax_ensure_session()`. |
 | `lib/mailer.php` | Transactional mail; addresses and headers validated and CR/LF-stripped. |
 | `lib/photo.php` | Photos re-encoded through GD (strips EXIF, neutralises payloads). |
+| `lib/markdown.php` | The one Markdown renderer (a safe subset), for the terms. `terms.php`, `booking.php` and `terms.preview` all use it. |
 | `lib/documents.php` | Documents are stored as uploaded — hence the separate, web-denied directory. |
 | `lib/config-local.php` | The single writer of `lib/config.local.php` (installer + Settings → Authentication). |
 | `lib/demo-data.php` | Optional demo dataset the installer can seed. |
@@ -62,7 +64,7 @@ the `TRAX_DATA_DIR` environment variable when it names a readable directory): `d
 `uploads/`, `documents/`, `.trax.lock`.
 
 `trax_normalize_data()` (`lib/store.php:1329-1376`) **is** the schema: `rev`, `assets`, `events`,
-`reservations`, `rentalHistory`, `bookings`, `settings`, `cronState`. (`events` was an unused
+`reservations`, `rentalHistory`, `bookings`, `settings`, `terms`, `cronState`. (`events` was an unused
 passthrough that install.php and the demo data both wrote as `[]`; it holds the jobs now — see
 [Events](#events).) A top-level key not in that
 literal is dropped on the next write, because `trax_mutate()` re-normalises the whole tree before
@@ -267,7 +269,8 @@ document.
 ## Hand-over signature
 
 One per booking, the customer's alone — `signature` on the booking record:
-`{file, name, at, source: ADMIN|CUSTOMER, actor}`, or `null`. The other side of a hand-over is
+`{file, name, at, source: ADMIN|CUSTOMER, actor, terms}`, or `null` (`terms` — see
+[Terms & conditions](#terms--conditions)). The other side of a hand-over is
 **`handedOverBy`**, stamped from the operator who made the checkout and never signed: that half is
 always known and never in dispute. `buildBookingDocument()` prints one rule instead of the four it
 used to (the *Packed by / Checked by* pair is gone).
@@ -289,6 +292,30 @@ re-encoded by GD — into `uploads/` under `sig-<32 hex>.jpg`. Random because `u
 without auth, which is also what lets the customer's page and the PDF read it back. It is drawn
 **dark on white**, not on transparency, so the same picture travels from tablet to page to PDF
 without an inversion anywhere.
+
+## Terms & conditions
+
+What a hand-over signature is given under. Stored as **`data.terms.versions`** — every version
+ever published, `{version, at, actor, text}` (Markdown, ≤ `TRAX_MAX_TERMS`) — and deliberately
+**not** in `settings`: settings ride in every snapshot, and this is an archive. The newest version
+is the one in force when its text is non-empty; an empty version means the terms were withdrawn.
+The snapshot carries `terms: {version, at, actor, text, active, versions: [{version, at, actor,
+empty}]}` — the newest text in full, the rest without text.
+
+- **Written** only by `terms.update` (Settings → Terms). A save that changes the text appends the
+  next version; an unchanged text is refused, an over-long one is refused rather than cut.
+- **Rendered** only by `lib/markdown.php`. The Settings preview posts to `terms.preview`, so it is
+  byte for byte what `terms.php` and `booking.php` show. Raw HTML in the source is escaped; links
+  keep http(s), mailto, tel and scheme-less targets only.
+- **Accepted** on both signing paths. `trax_signature_terms()` is the one rule: no terms in force
+  → nothing to accept; otherwise the box must be ticked (`acceptTerms`) **and** the version the
+  page showed (`termsVersion`) must still be the one in force, checked under the lock. The
+  signature then records `terms: {version, at}`; `null` means none were in force.
+- **Shown**: a footer link on `index.php`, `view.php` and `booking.php` while terms are in force
+  (`trax_terms_published()`); the text folded under the pad on `booking.php`; the tick box next to
+  `SignaturePad` in Checkouts (`locked` keeps *Save* disabled until it is ticked); and one line
+  under the hand-over block of the PDF — the accepted version once signed, the version in force
+  while not. Every version stays readable at `terms.php?v=N`, which is what those links name.
 
 ## The hand-over sheet, twice
 

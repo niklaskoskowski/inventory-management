@@ -1,7 +1,9 @@
 import { ref, computed, watch } from 'vue';
-import { state, settings, taxonomyUsage, mutate, toast } from '../store.js';
+import {
+  state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl,
+} from '../store.js';
 import * as api from '../api.js';
-import { formatMoney } from '../lib/format.js';
+import { formatMoney, formatDateTime } from '../lib/format.js';
 import {
   BLANK_RULE, daysLabel, formatPercent, serviceFactorOf, tierFor,
 } from '../lib/rental.js';
@@ -28,6 +30,7 @@ const SECTIONS = [
   { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
   { id: 'email', label: 'Email', icon: 'bi-envelope' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
+  { id: 'terms', label: 'Terms', icon: 'bi-file-earmark-text' },
   { id: 'defaults', label: 'Defaults & automation', icon: 'bi-sliders' },
   { id: 'account', label: 'Account', icon: 'bi-person-lock' },
   { id: 'authentication', label: 'Authentication', icon: 'bi-shield-lock' },
@@ -628,6 +631,73 @@ export default {
       }
     };
 
+    // --- Terms & conditions ---
+    // Not part of the settings draft: every save publishes a VERSION, which
+    // signatures point at, so it has its own action (terms.update), its own
+    // save bar and no "save along with the branding" by accident.
+
+    /** Server-side the text is trimmed with LF line ends; compare the same way. */
+    const termsNormal = (text) => String(text ?? '').replace(/\r\n?/g, '\n').trim();
+
+    const termsDraft = ref(state.terms.text || '');
+    // A new version — ours or another operator's — replaces the draft.
+    watch(() => state.terms.version, () => { termsDraft.value = state.terms.text || ''; });
+
+    const termsBusy = ref(false);
+    const termsMax = computed(() => state.meta?.termsMax || 30000);
+    const termsDirty = computed(() => termsNormal(termsDraft.value) !== termsNormal(state.terms.text));
+    /** Saving an empty text while terms are in force takes them down. */
+    const termsWithdraw = computed(() => state.terms.active && termsNormal(termsDraft.value) === '');
+    const termsVersions = computed(() => [...(state.terms.versions || [])].reverse());
+
+    const saveTermsDraft = async () => {
+      termsBusy.value = true;
+      try {
+        await saveTerms(termsDraft.value);
+        toast(state.terms.active
+          ? `Terms published as version ${state.terms.version}.`
+          : 'Terms withdrawn. Nothing is shown or accepted any more.', 'success');
+      } catch {
+        /* toast already raised by the store */
+      } finally {
+        termsBusy.value = false;
+      }
+    };
+
+    const revertTerms = () => { termsDraft.value = state.terms.text || ''; };
+
+    // The preview is the server's renderer, so it is exactly what terms.php
+    // and the booking page will show. Debounced: a request per keystroke
+    // would be a request per keystroke.
+    const termsHtml = ref('');
+    const termsPreviewError = ref('');
+    let previewTimer = null;
+    let previewSeq = 0;
+    const refreshPreview = () => {
+      clearTimeout(previewTimer);
+      if (section.value !== 'terms') return;
+      previewTimer = setTimeout(async () => {
+        const seq = ++previewSeq;
+        const text = termsNormal(termsDraft.value);
+        if (!text) {
+          termsHtml.value = '';
+          termsPreviewError.value = '';
+          return;
+        }
+        try {
+          const html = await previewTerms(text);
+          // A slow answer to an older draft must not overwrite a newer one.
+          if (seq === previewSeq) {
+            termsHtml.value = html;
+            termsPreviewError.value = '';
+          }
+        } catch (error) {
+          if (seq === previewSeq) termsPreviewError.value = error.message;
+        }
+      }, 350);
+    };
+    watch([termsDraft, section], refreshPreview, { immediate: true });
+
     // --- Account ---
     // The one thing on this view that is not a setting: it writes users.json,
     // not data.json, and it is the only way to change the password without
@@ -798,6 +868,8 @@ export default {
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
+      state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
+      saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
   },
   template: `
@@ -1464,6 +1536,86 @@ export default {
       </div>
     </div>
 
+    <!-- Terms & conditions ---------------------------------------------- -->
+    <div v-else-if="section === 'terms'" class="row g-3">
+      <div class="col-12 col-xl-6">
+        <div class="trax-card">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Terms &amp; conditions</h2>
+            <p class="trax-page-sub">
+              What a customer accepts when they sign for a hand-over. Once published, the terms are
+              linked in the footer of every public page, have to be ticked next to the signature
+              pad (at the counter and on the customer's booking link), and are named on the
+              hand-over sheet.
+            </p>
+            <p v-if="state.terms.active" class="small mb-0">
+              <i class="bi bi-check-circle text-success"></i>
+              In force: <strong>version {{ state.terms.version }}</strong>,
+              published {{ formatDateTime(state.terms.at) }}<span v-if="state.terms.actor">
+              by {{ state.terms.actor }}</span> ·
+              <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">open public page</a>
+            </p>
+            <p v-else class="small text-secondary mb-0">
+              <i class="bi bi-dash-circle"></i>
+              Nothing is published: no footer link, no tick box, no line on the sheet.
+            </p>
+          </div>
+          <div class="trax-card-pad pt-0">
+            <label class="form-label small" for="set-terms">Text (Markdown)</label>
+            <textarea id="set-terms" class="form-control form-control-sm font-monospace" rows="18"
+                      spellcheck="true" :maxlength="termsMax" v-model="termsDraft"
+                      placeholder="# Terms &amp; conditions&#10;&#10;## 1. Scope&#10;These terms apply to every hire …"></textarea>
+            <div class="form-text small d-flex gap-2">
+              <span class="flex-grow-1">
+                <code># Heading</code>, <code>**bold**</code>, <code>*italic*</code>,
+                <code>- list</code>, <code>1. list</code>, <code>[label](https://…)</code>.
+                A line break stays a line break.
+              </span>
+              <span class="text-nowrap">{{ termsDraft.length }} / {{ termsMax }}</span>
+            </div>
+            <div class="form-text small">
+              Every save publishes a new version. Signatures already taken keep pointing at the
+              version they accepted, which stays readable at its own link below.
+            </div>
+          </div>
+        </div>
+
+        <div v-if="termsVersions.length" class="trax-card mt-3">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Versions</h2>
+            <ul class="list-unstyled small mb-0">
+              <li v-for="entry in termsVersions" :key="entry.version" class="py-1">
+                <a v-if="!entry.empty" :href="termsUrl(entry.version)" target="_blank"
+                   rel="noopener noreferrer">Version {{ entry.version }}</a>
+                <span v-else class="text-secondary">Version {{ entry.version }} (withdrawn)</span>
+                <span class="text-secondary">
+                  · {{ formatDateTime(entry.at) }}<span v-if="entry.actor"> · {{ entry.actor }}</span>
+                </span>
+                <span v-if="entry.version === state.terms.version && state.terms.active"
+                      class="trax-kind-chip ms-1">in force</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-6">
+        <div class="trax-card">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Preview</h2>
+            <p class="trax-page-sub">As customers see it, rendered by the server.</p>
+          </div>
+          <div class="trax-card-pad pt-0">
+            <div v-if="termsPreviewError" class="alert alert-danger py-2 px-3 small" role="alert">
+              {{ termsPreviewError }}
+            </div>
+            <div v-if="termsHtml" class="trax-terms-preview" v-html="termsHtml"></div>
+            <p v-else class="small text-secondary mb-0">Nothing to preview.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Account --------------------------------------------------------- -->
     <div v-else-if="section === 'account'" class="row g-3">
       <div class="col-12 col-xl-6">
@@ -1731,8 +1883,28 @@ export default {
 
     <!-- Save bar -------------------------------------------------------- -->
     <!-- Account and Authentication are not part of the settings draft: they
-         write users.json and lib/config.local.php, and each saves itself. -->
-    <div v-if="section !== 'taxonomy' && section !== 'account' && section !== 'authentication'"
+         write users.json and lib/config.local.php, and each saves itself.
+         Terms neither: a save there publishes a version, so it has its own bar. -->
+    <div v-if="section === 'terms'" class="trax-selection-bar">
+      <span v-if="termsWithdraw" class="small text-warning-emphasis">
+        Saving an empty text withdraws the terms.
+      </span>
+      <span v-else-if="termsDirty" class="small">
+        Unsaved changes. Saving publishes <strong>version {{ state.terms.version + 1 }}</strong>.
+      </span>
+      <span v-else class="text-secondary small">No unsaved changes.</span>
+      <span class="flex-grow-1"></span>
+      <button class="btn btn-sm btn-outline-secondary" :disabled="!termsDirty || termsBusy"
+              @click="revertTerms()">
+        Discard
+      </button>
+      <button class="btn btn-sm" :class="termsWithdraw ? 'btn-outline-danger' : 'btn-primary'"
+              :disabled="!termsDirty || termsBusy" @click="saveTermsDraft()">
+        <span v-if="termsBusy" class="spinner-border spinner-border-sm me-1"></span>
+        {{ termsWithdraw ? 'Withdraw terms' : 'Publish' }}
+      </button>
+    </div>
+    <div v-else-if="section !== 'taxonomy' && section !== 'account' && section !== 'authentication'"
          class="trax-selection-bar">
       <span v-if="dirty"><strong>{{ Object.keys(patch).length }}</strong> section(s) changed</span>
       <span v-else class="text-secondary small">No unsaved changes.</span>

@@ -21,6 +21,10 @@ export default {
   props: {
     height: { type: Number, default: 180 },
     busy: { type: Boolean, default: false },
+    // Why the drawing may not be saved yet, e.g. terms still to be accepted.
+    // Empty means nothing is in the way. The pad stays drawable either way:
+    // the order the customer does things in is theirs.
+    locked: { type: String, default: '' },
   },
   emits: ['submit', 'cancel'],
   setup(props, { emit }) {
@@ -127,7 +131,7 @@ export default {
      * would mean storing mostly white and printing the signature small.
      */
     const submit = () => {
-      if (!drawn.value || props.busy || !ink) return;
+      if (!drawn.value || props.busy || props.locked || !ink) return;
 
       const canvas = pad.value;
       const ratio = window.devicePixelRatio || 1;
@@ -172,11 +176,11 @@ export default {
         <button type="button" class="btn btn-sm btn-outline-secondary"
                 :disabled="busy || !drawn" @click="reset">Clear</button>
         <span class="small text-secondary flex-grow-1">
-          {{ drawn ? 'Ready to save.' : 'Sign in the box above.' }}
+          {{ !drawn ? 'Sign in the box above.' : locked || 'Ready to save.' }}
         </span>
         <button type="button" class="btn btn-sm btn-outline-secondary"
                 :disabled="busy" @click="emit('cancel')">Cancel</button>
-        <button type="button" class="btn btn-sm btn-primary" :disabled="busy || !drawn"
+        <button type="button" class="btn btn-sm btn-primary" :disabled="busy || !drawn || !!locked"
                 @click="submit">
           <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
           Save signature
