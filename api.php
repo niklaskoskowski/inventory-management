@@ -124,6 +124,9 @@ function trax_snapshot(array $data, array $checkouts): array
         // re-open a customer's link. This endpoint is authenticated; nothing
         // in the public direction ever echoes a token back.
         'bookings'     => $data['bookings'] ?? [],
+        // The jobs gear goes out on. Plain records: what is booked against one
+        // is worked out on the client from the lines that name it.
+        'events'       => $data['events'] ?? [],
         'settings'     => trax_normalize_settings($data['settings'] ?? null),
     ];
 }
@@ -158,6 +161,10 @@ if ($isPost) {
             // The test record a certificate is being attached to. Listed here
             // to exist at all: this array IS the multipart payload.
             'inspectionId' => trax_int($_POST['inspectionId'] ?? null),
+            // Who signed the hand-over, in block letters. Same rule: a field
+            // this array does not name does not reach the action at all.
+            'signedName'   => trax_str($_POST['signedName'] ?? '', TRAX_MAX_NAME),
+            'bookingId'    => trax_int($_POST['bookingId'] ?? null),
             'note'      => trax_str($_POST['note'] ?? ''),
             // The operator's label for a document batch. It has to be listed
             // here to exist at all: this array IS the multipart payload.
@@ -689,6 +696,57 @@ function trax_inspection_patch_error(mixed $inspection): ?string
         if (is_array($entry['fields'] ?? null) && count($entry['fields']) > TRAX_MAX_INSPECTION_FIELDS) {
             return "{$where}: at most " . TRAX_MAX_INSPECTION_FIELDS . ' parameters can be asked for.';
         }
+    }
+
+    return null;
+}
+
+/**
+ * Why an events-settings patch cannot be stored, or null.
+ *
+ * The workflow is the one setting an operator can empty by accident — deleting
+ * every row would leave events unable to say where they are — so a list that
+ * arrives with nothing usable in it is refused with the reason rather than
+ * silently replaced by the built-in four.
+ */
+function trax_events_patch_error(mixed $events): ?string
+{
+    if (!is_array($events)) {
+        return null;
+    }
+    if (isset($events['statuses']) && !is_array($events['statuses'])) {
+        return 'Field "events.statuses" must be a list of statuses.';
+    }
+    if (!array_key_exists('statuses', $events)) {
+        return null;
+    }
+
+    $statuses = (array)$events['statuses'];
+    if (count($statuses) > TRAX_MAX_EVENT_STATUSES) {
+        return 'An event workflow can have at most ' . TRAX_MAX_EVENT_STATUSES . ' statuses.';
+    }
+
+    $ids = [];
+    foreach ($statuses as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        if (trax_str($entry['label'] ?? '', 40) === '' && trax_slug($entry['id'] ?? '', 40) === '') {
+            return 'Every status needs a name.';
+        }
+        $id = trax_slug($entry['id'] ?? '', 40) ?: trax_slug($entry['label'] ?? '', 40);
+        if (in_array($id, $ids, true)) {
+            return 'Two statuses cannot share the name "' . trax_str($entry['label'] ?? $id, 40) . '".';
+        }
+        $ids[] = $id;
+        if (array_key_exists('color', $entry) && $entry['color'] !== null && $entry['color'] !== ''
+            && trax_hex_color($entry['color']) === null) {
+            return 'A status colour has to be a hex value like #2563EB.';
+        }
+    }
+
+    if ($ids === []) {
+        return 'An event has to be able to say where it is — keep at least one status.';
     }
 
     return null;
@@ -1849,10 +1907,17 @@ try {
             // Dry hire unless the operator said otherwise, which is what every
             // checkout made before this existed was.
             $hire          = trax_enum($payload['hire'] ?? null, TRAX_HIRE_MODES, 'DRY');
+            // The job this is going out on, or none. Checked inside the
+            // mutation, where the event list is the committed one.
+            $eventId       = trax_int($payload['eventId'] ?? null);
 
             $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
-                $items, $customerName, $customerEmail, $dueAt, $notes, $reservationId, $allowPartial, $hire, $actor
+                $items, $customerName, $customerEmail, $dueAt, $notes, $reservationId, $allowPartial,
+                $hire, $eventId, $actor
             ): array {
+                if ($eventId !== null && trax_find_event($data['events'], $eventId) === null) {
+                    throw new TraxInvalid("Event #{$eventId} not found.");
+                }
                 $byId = trax_index_assets($data['assets']);
 
                 // A set in the basket contributes its members, times how many
@@ -1935,6 +2000,10 @@ try {
                     'dueAt'         => $dueAt,
                     'items'         => trax_booking_items($granted, $byId, $setIds),
                     'hire'          => $hire,
+                    'eventId'       => $eventId,
+                    // The other half of a hand-over, recorded rather than
+                    // signed: whoever was at the counter is always known.
+                    'handedOverBy'  => $actor,
                     'notes'         => $notes,
                 ]);
 
@@ -1966,6 +2035,7 @@ try {
                         'setId'         => $viaSet,
                         'bookingId'     => $booking['id'],
                         'hire'          => $hire,
+                        'eventId'       => $eventId,
                         'note'          => $notes,
                     ]);
 
@@ -2382,6 +2452,257 @@ try {
             ]), $result['rev']);
         }
 
+
+
+        // --- Hand-over signature -------------------------------------------
+        // One per booking, the customer's alone. The other side of a hand-over
+        // is `handedOverBy`, stamped from the operator at checkout and never
+        // signed, because it is never the part in dispute.
+
+        case 'booking.sign': {
+            $bookingId = req_int($payload, 'bookingId');
+            $name      = trax_str($payload['signedName'] ?? '', TRAX_MAX_NAME);
+
+            if (!isset($_FILES['photos'])) {
+                trax_fail('BAD_REQUEST', 'No signature was sent.');
+            }
+
+            // Written before the mutation, like every other image: PHP's
+            // temporary upload is gone by the time a deferred write could run.
+            // Removed again below if the mutation is refused.
+            $file = trax_new_signature_name();
+            $entries = trax_photo_batch_entries($_FILES['photos']);
+            if (count($entries) !== 1) {
+                trax_fail('BAD_REQUEST', 'A hand-over carries one signature.');
+            }
+            trax_store_photo_as($file, $entries[0]);
+
+            try {
+                $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
+                    $bookingId, $name, $file, $actor
+                ): array {
+                    $booking = trax_find_booking($data['bookings'], $bookingId);
+                    if ($booking === null) {
+                        throw new TraxInvalid("Booking #{$bookingId} not found.");
+                    }
+
+                    $replaced = $booking['signature']['file'] ?? null;
+
+                    trax_update_booking($data, $bookingId, static function (array $b) use ($name, $file, $actor): array {
+                        $b['signature'] = [
+                            'file'   => $file,
+                            // What the signer typed, or who the booking is for
+                            // when they left it blank — never nothing.
+                            'name'   => $name !== '' ? $name : $b['customerName'],
+                            'at'     => gmdate('Y-m-d\TH:i:s.000\Z'),
+                            'source' => 'ADMIN',
+                            'actor'  => $actor,
+                        ];
+                        return $b;
+                    });
+
+                    trax_append_history($data, 'booking_signed', [
+                        'customerName' => $booking['customerName'],
+                        'note'         => 'Hand-over signed by ' . ($name !== '' ? $name : $booking['customerName']),
+                        'actor'        => $actor,
+                    ]);
+
+                    return ['bookingId' => $bookingId, 'file' => $file, 'replaced' => $replaced];
+                });
+            } catch (Throwable $e) {
+                trax_delete_photo_files($file);
+                throw $e;
+            }
+
+            // The one it replaced goes only once the record no longer points
+            // at it — a mutation refused as stale must not delete anything.
+            $replaced = $result['result']['replaced'] ?? null;
+            if (is_string($replaced) && $replaced !== '' && $replaced !== $file) {
+                trax_delete_photo_files($replaced);
+            }
+            unset($result['result']['replaced']);
+
+            trax_ok(array_merge(
+                trax_snapshot($result['data'], $result['checkouts']),
+                $result['result']
+            ), $result['rev']);
+        }
+
+        case 'booking.unsign': {
+            $bookingId = req_int($payload, 'bookingId');
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($bookingId, $actor): array {
+                $booking = trax_find_booking($data['bookings'], $bookingId);
+                if ($booking === null) {
+                    throw new TraxInvalid("Booking #{$bookingId} not found.");
+                }
+                $file = $booking['signature']['file'] ?? null;
+                if ($file === null) {
+                    throw new TraxInvalid('That booking is not signed.');
+                }
+
+                trax_update_booking($data, $bookingId, static function (array $b): array {
+                    $b['signature'] = null;
+                    return $b;
+                });
+
+                trax_append_history($data, 'booking_signature_removed', [
+                    'customerName' => $booking['customerName'],
+                    'note'         => 'Hand-over signature removed',
+                    'actor'        => $actor,
+                ]);
+
+                return ['bookingId' => $bookingId, 'file' => $file];
+            });
+
+            $file = $result['result']['file'] ?? null;
+            if (is_string($file) && $file !== '') {
+                trax_delete_photo_files($file);
+            }
+            unset($result['result']['file']);
+
+            trax_ok(array_merge(
+                trax_snapshot($result['data'], $result['checkouts']),
+                $result['result']
+            ), $result['rev']);
+        }
+
+        // --- Events --------------------------------------------------------
+        // A job gear goes out on. The records themselves are plain; what is
+        // booked against one is the checkout lines and reservations that name
+        // it, which is why nothing here touches availability.
+
+        case 'event.create':
+        case 'event.update': {
+            $creating = $action === 'event.create';
+            $id       = $creating ? 0 : req_int($payload, 'id');
+            $name     = req_str($payload, 'name', TRAX_MAX_NAME);
+
+            $startAt = trax_iso($payload['startAt'] ?? null);
+            $endAt   = trax_iso($payload['endAt'] ?? null);
+            if ($startAt !== null && $endAt !== null && $endAt < $startAt) {
+                trax_fail('BAD_REQUEST', 'An event cannot end before it starts.');
+            }
+
+            $fields = [
+                'name'     => $name,
+                'client'   => trax_str($payload['client'] ?? '', TRAX_MAX_NAME),
+                'location' => trax_str($payload['location'] ?? '', TRAX_MAX_NAME),
+                'contact'  => trax_str($payload['contact'] ?? '', TRAX_MAX_NAME),
+                'startAt'  => $startAt,
+                'endAt'    => $endAt,
+                'status'   => trax_slug($payload['status'] ?? '', 40),
+                'notes'    => trax_str($payload['notes'] ?? ''),
+            ];
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
+                $creating, $id, $fields, $actor
+            ): array {
+                $statuses = array_column($data['settings']['events']['statuses'] ?? [], 'id');
+                $status   = $fields['status'];
+                // A status the workflow does not have is not stored: it would
+                // render as unknown and nobody could explain where it came
+                // from. An empty one takes the configured default.
+                if ($status === '' || !in_array($status, $statuses, true)) {
+                    $status = $data['settings']['events']['defaultStatus'] ?? ($statuses[0] ?? '');
+                }
+
+                if ($creating) {
+                    $event = trax_normalize_event($fields + [
+                        'id'     => trax_next_event_id($data['events']),
+                        'status' => $status,
+                    ]);
+                    $data['events'][] = $event;
+
+                    trax_append_history($data, 'event_created', [
+                        'note'  => $event['name'],
+                        'actor' => $actor,
+                    ]);
+
+                    return ['id' => $event['id'], 'event' => $event];
+                }
+
+                $found = null;
+                foreach ($data['events'] as $index => $event) {
+                    if ((int)$event['id'] !== $id) {
+                        continue;
+                    }
+                    // Merged onto the stored record, so `createdAt` survives
+                    // and a field the client did not send is not blanked.
+                    $found = trax_normalize_event(array_merge($event, $fields, ['status' => $status]));
+                    $data['events'][$index] = $found;
+                    break;
+                }
+                if ($found === null) {
+                    throw new TraxInvalid("Event #{$id} not found.");
+                }
+
+                trax_append_history($data, 'event_updated', [
+                    'note'  => $found['name'],
+                    'actor' => $actor,
+                ]);
+
+                return ['id' => $id, 'event' => $found];
+            });
+
+            trax_ok(array_merge(
+                trax_snapshot($result['data'], $result['checkouts']),
+                $result['result']
+            ), $result['rev']);
+        }
+
+        case 'event.delete': {
+            $id = req_int($payload, 'id');
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($id, $actor): array {
+                $event = trax_find_event($data['events'], $id);
+                if ($event === null) {
+                    throw new TraxInvalid("Event #{$id} not found.");
+                }
+
+                $data['events'] = array_values(array_filter(
+                    $data['events'],
+                    static fn(array $row): bool => (int)$row['id'] !== $id
+                ));
+
+                // Nothing is deleted with the event: the gear is still out, the
+                // reservation still stands and the customer's booking still
+                // exists. They simply stop naming a job that is gone, which is
+                // the only reading that does not lose a record.
+                $cleared = 0;
+                foreach ($checkouts as $index => $line) {
+                    if ((int)($line['eventId'] ?? 0) === $id) {
+                        $checkouts[$index]['eventId'] = null;
+                        $cleared++;
+                    }
+                }
+                foreach ($data['reservations'] as $index => $reservation) {
+                    if ((int)($reservation['eventId'] ?? 0) === $id) {
+                        $data['reservations'][$index]['eventId'] = null;
+                        $cleared++;
+                    }
+                }
+                foreach ($data['bookings'] as $index => $booking) {
+                    if ((int)($booking['eventId'] ?? 0) === $id) {
+                        $data['bookings'][$index]['eventId'] = null;
+                        $cleared++;
+                    }
+                }
+
+                trax_append_history($data, 'event_deleted', [
+                    'note'  => $event['name'] . ($cleared > 0 ? " ({$cleared} booking(s) unlinked)" : ''),
+                    'actor' => $actor,
+                ]);
+
+                return ['id' => $id, 'cleared' => $cleared];
+            });
+
+            trax_ok(array_merge(
+                trax_snapshot($result['data'], $result['checkouts']),
+                $result['result']
+            ), $result['rev']);
+        }
+
         // --- Reservations --------------------------------------------------
 
         case 'reservation.create': {
@@ -2393,6 +2714,7 @@ try {
             $notes         = trax_str($payload['notes'] ?? '');
             $force         = !empty($payload['force']);
             $hire          = trax_enum($payload['hire'] ?? null, TRAX_HIRE_MODES, 'DRY');
+            $eventId       = trax_int($payload['eventId'] ?? null);
 
             $startTs = trax_parse_datetime($startAt);
             $endTs   = trax_parse_datetime($endAt);
@@ -2402,8 +2724,11 @@ try {
 
             $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
                 $items, $customerName, $customerEmail, $startAt, $endAt, $startTs, $endTs, $notes, $force,
-                $hire, $actor
+                $hire, $eventId, $actor
             ): array {
+                if ($eventId !== null && trax_find_event($data['events'], $eventId) === null) {
+                    throw new TraxInvalid("Event #{$eventId} not found.");
+                }
                 $byId          = trax_index_assets($data['assets']);
                 [$setIds, ]    = trax_partition_ids($items, $byId);
                 $wanted        = trax_expand_items($items, $byId);
@@ -2442,6 +2767,7 @@ try {
                     'endAt'         => $endAt,
                     'status'        => 'ACTIVE',
                     'hire'          => $hire,
+                    'eventId'       => $eventId,
                     'notes'         => $notes,
                     'createdAt'     => gmdate('Y-m-d\TH:i:s.000\Z'),
                 ]);
@@ -2460,6 +2786,7 @@ try {
                     'dueAt'         => $endAt,
                     'items'         => trax_booking_items($reservation['items'], $byId, $setIds),
                     'hire'          => $reservation['hire'],
+                    'eventId'       => $reservation['eventId'],
                     'notes'         => $notes,
                 ]);
 
@@ -2634,6 +2961,8 @@ try {
                         'dueAt'         => $dueAt,
                         'items'         => trax_booking_items($granted, $byId, $reservation['setIds']),
                         'hire'          => $reservation['hire'],
+                        'eventId'       => $reservation['eventId'],
+                        'handedOverBy'  => $actor,
                         'notes'         => $reservation['notes'],
                     ]);
                 }
@@ -2685,8 +3014,10 @@ try {
                         'setId'         => $viaSet,
                         'bookingId'     => $booking['id'] ?? null,
                         // What was booked is what is handed over: a serviced
-                        // job stays one when the reservation is converted.
+                        // job stays one when the reservation is converted, and
+                        // so does the event it belongs to.
                         'hire'          => $reservation['hire'],
+                        'eventId'       => $reservation['eventId'],
                         'note'          => $reservation['notes'],
                     ]);
 
@@ -3048,6 +3379,11 @@ try {
             $inspectionError = trax_inspection_patch_error($patch['inspection'] ?? null);
             if ($inspectionError !== null) {
                 trax_fail('BAD_REQUEST', $inspectionError);
+            }
+
+            $eventsError = trax_events_patch_error($patch['events'] ?? null);
+            if ($eventsError !== null) {
+                trax_fail('BAD_REQUEST', $eventsError);
             }
 
             $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($patch): array {

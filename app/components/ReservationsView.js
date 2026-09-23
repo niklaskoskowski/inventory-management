@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue';
-import { state, mutate, toast, getAsset } from '../store.js';
+import { state, mutate, toast, getAsset, eventById } from '../store.js';
 import { formatDateTime, parseDate, toLocalInput, formatTotals } from '../lib/format.js';
 import { valueOfLines } from '../lib/insights.js';
 import { HIRE_LABEL, hireOf } from '../lib/rental.js';
@@ -139,7 +139,7 @@ export default {
       state, rows, filter, nameOf, STATUS_CLASS, blockedUnitCodes,
       converting, cancelling, convertDue, allowPartial, blocked,
       startConvert, doConvert, doCancel, formatDateTime, formatTotals, emit,
-      exporting, bookingPdf, HIRE_LABEL, hireOf,
+      exporting, bookingPdf, HIRE_LABEL, hireOf, eventById,
     };
   },
   template: `
@@ -167,6 +167,9 @@ export default {
                    reservation is, and a chip on all of them says nothing. -->
               <span v-if="hireOf(r) === 'SERVICE'" class="trax-kind-chip">
                 <i class="bi bi-person-gear"></i> {{ HIRE_LABEL.SERVICE }}
+              </span>
+              <span v-if="eventById.get(Number(r.eventId))" class="trax-kind-chip">
+                <i class="bi bi-calendar-event"></i> {{ eventById.get(Number(r.eventId)).name }}
               </span>
               <span class="text-secondary small">{{ r.customerEmail }}</span>
             </div>

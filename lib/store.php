@@ -665,6 +665,7 @@ function trax_normalize_reservation(mixed $raw): array
         // Carried onto the checkout lines when the reservation is converted, so
         // a serviced job booked in March is still a serviced job in June.
         'hire'          => trax_enum($raw['hire'] ?? null, TRAX_HIRE_MODES, 'DRY'),
+        'eventId'       => trax_int($raw['eventId'] ?? null),
         'notes'         => trax_str($raw['notes'] ?? ''),
         'createdAt'     => trax_iso($raw['createdAt'] ?? null) ?? $now,
         'convertedAt'   => trax_iso($raw['convertedAt'] ?? null),
@@ -761,6 +762,9 @@ function trax_normalize_checkout(mixed $raw): array
         // everything written before the distinction existed, which is what it
         // always was.
         'hire'          => trax_enum($raw['hire'] ?? null, TRAX_HIRE_MODES, 'DRY'),
+        // The job this went out on, or null. A label the booking machinery
+        // carries — availability is still decided by the line itself.
+        'eventId'       => trax_int($raw['eventId'] ?? null),
         'note'          => trax_str($raw['note'] ?? ''),
     ];
 }
@@ -853,6 +857,43 @@ function trax_normalize_booking_photo(mixed $raw): ?array
     ];
 }
 
+/** Where a signature was captured: at the counter, or on the customer's own link. */
+const TRAX_SIGNATURE_SOURCES = ['ADMIN', 'CUSTOMER'];
+
+/**
+ * The customer's hand-over signature, or null when nothing is signed.
+ *
+ * ONE per booking, and only for the hand-over: what goes out is what somebody
+ * puts their name to. The counterpart — who handed it over — is not signed at
+ * all; it is `handedOverBy` on the booking, stamped from the operator who did
+ * the checkout, because that side is always known and never in dispute.
+ *
+ * `name` is what the signer typed in block letters. A drawing on its own says
+ * that somebody signed; the typed name says who, and the pair is what makes
+ * the receipt worth keeping.
+ */
+function trax_normalize_signature(mixed $raw): ?array
+{
+    $raw = is_array($raw) ? $raw : [];
+
+    // Stored exactly like a condition photo: a name we generated, in uploads/.
+    // No file, no signature — an entry pointing at nothing is not a receipt.
+    $file = trax_photo_name($raw['file'] ?? null);
+    if ($file === null) {
+        return null;
+    }
+
+    return [
+        'file'   => $file,
+        'name'   => trax_str($raw['name'] ?? '', TRAX_MAX_NAME),
+        'at'     => trax_iso($raw['at'] ?? null) ?? gmdate('Y-m-d\TH:i:s.000\Z'),
+        'source' => trax_enum($raw['source'] ?? null, TRAX_SIGNATURE_SOURCES, 'ADMIN'),
+        // The operator on duty when it was signed at the counter. Empty when
+        // the customer signed it themselves, where there was none.
+        'actor'  => trax_str($raw['actor'] ?? '', 120),
+    ];
+}
+
 /**
  * Normalises one booking. Running it twice changes nothing — including the
  * token, which is only regenerated when the stored one is not exactly 64 hex
@@ -917,8 +958,15 @@ function trax_normalize_booking(mixed $raw): array
         // so what kind of job it was is recorded here too, or the customer's
         // own page would forget it the moment the gear came back.
         'hire'          => trax_enum($raw['hire'] ?? null, TRAX_HIRE_MODES, 'DRY'),
+        'eventId'       => trax_int($raw['eventId'] ?? null),
         'items'         => $items,
         'notes'         => trax_str($raw['notes'] ?? ''),
+        // Who handed the gear over. Stamped from the operator who made the
+        // checkout: that side of a hand-over is never signed, because it is
+        // always known — the signature below is the customer's alone.
+        'handedOverBy'  => trax_str($raw['handedOverBy'] ?? '', 120),
+        // The customer's hand-over signature, or null.
+        'signature'     => trax_normalize_signature($raw['signature'] ?? null),
         // What the reminder cron has already sent about this booking.
         'notified'      => trax_normalize_notified($raw['notified'] ?? null),
         // Condition photos taken at hand-over or check-in.
@@ -969,6 +1017,17 @@ function trax_booking_expired(array $booking, ?int $nowTs = null): bool
         return true;    // an unreadable expiry is a dead link, not an eternal one
     }
     return $expires < ($nowTs ?? time());
+}
+
+/** Finds a booking by id, or null. The twin of trax_find_booking_by_token(). */
+function trax_find_booking(array $bookings, int $id): ?array
+{
+    foreach ($bookings as $booking) {
+        if ((int)$booking['id'] === $id) {
+            return $booking;
+        }
+    }
+    return null;
 }
 
 /** Applies a callback to the booking with the given id, in place. */
@@ -1054,6 +1113,186 @@ function trax_normalize_cron_state(mixed $raw): array
 
 
 
+
+// ---------------------------------------------------------------------------
+// Events
+//
+// A job the gear goes out on: a festival, a conference, a shoot. Equipment is
+// not "in" an event the way it is in a kit — it is CHECKED OUT or RESERVED
+// against one, so an event is a label that the existing booking machinery
+// carries (`eventId` on the checkout line, the reservation and the booking)
+// and never a second place where availability is decided.
+//
+// Its status is a workflow marker the operator moves by hand — reserved,
+// packed, at customer — and the list of them is configurable, because every
+// shop's workflow is spelled differently. Deliberately NOT wired into
+// availability: what is free is decided by checkouts and reservations, and a
+// second opinion on that is how two screens end up disagreeing.
+// ---------------------------------------------------------------------------
+
+/** How many statuses a workflow may have, and how many events may exist. */
+const TRAX_MAX_EVENT_STATUSES = 12;
+const TRAX_MAX_EVENTS = 5000;
+
+/**
+ * The workflow an install starts with, and what it falls back to if every
+ * status is deleted.
+ *
+ * An event always has to be able to say where it is, so this list cannot be
+ * empty — and these four are the ones the shop floor actually says out loud.
+ */
+const TRAX_DEFAULT_EVENT_STATUSES = [
+    ['id' => 'reserved',    'label' => 'Reserved',    'color' => '#6B7280', 'closed' => false],
+    ['id' => 'packed',      'label' => 'Packed',      'color' => '#D97706', 'closed' => false],
+    ['id' => 'at-customer', 'label' => 'At customer', 'color' => '#2563EB', 'closed' => false],
+    ['id' => 'returned',    'label' => 'Returned',    'color' => '#16A34A', 'closed' => true],
+];
+
+/**
+ * A stable id for a configurable thing: lower case, digits and hyphens.
+ *
+ * The events store this, not the label, so renaming "Packed" to "Gepackt"
+ * leaves every event that is packed still packed.
+ */
+function trax_slug(mixed $value, int $max = 40): string
+{
+    $s = strtolower(trax_str($value, $max * 2));
+    $s = preg_replace('/[^a-z0-9]+/', '-', $s) ?? '';
+    $s = trim($s, '-');
+    return $s === '' ? '' : substr($s, 0, $max);
+}
+
+/** One workflow status: a stable id, what it is called, its colour, and whether it ends the job. */
+function trax_normalize_event_status(mixed $raw): ?array
+{
+    $raw = is_array($raw) ? $raw : [];
+
+    $label = trax_str($raw['label'] ?? '', 40);
+    // The id is derived from the label only when it is missing — an existing
+    // status keeps its id through every rename, or the events carrying it
+    // would all fall off it at once.
+    $id = trax_slug($raw['id'] ?? '', 40) ?: trax_slug($label, 40);
+    if ($id === '') {
+        return null;
+    }
+
+    return [
+        'id'     => $id,
+        'label'  => $label !== '' ? $label : $id,
+        'color'  => trax_hex_color($raw['color'] ?? null) ?? '#6B7280',
+        // A closed status means the job is over: the event drops out of the
+        // active list and stops counting as something to prepare.
+        'closed' => trax_bool($raw['closed'] ?? null, false),
+    ];
+}
+
+/** The workflow, in order. Never empty — an event has to be able to say where it is. */
+function trax_normalize_event_statuses(mixed $raw): array
+{
+    $out  = [];
+    $seen = [];
+
+    foreach ((array)$raw as $entry) {
+        $status = trax_normalize_event_status($entry);
+        if ($status === null || isset($seen[$status['id']])) {
+            continue;
+        }
+        $seen[$status['id']] = true;
+        $out[]               = $status;
+        if (count($out) >= TRAX_MAX_EVENT_STATUSES) {
+            break;
+        }
+    }
+
+    return $out !== [] ? $out : TRAX_DEFAULT_EVENT_STATUSES;
+}
+
+/** Normalises the events settings block. */
+function trax_normalize_events_settings(mixed $raw): array
+{
+    $raw      = is_array($raw) ? $raw : [];
+    $statuses = trax_normalize_event_statuses($raw['statuses'] ?? null);
+    $ids      = array_column($statuses, 'id');
+
+    // What a new event starts as. Must be one of the statuses above, or the
+    // first of them — a default nothing matches would make every new event
+    // status-less.
+    $default = trax_slug($raw['defaultStatus'] ?? '', 40);
+    if (!in_array($default, $ids, true)) {
+        $default = $ids[0];
+    }
+
+    return [
+        'statuses'      => $statuses,
+        'defaultStatus' => $default,
+        // Offer the event picker on the checkout and reservation forms at all.
+        // An install that does no event work turns it off and never sees it.
+        'enabled'       => trax_bool($raw['enabled'] ?? null, true),
+    ];
+}
+
+/** The status entry for an id, or null when the workflow no longer has it. */
+function trax_event_status(array $settings, string $id): ?array
+{
+    foreach ((array)($settings['events']['statuses'] ?? []) as $status) {
+        if (($status['id'] ?? '') === $id) {
+            return $status;
+        }
+    }
+    return null;
+}
+
+/**
+ * One event.
+ *
+ * Dates are the job's window — when it starts and when it ends — and are
+ * optional: an event pencilled in before the dates are known is still an
+ * event. They are instants, like a reservation's, not calendar days: load-out
+ * at 06:00 and back at 23:00 is the normal case.
+ */
+function trax_normalize_event(mixed $raw): array
+{
+    $raw = is_array($raw) ? $raw : [];
+    $now = gmdate('Y-m-d\TH:i:s.000\Z');
+
+    return [
+        'id'        => max(0, trax_int($raw['id'] ?? null, 0) ?? 0),
+        'name'      => trax_str($raw['name'] ?? '', TRAX_MAX_NAME),
+        'client'    => trax_str($raw['client'] ?? '', TRAX_MAX_NAME),
+        'location'  => trax_str($raw['location'] ?? '', TRAX_MAX_NAME),
+        'contact'   => trax_str($raw['contact'] ?? '', TRAX_MAX_NAME),
+        'startAt'   => trax_iso($raw['startAt'] ?? null),
+        'endAt'     => trax_iso($raw['endAt'] ?? null),
+        // A status id from settings.events.statuses. Stored as the id and not
+        // the label, so renaming a status does not orphan every event on it.
+        // An id the workflow no longer has is KEPT rather than rewritten: the
+        // event still says what it said, and the client shows it as unknown.
+        'status'    => trax_slug($raw['status'] ?? '', 40),
+        'notes'     => trax_str($raw['notes'] ?? ''),
+        'createdAt' => trax_iso($raw['createdAt'] ?? null) ?? $now,
+    ];
+}
+
+/** Next unused event id. Monotonic, so a deleted event's id is never reissued. */
+function trax_next_event_id(array $events): int
+{
+    $max = 0;
+    foreach ($events as $event) {
+        $max = max($max, (int)($event['id'] ?? 0));
+    }
+    return $max + 1;
+}
+
+/** Finds an event by id, or null. */
+function trax_find_event(array $events, int $id): ?array
+{
+    foreach ($events as $event) {
+        if ((int)$event['id'] === $id) {
+            return $event;
+        }
+    }
+    return null;
+}
 // ---------------------------------------------------------------------------
 // Inspections
 //
@@ -1623,6 +1862,34 @@ function trax_whatsapp(mixed $value): string
 }
 
 /**
+ * An absolute http(s) URL to an image, or ''.
+ *
+ * Deliberately narrow — a scheme, a host, no credentials, nothing that has to
+ * be escaped again downstream — and deliberately NOT an allow-list for an
+ * outbound request: nothing in this app fetches it server-side. It is handed to
+ * the browser, which decides whether it may load it. See trax_logo_file().
+ */
+function trax_image_url(mixed $value): string
+{
+    $s = trax_str($value, 500);
+    if ($s === '' || preg_match('~^https?://~i', $s) !== 1) {
+        return '';
+    }
+    // Whitespace, quotes and angle brackets would have to survive every
+    // context this string is printed into. A URL carrying them is refused
+    // rather than escaped into something that no longer resolves.
+    if (preg_match('/[\x00-\x20\x7f"\'<>\\\\]/', $s) === 1) {
+        return '';
+    }
+    $parts = parse_url($s);
+    if (!is_array($parts) || ($parts['host'] ?? '') === '') {
+        return '';
+    }
+    // user:pass in a logo URL is a credential in data.json. Never.
+    return isset($parts['user']) || isset($parts['pass']) ? '' : $s;
+}
+
+/**
  * An image file referenced by the settings — the label logo, the favicon.
  *
  * It is read off disk by the label renderer and emitted into a <link href>, so
@@ -1631,9 +1898,23 @@ function trax_whatsapp(mixed $value): string
  * '' — "there is no image". Every caller has to handle that anyway (a fresh
  * install ships no logo), so returning '' is strictly safer than returning a
  * filename that 404s or makes imagecreatefrom*() emit a warning.
+ *
+ * With `$allowUrl`, an absolute http(s) URL is kept as it stands — the logo may
+ * live on the operator's own site or a CDN rather than beside this install. It
+ * is never fetched here: the PDF builder loads it in the browser (and gets
+ * nothing, gracefully, where the host sends no CORS header), and the LABEL
+ * renderers still read a local file off disk, so a URL means a label prints the
+ * organisation name as text. That trade is documented in Settings.
  */
-function trax_logo_file(mixed $value, string $default = ''): string
+function trax_logo_file(mixed $value, string $default = '', bool $allowUrl = false): string
 {
+    if ($allowUrl) {
+        $url = trax_image_url($value);
+        if ($url !== '') {
+            return $url;
+        }
+    }
+
     $s = trax_str($value, 120);
     if ($s === '' || $s !== basename($s) || str_contains($s, '..')
         || preg_match('/^[A-Za-z0-9 ._\-]+$/', $s) !== 1) {
@@ -1732,7 +2013,10 @@ function trax_normalize_settings(mixed $raw): array
             // literal here would make normalising twice produce a different value.
             'brandColor'   => trax_hex_color($branding['brandColor'] ?? null) ?? '#1F2937',
             'publicPath'   => trax_public_path($branding['publicPath'] ?? null) ?? TRAX_PUBLIC_PATH,
-            'logoFile'     => trax_logo_file($branding['logoFile'] ?? null),
+            // The one image that may also be a URL: it is only ever loaded by
+            // a browser. The favicon below is not — it goes into a <link> on
+            // pages that must keep working offline of anything but this host.
+            'logoFile'     => trax_logo_file($branding['logoFile'] ?? null, '', true),
             // The generated placeholder favicon ships with the repo, so the
             // default resolves; an install that deletes it gets '' and the
             // templates simply emit no icon link.
@@ -1780,6 +2064,9 @@ function trax_normalize_settings(mixed $raw): array
         'rental' => trax_normalize_rental($raw['rental'] ?? null),
         // Which categories have to show a test record, and what that test is.
         'inspection' => trax_normalize_inspections_settings($raw['inspection'] ?? null),
+        // The workflow an event moves through, and whether events are offered
+        // on the booking forms at all.
+        'events' => trax_normalize_events_settings($raw['events'] ?? null),
         'cron' => [
             // Shared secret for triggering cron.php over HTTP. Empty means the
             // HTTP trigger is refused outright; CLI never needs it.
@@ -1875,6 +2162,29 @@ function trax_normalize_data(mixed $raw): array
     $reservations = array_map('trax_normalize_reservation', (array)($raw['reservations'] ?? []));
     $history      = array_map('trax_normalize_history', (array)($raw['rentalHistory'] ?? []));
 
+    // The jobs gear goes out on. Id-keyed like the bookings, and an id-less
+    // record gets the next free one rather than being dropped — an event that
+    // lost its id would take every line pointing at it with it.
+    $events   = [];
+    $nextEvent = 0;
+    foreach ((array)($raw['events'] ?? []) as $item) {
+        $event = trax_normalize_event($item);
+        // An event is a job somebody named. Anything else under this key is
+        // not one — the key was an unused passthrough before this feature,
+        // and a hand-edited file may still hold whatever was put there.
+        if ($event['name'] === '') {
+            continue;
+        }
+        $nextEvent = max($nextEvent, $event['id']);
+        if ($event['id'] <= 0) {
+            $event['id'] = ++$nextEvent;
+        }
+        $events[] = $event;
+        if (count($events) >= TRAX_MAX_EVENTS) {
+            break;
+        }
+    }
+
     // Bookings are id-keyed like the rest; an id-less record gets the next free
     // one rather than being dropped, because it holds the customer's only copy
     // of what they took.
@@ -1895,7 +2205,11 @@ function trax_normalize_data(mixed $raw): array
     return [
         'rev'           => max(1, trax_int($raw['rev'] ?? null, 1) ?? 1),
         'assets'        => $assets,
-        'events'        => is_array($raw['events'] ?? null) ? $raw['events'] : [],
+        // `events` used to be an unused passthrough that install.php and the
+        // demo data both wrote as []. It is the jobs list now — one key, one
+        // normaliser — and the loop above drops anything in it that is not an
+        // event, so a file carrying the old empty key reads back empty.
+        'events'        => array_values($events),
         'reservations'  => array_values($reservations),
         'rentalHistory' => array_values($history),
         'bookings'      => array_values($bookings),

@@ -9,6 +9,7 @@ import { valueOfLines } from '../lib/insights.js';
 import {
   rentalDays as hireDays, rentalOfLines, daysLabel, HIRE_LABEL, serviceFactorOf,
 } from '../lib/rental.js';
+import { byStart, eventSettings, isClosed } from '../lib/events.js';
 import { exportBasketPdf, exportRentalPdf } from '../lib/pdf.js';
 import { parseDate, toLocalInput, formatTotals } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
@@ -112,6 +113,23 @@ export default {
     // job, not a price: the price is worked out from it every time.
     const hire = ref('DRY');
 
+    // Which job this is going out on, or none. Optional by design: plenty of
+    // gear leaves the building without belonging to a project.
+    const eventId = ref('');
+
+    const eventsEnabled = computed(() => eventSettings(state.settings).enabled);
+
+    /**
+     * The jobs worth picking: the open ones, soonest first.
+     *
+     * A closed job is not offered — gear going out on something that is over
+     * is a typo, not a workflow — but one already picked stays listed so the
+     * form never silently drops what it is showing.
+     */
+    const eventOptions = computed(() => [...state.events]
+      .filter((event) => !isClosed(state.settings, event) || String(event.id) === eventId.value)
+      .sort(byStart));
+
     const rentalQuote = computed(() => rentalOfLines(
       selectedExpanded.value,
       assetById.value,
@@ -184,6 +202,7 @@ export default {
             notes: notes.value,
             allowPartial: allowPartial.value,
             hire: hire.value,
+            eventId: eventId.value ? Number(eventId.value) : null,
           });
           toast(
             `Checked out ${data.checkedOut} unit(s) on ${data.lines} line(s).`
@@ -200,6 +219,7 @@ export default {
             notes: notes.value,
             force: force.value,
             hire: hire.value,
+            eventId: eventId.value ? Number(eventId.value) : null,
           });
           toast(`Reservation #${data.reservationId} created.`, 'success');
         }
@@ -298,6 +318,8 @@ export default {
           notes: notes.value,
           unitChoice: state.unitChoice,
           hire: hire.value,
+          // The job is what a quote is headed with, when there is one.
+          reference: eventOptions.value.find((event) => String(event.id) === eventId.value)?.name || '',
         });
       } catch (error) {
         toast(`Could not build the rental PDF: ${error.message}`, 'danger', 8000);
@@ -312,6 +334,7 @@ export default {
       selectionValue, formatTotals, exportingPdf, selectionPdf,
       hireLength, rentalQuote, daysLabel, exportingQuote, rentalPdf,
       hire, dryQuote, serviceFactors, HIRE_LABEL,
+      eventId, eventsEnabled, eventOptions,
       selectedItemIds, selectedUnitCount, toggleSelected, clearSelection,
       getAsset, getQuantity, setQuantity, submit, emit,
       unitsOf, showUnits, unitCode, unitChosen, unitDisabled, unitTitle, unitHint,
@@ -489,6 +512,24 @@ export default {
       </div>
 
       <hr>
+
+      <!-- Which job this belongs to. Optional: plenty of gear leaves the
+           building without a project behind it. -->
+      <div v-if="eventsEnabled" class="mb-2">
+        <label class="form-label small" for="b-event">Event</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="bi bi-calendar-event"></i></span>
+          <select id="b-event" class="form-select" v-model="eventId">
+            <option value="">— no event —</option>
+            <option v-for="event in eventOptions" :key="event.id" :value="String(event.id)">
+              {{ event.name }}<span v-if="event.client"> · {{ event.client }}</span>
+            </option>
+          </select>
+        </div>
+        <div v-if="!eventOptions.length" class="form-text small">
+          No open events yet — create one under Events.
+        </div>
+      </div>
 
       <!-- Customer -->
       <div class="row g-2">

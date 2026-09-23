@@ -138,6 +138,14 @@ const DEFAULT_SETTINGS = {
     locale: 'en-US',
     dateFormat: 'Y-m-d H:i',
   },
+  // The workflow an event moves through. The server ships the built-in four
+  // when an install has none, so this is only what the view binds to before
+  // the first snapshot lands. See app/lib/events.js.
+  events: {
+    statuses: [],
+    defaultStatus: 'reserved',
+    enabled: true,
+  },
   // Which categories have to show a test record, and what that test is.
   // A category is tested by BEING in this list — there is no enabled flag to
   // disagree with its own presence. See app/lib/inspection.js.
@@ -166,6 +174,9 @@ export const state = reactive({
   checkouts: [],
   history: [],
   bookings: [],
+  // The jobs gear goes out on. What is booked against one is derived from the
+  // checkout lines and reservations that name it — see app/lib/events.js.
+  events: [],
   settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
   meta: {},
 
@@ -310,6 +321,10 @@ export const checkoutByAssetId = computed(() => {
 
 export const items = computed(() => state.assets.filter((a) => a.kind === 'ITEM'));
 export const sets = computed(() => state.assets.filter((a) => a.kind === 'SET'));
+
+export const eventById = computed(
+  () => new Map(state.events.map((event) => [Number(event.id), event])),
+);
 
 export const categories = computed(() =>
   [...new Set(state.assets.map((a) => a.category).filter(Boolean))].sort(),
@@ -650,7 +665,7 @@ function applySnapshot(data) {
   // `bookings` and `settings` ride in every snapshot, not just bootstrap. They
   // were missing from this list, so the server's answer to settings.update was
   // dropped on the floor and the Settings view kept showing its own defaults.
-  for (const key of ['assets', 'reservations', 'checkouts', 'history', 'bookings']) {
+  for (const key of ['assets', 'reservations', 'checkouts', 'history', 'bookings', 'events']) {
     if (Array.isArray(data[key])) state[key] = data[key];
   }
   if (data.settings && typeof data.settings === 'object') {
@@ -824,6 +839,55 @@ export async function uploadInspectionCertificate(assetId, inspectionId, file) {
 /** Removes one test record and its certificate. */
 export async function deleteInspection(assetId, inspectionId) {
   return mutate('asset.inspectionDelete', { id: assetId, inspectionId });
+}
+
+// --- Hand-over signature ---------------------------------------------------
+// One per booking, the customer's alone. The other side of the hand-over is
+// `booking.handedOverBy`, stamped from the operator at checkout — that half is
+// recorded, never signed.
+
+/** Stores the drawn signature. `blob` is what the pad produced. */
+export async function signBooking(bookingId, name, blob) {
+  state.loading = true;
+  try {
+    // `signedName`, not `name`: the multipart payload in api.php is an
+    // allow-list, and a field it does not name never reaches the action.
+    const body = await api.uploadMany('booking.sign', [blob], { bookingId, signedName: name });
+    applySnapshot(body.data);
+    state.rev = body.rev ?? state.rev;
+    return body.data;
+  } catch (error) {
+    toast(error.message, 'danger', 8000);
+    throw error;
+  } finally {
+    state.loading = false;
+  }
+}
+
+/** Clears it, and deletes the drawing. The only way a booking can be re-signed. */
+export async function unsignBooking(bookingId) {
+  return mutate('booking.unsign', { bookingId });
+}
+
+// --- Events ----------------------------------------------------------------
+// Plain records. Nothing here touches availability: an event is a label that
+// checkout lines and reservations carry, and what is booked against one is
+// worked out from them.
+
+export async function saveEvent(event) {
+  const action = event?.id ? 'event.update' : 'event.create';
+  return mutate(action, event);
+}
+
+/**
+ * Deletes the event only.
+ *
+ * The gear that went out on it is still out and the reservations still stand —
+ * they simply stop naming a job that is gone. The server reports how many
+ * bookings it unlinked.
+ */
+export async function deleteEvent(id) {
+  return mutate('event.delete', { id });
 }
 
 // --- Lookups used across components ----------------------------------------

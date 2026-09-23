@@ -146,6 +146,20 @@ function trax_new_condition_photo_name(): string
     return 'd-' . bin2hex(random_bytes(16)) . '.jpg';
 }
 
+/**
+ * A name for a hand-over signature.
+ *
+ * Random for the same reason a condition photo's name is, and more so: this is
+ * a picture of somebody's handwriting. uploads/ is served without auth — which
+ * is what lets the customer's own booking page show it back to them — so the
+ * 128 bits in the name are the only thing between it and a stranger. It
+ * carries no booking id, no customer, no date.
+ */
+function trax_new_signature_name(): string
+{
+    return 'sig-' . bin2hex(random_bytes(16)) . '.jpg';
+}
+
 /** Removes a stored photo and its thumbnail. Unknown or unsafe names are ignored. */
 function trax_delete_photo_files(string $filename): void
 {

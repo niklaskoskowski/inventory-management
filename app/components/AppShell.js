@@ -11,8 +11,10 @@ import AssetTable from './AssetTable.js';
 import AssetCards from './AssetCards.js';
 import AssetSheet from './AssetSheet.js';
 import DashboardView from './DashboardView.js';
-import CheckoutsView from './CheckoutsView.js';
+import CheckoutsView, { openCheckout } from './CheckoutsView.js';
 import ReservationsView from './ReservationsView.js';
+import EventsView from './EventsView.js';
+import EventSheet from './EventSheet.js';
 import CalendarView from './CalendarView.js';
 import InsightsView from './InsightsView.js';
 import SettingsView from './SettingsView.js';
@@ -28,6 +30,7 @@ const NAV = [
   { id: 'kits', label: 'Kits', icon: 'bi-box-seam' },
   { id: 'checkouts', label: 'Checkouts', icon: 'bi-box-arrow-right' },
   { id: 'reservations', label: 'Reservations', icon: 'bi-calendar-check' },
+  { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
   { id: 'calendar', label: 'Calendar', icon: 'bi-calendar3' },
   { id: 'insights', label: 'Insights', icon: 'bi-graph-up-arrow' },
   { id: 'settings', label: 'Settings', icon: 'bi-gear' },
@@ -41,7 +44,8 @@ export default {
   name: 'AppShell',
   components: {
     ToastHost, Lightbox, FilterBar, AssetTable, AssetCards, AssetSheet,
-    DashboardView, CheckoutsView, ReservationsView, CalendarView, InsightsView,
+    DashboardView, CheckoutsView, ReservationsView, EventsView, EventSheet,
+    CalendarView, InsightsView,
     SettingsView, SetEditor, BasketDrawer, LabelDrawer, ScanDrawer, BulkEditDrawer,
   },
   setup() {
@@ -54,6 +58,10 @@ export default {
     const showBulk = ref(false);
     const showSetEditor = ref(false);
     const editingSetId = ref(null);
+    // The event sheet. `eventSheetId === null` with the sheet open means "new",
+    // the same convention the set editor uses.
+    const showEventSheet = ref(false);
+    const eventSheetId = ref(null);
     const isNarrow = ref(window.matchMedia('(max-width: 991.98px)').matches);
 
     const currentNav = computed(() => NAV.find((n) => n.id === state.view) || NAV[1]);
@@ -84,6 +92,12 @@ export default {
         .catch(() => { /* no name in the footer, nothing else */ });
     };
 
+    /** A scanned hand-over sheet: Checkouts, with that booking's card open. */
+    const openHandover = (bookingId) => {
+      setView('checkouts');
+      openCheckout(bookingId);
+    };
+
     const openAsset = (id) => {
       sheetId.value = Number(id) || null;
       sheetOpen.value = true;
@@ -100,6 +114,11 @@ export default {
     const openSetEditor = (id = null) => {
       editingSetId.value = id;
       showSetEditor.value = true;
+    };
+
+    const openEvent = (id = null) => {
+      eventSheetId.value = id;
+      showEventSheet.value = true;
     };
 
     /**
@@ -206,7 +225,8 @@ export default {
       sheetId, sheetOpen, labelId, showBasket, showScanner, showBulk,
       showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName,
       selectedItemIds, selectedUnitCount, account, loadAccount, csrf: api.csrf,
-      openAsset, openNewAsset, closeSheet, openSetEditor, openLabel, labelTarget,
+      openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, openLabel, labelTarget,
+      showEventSheet, eventSheetId, openEvent,
       // Not used by the template — exposed so the shortcut table can be driven
       // with synthetic events instead of a browser.
       onKeydown,
@@ -378,6 +398,9 @@ export default {
 
             <CheckoutsView v-else-if="state.view === 'checkouts'" @open="openAsset" />
             <ReservationsView v-else-if="state.view === 'reservations'" @open="openAsset" />
+
+            <EventsView v-else-if="state.view === 'events'"
+                        @open="openAsset" @edit="openEvent" />
             <CalendarView v-else-if="state.view === 'calendar'" @open="openAsset" />
             <InsightsView v-else-if="state.view === 'insights'" @open="openAsset" />
             <SettingsView v-else-if="state.view === 'settings'" />
@@ -407,6 +430,9 @@ export default {
     <SetEditor v-if="showSetEditor" :set-id="editingSetId"
                @close="showSetEditor = false" @open="openAsset" />
 
+    <EventSheet v-if="showEventSheet" :event-id="eventSheetId"
+                @close="showEventSheet = false" />
+
     <BasketDrawer v-if="showBasket" @close="showBasket = false" @open="openAsset" />
 
     <BulkEditDrawer v-if="showBulk" @close="showBulk = false" />
@@ -414,7 +440,8 @@ export default {
     <LabelDrawer v-if="labelId" :asset-id="labelId" @close="labelId = null" />
 
     <ScanDrawer v-if="showScanner" @close="showScanner = false"
-                @open="openAsset" @basket="showBasket = true" />
+                @open="openAsset" @basket="showBasket = true"
+                @booking="openHandover" />
 
     <ToastHost />
 

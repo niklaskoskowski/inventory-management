@@ -9,7 +9,8 @@
 
 import { createApp } from 'vue';
 import AppShell from './components/AppShell.js';
-import { toast } from './store.js';
+import { state, toast } from './store.js';
+import { configurePdf } from './lib/pdf.js';
 
 /**
  * Prefix on everything this file logs. Deliberately not the app name from
@@ -18,6 +19,11 @@ import { toast } from './store.js';
  * and sometimes the operator's name is harder to grep than a fixed one.
  */
 const LOG_PREFIX = '[app]';
+
+// The document builder takes its branding from whoever is hosting it: here
+// the store, on the customer's booking page a plain object from PHP. Set
+// before anything can export, which is why it is here and not in a component.
+configurePdf({ settings: () => state.settings });
 
 const app = createApp(AppShell);
 

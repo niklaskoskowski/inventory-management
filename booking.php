@@ -123,6 +123,154 @@ foreach ($booking['items'] as $line) {
     ];
 }
 
+
+/**
+ * The QR code for THIS booking, as a PNG.
+ *
+ *   GET booking.php?t=<token>&qr=1
+ *
+ * It encodes a URL this file builds from the token it was given — never text
+ * from the request — so the endpoint cannot be used to print a QR code that
+ * points anywhere else. Guarded by the same token as the page, and answered
+ * with the same nothing for an unknown or expired one.
+ *
+ * Server-side because the repo already carries phpqrcode for the labels, and
+ * a second QR library — in JavaScript, for one small picture — would be a
+ * second thing to keep.
+ */
+if (($_GET['qr'] ?? '') === '1') {
+    $qrLibrary = __DIR__ . '/phpqrcode/qrlib.php';
+    if (!is_file($qrLibrary)) {
+        trax_booking_gone();
+    }
+    require_once $qrLibrary;
+
+    header('Content-Type: image/png');
+    header('Cache-Control: no-store');
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    // trax_booking_url() is the one place that builds this link — the mails
+    // and the admin's "copy link" use it too, so the printed code and the
+    // e-mailed link can never point at different pages.
+    // Level M: this is read off paper in a warehouse, and the URL is short
+    // enough that the extra correction costs nothing worth having.
+    QRcode::png(trax_booking_url($token), false, QR_ECLEVEL_M, 6, 2);
+    exit;
+}
+
+/**
+ * The one write this public page accepts: the customer signing for the gear.
+ *
+ * The token in the URL is the capability, exactly as it is for reading — and
+ * anyone holding it can already see everything this would tell them. So what
+ * is guarded here is not secrecy but abuse:
+ *
+ *   - only a CHECKOUT booking that is still open and not expired;
+ *   - ONE signature, ever. A signed booking refuses a second one outright, so
+ *     a link that leaks later cannot overwrite what was signed at the counter.
+ *     Only the operator can clear it, from the admin, and that is deliberate.
+ *   - a honeypot field, the same one index.php uses on its report form;
+ *   - a per-session attempt counter, so a bot cannot sit on the endpoint;
+ *   - the drawing goes through the ordinary image pipeline: sniffed, decoded
+ *     and re-encoded by GD, so the bytes that land in uploads/ are ours.
+ *
+ * Answers are POST/redirect/GET, so a reload never re-posts a signature.
+ */
+const TRAX_SIGN_MAX_TRIES = 8;
+
+function trax_booking_sign_redirect(string $token, string $flash): never
+{
+    header('Location: booking.php?t=' . urlencode($token) . ($flash === '' ? '' : '&s=' . $flash), true, 303);
+    exit;
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'sign') {
+    require_once __DIR__ . '/lib/photo.php';
+    require_once __DIR__ . '/lib/public-session.php';
+
+    // A cross-site POST would need the token anyway, but a browser that tells
+    // us it was one is answered with nothing at all.
+    if (($_SERVER['HTTP_SEC_FETCH_SITE'] ?? 'same-origin') === 'cross-site') {
+        trax_booking_gone();
+    }
+
+    trax_public_session();
+    $tries = (int)($_SESSION['trax_sign_tries'] ?? 0);
+    if ($tries >= TRAX_SIGN_MAX_TRIES) {
+        trax_booking_sign_redirect($token, 'busy');
+    }
+    $_SESSION['trax_sign_tries'] = $tries + 1;
+
+    // The honeypot: a field no human can see and no human fills in. Answered
+    // like a success so a bot learns nothing from the difference.
+    if (trim((string)($_POST['website'] ?? '')) !== '') {
+        trax_booking_sign_redirect($token, 'ok');
+    }
+
+    // Everything this page will not sign, in one place. Each of these is the
+    // same answer as a bad token would give — no detail leaves this branch.
+    if ($booking['kind'] !== 'checkout'
+        || $booking['status'] !== 'OPEN'
+        || ($booking['signature'] ?? null) !== null
+        || !isset($_FILES['photos'])) {
+        trax_booking_sign_redirect($token, 'no');
+    }
+
+    $signedName = trax_str($_POST['signedName'] ?? '', TRAX_MAX_NAME);
+    $bookingId  = (int)$booking['id'];
+    $file       = trax_new_signature_name();
+
+    try {
+        $entries = trax_photo_batch_entries($_FILES['photos']);
+        if (count($entries) !== 1) {
+            throw new TraxInvalid('One signature.');
+        }
+        trax_store_photo_as($file, $entries[0]);
+    } catch (Throwable $e) {
+        trax_booking_sign_redirect($token, 'no');
+    }
+
+    try {
+        trax_mutate(null, static function (array &$data, array &$checkouts) use (
+            $bookingId, $signedName, $file
+        ): array {
+            $current = trax_find_booking($data['bookings'], $bookingId);
+            // Re-checked under the lock: two taps on a slow phone must not
+            // produce two signatures, and the first one wins.
+            if ($current === null || ($current['signature'] ?? null) !== null) {
+                throw new TraxInvalid('Already signed.');
+            }
+
+            trax_update_booking($data, $bookingId, static function (array $b) use ($signedName, $file): array {
+                $b['signature'] = [
+                    'file'   => $file,
+                    'name'   => $signedName !== '' ? $signedName : $b['customerName'],
+                    'at'     => gmdate('Y-m-d\TH:i:s.000\Z'),
+                    'source' => 'CUSTOMER',
+                    'actor'  => '',
+                ];
+                return $b;
+            });
+
+            trax_append_history($data, 'booking_signed', [
+                'customerName' => $current['customerName'],
+                'note'         => 'Hand-over signed on the customer link',
+                'actor'        => '',
+            ]);
+
+            return [];
+        });
+    } catch (Throwable $e) {
+        trax_delete_photo_files($file);
+        trax_booking_sign_redirect($token, 'no');
+    }
+
+    // Signed: the counter is spent, and the redirect below re-reads the page.
+    unset($_SESSION['trax_sign_tries']);
+    trax_booking_sign_redirect($token, 'ok');
+}
+
 // Condition photos, taken at hand-over or check-in. Only the four fields the
 // page renders are lifted across, and the filename is re-checked here rather
 // than trusted: this file builds a URL out of it.
@@ -169,7 +317,28 @@ $view = [
     'dueAt'        => $booking['dueAt'] === null ? null : trax_booking_date($booking['dueAt']),
     'items'        => $items,
     'photos'       => $photos,
+    // The hand-over signature, when there is one. `handedOverBy` deliberately
+    // does NOT come along: it is an operator's login name, which is the
+    // organisation's business and not the customer's.
+    'signature'    => ($booking['signature'] ?? null) === null ? null : [
+        'src'  => 'uploads/' . $booking['signature']['file'],
+        'name' => (string)$booking['signature']['name'],
+        'at'   => trax_booking_date($booking['signature']['at']),
+    ],
+    // Whether this page may still be signed — see the POST handler above for
+    // the same three conditions, which are the authority.
+    'canSign'      => $booking['kind'] === 'checkout'
+        && $booking['status'] === 'OPEN'
+        && ($booking['signature'] ?? null) === null,
 ];
+
+// What the redirect after a POST is telling the page to say, if anything.
+$signFlash = match ((string)($_GET['s'] ?? '')) {
+    'ok'    => ['ok', 'Thank you — your signature has been recorded.'],
+    'busy'  => ['warn', 'Too many attempts. Please reload the page and try again.'],
+    'no'    => ['warn', 'That could not be signed. Please reload the page and try again.'],
+    default => null,
+};
 
 $statusText = match ($view['status']) {
     'RETURNED'  => 'Returned',
@@ -182,6 +351,68 @@ $statusClass = match ($view['status']) {
     default     => 's-open',
 };
 $dueLabel = $view['kind'] === 'reservation' ? 'Reserved until' : 'Return by';
+
+/**
+ * The hand-over sheet, as the document builder in app/lib/pdf.js wants it.
+ *
+ * The SAME builder the counter uses, handed the same booking — so what the
+ * customer downloads here is the sheet they were given, tick boxes and all.
+ * That is the point of the button: the paper doubles as the packing list, and
+ * whoever is loading the van needs it more often than it survives the journey.
+ *
+ * Its own allow-list, like $view above, and a shorter one: no operator notes,
+ * no e-mail address, and no `handedOverBy` — that is a login name, and the
+ * customer's copy has no business carrying it. Dates go out RAW here, not
+ * formatted, because the builder formats them itself.
+ */
+$pdfItems = [];
+foreach ($booking['items'] as $line) {
+    $assetId = (int)$line['assetId'];
+    $codes   = [];
+    foreach (trax_unit_nos($line['unitNos'] ?? null) as $no) {
+        $codes[] = trax_unit_code($assetId, $no);
+    }
+    $name = $line['name'] !== '' ? $line['name'] : 'Item';
+    $pdfItems[] = [
+        // The units are part of the name on a sheet somebody ticks off:
+        // "5m XLR cable (12.1, 12.3)" is what physically went out.
+        'name'    => $codes === [] ? $name : $name . ' (' . implode(', ', $codes) . ')',
+        'assetId' => $assetId,
+        'qty'     => max(1, (int)$line['qty']),
+        'setName' => (string)$line['setName'],
+    ];
+}
+
+$pdf = [
+    'kind'         => $view['kind'],
+    'customerName' => $view['customerName'],
+    // A checkout that never recorded a start was handed over when it was
+    // created; the sheet says a date either way.
+    'startAt'      => $booking['startAt'] ?? $booking['createdAt'],
+    'endAt'        => $booking['dueAt'],
+    'hire'         => (string)$booking['hire'],
+    'status'       => $statusText,
+    'items'        => $pdfItems,
+    // Printed as a QR code on the sheet, so the paper leads back here.
+    'bookingUrl'   => trax_booking_url($token),
+    'signature'    => ($booking['signature'] ?? null) === null ? null : [
+        'file' => (string)$booking['signature']['file'],
+        'name' => (string)$booking['signature']['name'],
+        'at'   => (string)$booking['signature']['at'],
+    ],
+];
+
+/**
+ * The three branding fields the document builder reads, and nothing else.
+ *
+ * It takes them from whoever is hosting it — the store in the admin, this
+ * array here — which is why app/lib/pdf.js imports no store at all.
+ */
+$pdfBranding = [
+    'appName'    => (string)trax_setting('branding.appName', 'Assets'),
+    'brandColor' => $view['brandColor'],
+    'logoFile'   => (string)trax_setting('branding.logoFile', ''),
+];
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
@@ -208,6 +439,16 @@ $dueLabel = $view['kind'] === 'reservation' ? 'Reserved until' : 'Return by';
         .kit { font-size: .7rem; color: #8b98a5; }
         .shot { width: 120px; }
         .shot-img { width: 120px; height: 90px; object-fit: cover; border-radius: .5rem; background: #1b232b; }
+        /* The signature pad. White because that is what the drawing is stored
+           and printed on: dark ink on white travels from a phone screen to a
+           PDF without a single inversion along the way. */
+        .sig-pad { width: 100%; height: 170px; border-radius: .5rem; background: #fff;
+                   border: 1px solid #1b232b; touch-action: none; display: block; cursor: crosshair; }
+        .sig-shot { max-width: 100%; border-radius: .5rem; background: #fff; }
+        .sig-name { font-size: 1rem; }
+        .sig-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+        .sig-ok { color: #7ee2a0; }
+        .sig-warn { color: #f0c674; }
         /* Deliberately no 16px focus-zoom rule: this sheet is read-only and has
            no form controls, and api_test.sh asserts the rendered page contains
            no at-sign at all, which any media block would violate. */
@@ -317,9 +558,280 @@ $dueLabel = $view['kind'] === 'reservation' ? 'Reserved until' : 'Return by';
         </div>
     <?php endif; ?>
 
+    <!-- Hand-over. Either what was signed, or the pad to sign it on: one
+         signature per booking, the customer's own, and once it is there this
+         page will not take another. -->
+    <?php if ($view['signature'] !== null): ?>
+        <div class="card-t p-3 mt-3">
+            <div class="meta-label mb-2">Received by</div>
+            <img class="sig-shot" src="<?php echo esc($view['signature']['src']); ?>"
+                 alt="Signature of <?php echo esc($view['signature']['name']); ?>">
+            <div class="sig-name mt-2"><?php echo esc($view['signature']['name']); ?></div>
+            <div class="kit"><?php echo esc($view['signature']['at']); ?></div>
+        </div>
+    <?php elseif ($view['canSign']): ?>
+        <div class="card-t p-3 mt-3">
+            <div class="meta-label mb-2">Sign for the equipment</div>
+            <p class="small text-secondary">
+                Signing confirms you received the items listed above.
+            </p>
+
+            <form id="sig-form" method="post" enctype="multipart/form-data"
+                  action="booking.php?t=<?php echo esc($token); ?>">
+                <input type="hidden" name="action" value="sign">
+                <!-- Not a real field. Anything typed in it is a bot. -->
+                <input class="sig-hp" type="text" name="website" tabindex="-1" autocomplete="off"
+                       aria-hidden="true">
+
+                <label class="meta-label" for="sig-signed-name">Your name</label>
+                <input class="form-control mb-2" id="sig-signed-name" name="signedName" type="text"
+                       maxlength="200" autocomplete="name"
+                       value="<?php echo esc($view['customerName']); ?>">
+
+                <canvas id="sig-pad" class="sig-pad"></canvas>
+
+                <div class="d-flex gap-2 mt-2">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" id="sig-clear">
+                        Clear
+                    </button>
+                    <span class="flex-grow-1"></span>
+                    <button class="btn btn-primary btn-sm" type="submit" id="sig-send" disabled>
+                        Sign
+                    </button>
+                </div>
+                <div class="kit mt-2" id="sig-hint">Draw your signature in the box above.</div>
+            </form>
+        </div>
+    <?php endif; ?>
+
+    <!-- The sheet, again. Hidden until the module below has wired it up: a
+         button that cannot do anything is worse than no button. -->
+    <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-outline-light btn-sm d-none" id="pdf-get" type="button">
+            <i class="bi bi-file-earmark-arrow-down"></i> Download checklist (PDF)
+        </button>
+    </div>
+
     <p class="text-secondary small mt-4 mb-0">
         This page is private to you. Please do not share the link.
     </p>
 </div>
+<?php if ($signFlash !== null): ?>
+    <script>
+        // The redirect's own word on what just happened, shown once and then
+        // taken out of the URL so a reload does not repeat it.
+        (function () {
+            var hint = document.getElementById('sig-hint');
+            if (hint) {
+                hint.textContent = <?php echo json_encode($signFlash[1]); ?>;
+                hint.className = 'kit mt-2 ' + <?php echo json_encode($signFlash[0] === 'ok' ? 'sig-ok' : 'sig-warn'); ?>;
+            }
+            if (window.history && history.replaceState) {
+                history.replaceState(null, '', 'booking.php?t=' + encodeURIComponent(<?php echo json_encode($token); ?>));
+            }
+        }());
+    </script>
+<?php endif; ?>
+
+<?php if ($view['canSign']): ?>
+<script>
+/**
+ * The signature pad.
+ *
+ * Pointer events, so a finger, a stylus and a mouse are one code path. The
+ * canvas is backed at device resolution and drawn on in CSS pixels, or a
+ * signature on a phone arrives as a staircase.
+ *
+ * The bitmap is white with dark ink and is posted as a FILE, through the same
+ * upload pipeline every photo uses — nothing here invents a second way in.
+ */
+(function () {
+    var pad = document.getElementById('sig-pad');
+    var form = document.getElementById('sig-form');
+    var send = document.getElementById('sig-send');
+    var clear = document.getElementById('sig-clear');
+    var hint = document.getElementById('sig-hint');
+    if (!pad || !form || !send || !clear) return;
+
+    // NOT form.action: the form carries a hidden field NAMED action, and a
+    // named control shadows the property of the same name — reading it back
+    // would hand us the input element instead of the URL to post to.
+    var endpoint = form.getAttribute('action');
+
+    var ctx = pad.getContext('2d');
+    var drawn = false;
+    var drawing = false;
+    var last = null;
+    // The box the ink occupies, so what is uploaded is the signature and not
+    // the empty pad around it — see the admin twin in SignaturePad.js.
+    var ink = null;
+
+    function mark(point) {
+        var edge = 6;
+        if (!ink) {
+            ink = { minX: point.x - edge, maxX: point.x + edge,
+                    minY: point.y - edge, maxY: point.y + edge };
+            return;
+        }
+        ink.minX = Math.min(ink.minX, point.x - edge);
+        ink.maxX = Math.max(ink.maxX, point.x + edge);
+        ink.minY = Math.min(ink.minY, point.y - edge);
+        ink.maxY = Math.max(ink.maxY, point.y + edge);
+    }
+
+    function reset() {
+        var ratio = window.devicePixelRatio || 1;
+        var width = pad.clientWidth || 300;
+        var height = pad.clientHeight || 170;
+        pad.width = Math.round(width * ratio);
+        pad.height = Math.round(height * ratio);
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.strokeStyle = '#111827';
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        drawn = false;
+        ink = null;
+        send.disabled = true;
+    }
+
+    function at(event) {
+        var box = pad.getBoundingClientRect();
+        return { x: event.clientX - box.left, y: event.clientY - box.top };
+    }
+
+    pad.addEventListener('pointerdown', function (event) {
+        event.preventDefault();
+        drawing = true;
+        last = at(event);
+        // A tap with no movement is still a mark, so it is drawn as a dot.
+        ctx.beginPath();
+        ctx.moveTo(last.x, last.y);
+        ctx.lineTo(last.x + 0.1, last.y);
+        ctx.stroke();
+        mark(last);
+        drawn = true;
+        send.disabled = false;
+
+        // Capture keeps the stroke alive when the finger leaves the box, and
+        // is the last thing done here on purpose: a browser that refuses it
+        // must not cost the customer the signature itself.
+        try { pad.setPointerCapture(event.pointerId); } catch (e) { /* fine */ }
+    });
+
+    pad.addEventListener('pointermove', function (event) {
+        if (!drawing) return;
+        event.preventDefault();
+        var point = at(event);
+        ctx.beginPath();
+        ctx.moveTo(last.x, last.y);
+        ctx.lineTo(point.x, point.y);
+        ctx.stroke();
+        mark(point);
+        last = point;
+    });
+
+    function stop(event) {
+        if (!drawing) return;
+        drawing = false;
+        try {
+            if (event && event.pointerId !== undefined && pad.hasPointerCapture(event.pointerId)) {
+                pad.releasePointerCapture(event.pointerId);
+            }
+        } catch (e) { /* nothing was captured; nothing to release */ }
+    }
+    pad.addEventListener('pointerup', stop);
+    pad.addEventListener('pointercancel', stop);
+    pad.addEventListener('pointerleave', stop);
+
+    clear.addEventListener('click', reset);
+    // Resizing wipes the pad: the bitmap has to be rebuilt at the new size, and
+    // silently keeping a stretched drawing would be worse than asking again.
+    window.addEventListener('resize', reset);
+    reset();
+
+    form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        if (!drawn || send.disabled) return;
+        send.disabled = true;
+        if (hint) hint.textContent = 'Sending…';
+
+        // Cropped to the ink, for the same reason the admin pad crops: this
+        // picture is scaled to fit everywhere it is shown, and storing mostly
+        // white means printing the signature small.
+        var ratio = window.devicePixelRatio || 1;
+        var left = Math.max(0, Math.floor(ink.minX * ratio));
+        var top = Math.max(0, Math.floor(ink.minY * ratio));
+        var right = Math.min(pad.width, Math.ceil(ink.maxX * ratio));
+        var bottom = Math.min(pad.height, Math.ceil(ink.maxY * ratio));
+        var cropW = Math.max(1, right - left);
+        var cropH = Math.max(1, bottom - top);
+        var out = document.createElement('canvas');
+        out.width = cropW;
+        out.height = cropH;
+        var outCtx = out.getContext('2d');
+        outCtx.fillStyle = '#ffffff';
+        outCtx.fillRect(0, 0, cropW, cropH);
+        outCtx.drawImage(pad, left, top, cropW, cropH, 0, 0, cropW, cropH);
+
+        out.toBlob(function (blob) {
+            if (!blob) {
+                if (hint) hint.textContent = 'That did not work. Please try again.';
+                send.disabled = false;
+                return;
+            }
+            var body = new FormData(form);
+            // Named `photos` because that is what the server's upload helper
+            // reads; it is one file and it is checked as one.
+            body.append('photos', blob, 'signature.png');
+            fetch(endpoint, { method: 'POST', body: body, credentials: 'same-origin' })
+                .then(function () { window.location.replace(endpoint); })
+                .catch(function () {
+                    if (hint) hint.textContent = 'That did not work. Please try again.';
+                    send.disabled = false;
+                });
+        }, 'image/png');
+    });
+}());
+</script>
+<?php endif; ?>
+<script type="module">
+/**
+ * The hand-over sheet, built on the customer's own device.
+ *
+ * It is the very same builder the counter runs — app/lib/pdf.js, which takes
+ * its branding from whoever hosts it rather than importing a store — so this
+ * button hands back the sheet that was printed at hand-over, tick boxes, QR
+ * code and signature included. Nothing is generated on the server and nothing
+ * is stored: the booking is already on this page, and the PDF is one more way
+ * of reading it.
+ *
+ * A module, so a browser too old for one simply never reveals the button and
+ * the page stays exactly what it was.
+ */
+import { configurePdf, exportBookingPdf } from './app/lib/pdf.js';
+
+const button = document.getElementById('pdf-get');
+if (button) {
+    const booking = <?php echo json_encode($pdf); ?>;
+    const branding = <?php echo json_encode($pdfBranding); ?>;
+    configurePdf({ settings: () => ({ branding: branding }) });
+    button.classList.remove('d-none');
+
+    button.addEventListener('click', function () {
+        const label = button.innerHTML;
+        button.disabled = true;
+        // jsPDF is ~400 KB fetched on the first click and a big booking takes
+        // a moment to lay out, so the button says what it is doing.
+        button.textContent = 'Building…';
+        exportBookingPdf(booking)
+            .then(function () { button.innerHTML = label; })
+            .catch(function () { button.textContent = 'That did not work.'; })
+            .finally(function () { button.disabled = false; });
+    });
+}
+</script>
 </body>
 </html>

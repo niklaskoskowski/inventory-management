@@ -16,7 +16,25 @@ import { rentalOfLines, daysLabel, HIRE_LABEL, hireOf } from './rental.js';
 import {
   RESULT_LABEL, STATE_LABEL, assetState, inspectionRows, inspectionRule, recordsFor,
 } from './inspection.js';
-import { state } from '../store.js';
+
+/**
+ * Where the branding comes from.
+ *
+ * Injected rather than imported, because this file builds documents for TWO
+ * pages: the admin, where the settings live in the store, and the customer's
+ * own booking page, which has no store at all and is handed the same three
+ * branding fields by PHP. Importing the store here would drag the whole admin
+ * — its API client, its CSRF token, its reactive state — onto a public page
+ * that needs none of it.
+ */
+let settingsSource = () => ({});
+
+/** Called once per page, before anything here is used. */
+export function configurePdf({ settings } = {}) {
+  if (typeof settings === 'function') settingsSource = settings;
+}
+
+const pdfSettings = () => settingsSource() || {};
 
 /** The brand colour's fallback, matching lib/store.php's default. */
 const BRAND_FALLBACK = [31, 41, 55];
@@ -40,10 +58,10 @@ function hexToRgb(hex) {
  * A function, not a constant: settings can change under a long-lived tab, and
  * an export started after a save must use the colour that was saved.
  */
-const BRAND = () => hexToRgb(state.settings?.branding?.brandColor);
+const BRAND = () => hexToRgb(pdfSettings().branding?.brandColor);
 
 /** What the operator calls this install; used in headers and file names. */
-const appName = () => state.settings?.branding?.appName || 'Assets';
+const appName = () => pdfSettings().branding?.appName || 'Assets';
 
 /** Zebra striping on every table, kept from the first report. */
 const ZEBRA = () => [246, 248, 250];
@@ -101,6 +119,17 @@ const TICK_PAD = 1.8;
 /** Room reserved after the last box for the `+N` on a capped row. */
 const TICK_OVERFLOW = 6;
 
+/**
+ * The QR code on a booking sheet, in mm.
+ *
+ * 26 mm is about the smallest a phone reads reliably off paper held at arm's
+ * length in a loading bay, and the details block beside it gives the width up
+ * rather than printing underneath it.
+ */
+const QR_SIZE = 26;
+/** Clear air between the QR block and the details beside it. */
+const QR_GAP = 6;
+
 let loading = null;
 let logoLoading = null;
 
@@ -139,7 +168,7 @@ async function jsPdf() {
  * as text: an export never fails over artwork.
  */
 function brandLogo() {
-  const src = state.settings?.branding?.logoFile || '';
+  const src = pdfSettings().branding?.logoFile || '';
   if (src === '') return Promise.resolve(null);
   // Keyed by name so a logo changed in Settings is re-fetched rather than
   // served from a cache that remembers the old one.
@@ -269,6 +298,51 @@ function assetThumb(file) {
 }
 
 /**
+ * One picture from the server, ready to draw, or null.
+ *
+ * The same "a picture is never worth the document" rule as a thumb: anything
+ * that goes wrong — the file is gone, the bytes are not an image this build
+ * can read — hands back null and the caller prints the page without it.
+ */
+async function loadPicture(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const meta = imageMeta(bytes);
+    if (!meta || !meta.width || !meta.height) return null;
+    return { ...meta, dataUri: `data:${meta.mime};base64,${base64Of(bytes)}` };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One stored hand-over signature, ready to draw.
+ *
+ * The FULL-size file, not the thumbnail: this is handwriting on a receipt, and
+ * the 78 mm it gets on the page deserves better than a 200 px crop.
+ */
+async function loadSignature(file) {
+  const name = String(file ?? '').trim();
+  if (!name) return null;
+  return loadPicture(`uploads/${encodeURIComponent(name)}`);
+}
+
+/**
+ * The booking's own QR code, drawn by the server.
+ *
+ * Fetched rather than encoded here: the repo already carries phpqrcode for the
+ * labels, and booking.php answers `&qr=1` with a PNG of the very link it hands
+ * out everywhere else. One encoder, one URL, nothing to keep in step.
+ */
+async function loadQr(src) {
+  const url = String(src ?? '').trim();
+  if (!url) return null;
+  return loadPicture(url);
+}
+
+/**
  * filename => thumb|null for a whole document, fetched concurrently.
  *
  * Distinct filenames only: 28 rows of the same photo are one request and one
@@ -393,6 +467,72 @@ function signatures(doc, y, left, right) {
   doc.text(right, 112, y + 16);
   doc.setTextColor(0, 0, 0);
   doc.setDrawColor(0, 0, 0);
+}
+
+/** How tall the hand-over block is, so the caller can decide to break the page. */
+const HANDOVER_HEIGHT = 30;
+/** The box a stored signature is fitted into, in mm. */
+const SIGNATURE_BOX = { width: 78, height: 20 };
+
+/**
+ * The hand-over block: who handed it over, and the customer's signature.
+ *
+ * ONE signature, not four rules. The other side of a hand-over is never in
+ * dispute — whoever was at the counter is recorded at checkout and printed
+ * here as a fact — so the only thing worth a signature is the customer saying
+ * they received the gear.
+ *
+ * Signed, it prints the drawing itself over a caption naming who signed and
+ * when. Unsigned, it prints the rule to sign on paper, because a sheet walking
+ * out to a van has to work when the tablet stays behind.
+ */
+function handover(doc, y, model, signature) {
+  doc.setFontSize(8);
+  doc.setTextColor(100);
+  doc.text('Handed over by', 14, y + 16);
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(10);
+  doc.text(model.handedOverBy || DASH, 14, y + 11);
+
+  doc.setFontSize(8);
+  doc.setTextColor(100);
+  doc.text('Received by', 112, y + 16);
+  doc.setTextColor(0, 0, 0);
+
+  if (signature?.dataUri) {
+    try {
+      // Contained in the box at its own aspect ratio, sitting ON the rule —
+      // the same fit the header logo gets, for the same reason.
+      const scale = Math.min(
+        SIGNATURE_BOX.width / signature.width,
+        SIGNATURE_BOX.height / signature.height,
+      );
+      const drawWidth = signature.width * scale;
+      const drawHeight = signature.height * scale;
+      doc.addImage(
+        signature.dataUri,
+        signature.format,
+        112,
+        y + 11 - drawHeight,
+        drawWidth,
+        drawHeight,
+        undefined,
+        'FAST',
+      );
+    } catch { /* a drawing is never worth the document */ }
+  }
+
+  doc.setDrawColor(150);
+  doc.line(112, y + 12, 190, y + 12);
+  doc.setDrawColor(0, 0, 0);
+
+  if (model.signedName) {
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text(model.signedName, 112, y + 20);
+    if (model.signedAt) doc.text(model.signedAt, 112, y + 24);
+    doc.setTextColor(0, 0, 0);
+  }
 }
 
 /** Full inventory listing, grouped by category. */
@@ -1067,7 +1207,7 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
 
   const days = Math.max(1, Number(options.days) || 1);
   const hire = hireOf(options);
-  const quote = rentalOfLines(lines, lookup, state.settings, days, {
+  const quote = rentalOfLines(lines, lookup, pdfSettings(), days, {
     unitChoice: options.unitChoice || null,
     hire,
   });
@@ -1279,7 +1419,7 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
 export async function exportInspectionPdf(asset, settings = null) {
   if (!asset) throw new Error('No asset.');
 
-  const rule = inspectionRule(settings ?? state.settings, asset.category);
+  const rule = inspectionRule(settings ?? pdfSettings(), asset.category);
   const rows = inspectionRows(asset);
   // Records filed against the asset as a whole although it tracks units now —
   // older than the unit list, and still part of its documentation.
@@ -1480,6 +1620,21 @@ function dateStamp(value) {
  *     items: [{ name, assetId, qty, setId, setName }]
  *   }
  */
+/**
+ * `booking.php?t=…&qr=1` for a booking that carries its link, else ''.
+ *
+ * A caller may hand the picture's URL over directly (`qrSrc`); otherwise it is
+ * derived from the booking link, which is the only URL this file ever prints.
+ * Nothing here builds a link out of request text — see booking.php's endpoint.
+ */
+function bookingQr(booking) {
+  const explicit = String(booking.qrSrc || '').trim();
+  if (explicit) return explicit;
+  const url = String(booking.bookingUrl || '').trim();
+  if (!url) return '';
+  return `${url}${url.includes('?') ? '&' : '?'}qr=1`;
+}
+
 export function buildBookingDocument(booking = {}) {
   const kind = booking.kind === 'reservation' ? 'reservation' : 'checkout';
   const reservation = kind === 'reservation';
@@ -1545,6 +1700,18 @@ export function buildBookingDocument(booking = {}) {
     summary: `${totalItems} item(s) · ${totalUnits} unit(s)`,
     // Only a handover gets signed; a reservation is not a transfer of custody.
     signature: !reservation,
+    // The half that is recorded rather than signed: whoever was at the counter.
+    handedOverBy: String(booking.handedOverBy || '').trim(),
+    // What the customer put their name to, when they have. Empty leaves the
+    // rule blank, to be signed on paper.
+    signedName: String(booking.signature?.name || '').trim(),
+    signedAt: booking.signature?.at ? formatDateTime(booking.signature.at) : '',
+    signatureFile: String(booking.signature?.file || '').trim(),
+    // Where the printed QR code points, and where its picture comes from.
+    // The page that is holding this booking passes its own link; the PNG is
+    // that link plus `&qr=1`, which booking.php answers for this token only.
+    // No link, no QR block and no width given up for it.
+    qrSrc: bookingQr(booking),
     filename: `${slug(appName(), 'assets')}-${kind}-${slug(booking.customerName, 'customer')}-${dateStamp(booking.startAt)}.pdf`,
   };
 }
@@ -1579,14 +1746,47 @@ function tickBoxes(doc, cell, tick) {
   doc.setTextColor(0, 0, 0);
 }
 
+/**
+ * The QR block: the code, and the one line saying what it is for.
+ *
+ * Returns the y it ends at, so the item table starts below whichever is
+ * taller — the details beside it or this.
+ *
+ * Drawn at its natural square without smoothing ('NONE'): a QR code is a grid
+ * of hard edges, and letting the renderer interpolate it is how a printed code
+ * stops scanning. No caption of the URL itself — it is 80 characters of hex
+ * that nobody types, and the sheet has a phone pointed at it instead.
+ */
+function qrBlock(doc, x, y, qr) {
+  try {
+    doc.addImage(qr.dataUri, qr.format, x, y, QR_SIZE, QR_SIZE, undefined, 'NONE');
+  } catch {
+    return y;
+  }
+  doc.setFontSize(7);
+  doc.setTextColor(100);
+  doc.text('Scan for this booking', x + QR_SIZE / 2, y + QR_SIZE + 3.2, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(9);
+  return y + QR_SIZE + 4;
+}
+
 /** One checkout group or one reservation, as a handover document. */
 export async function exportBookingPdf(booking) {
   const model = buildBookingDocument(booking);
   const JsPDF = await jsPdf();
   const logo = await brandLogo();
+  // The stored drawing, if there is one. Fetched exactly like a thumbnail —
+  // uploads/ is served without auth, which is also what lets the customer's
+  // own page show it back to them — and a failure just leaves the rule blank.
+  const drawing = model.signatureFile ? await loadSignature(model.signatureFile) : null;
+  // Both pictures at once: neither is worth a round trip of its own, and
+  // either coming back null just prints the sheet without it.
+  const qr = model.qrSrc ? await loadQr(model.qrSrc) : null;
   const doc = new JsPDF();
   const id = reportId();
   const height = doc.internal.pageSize.getHeight();
+  const width = doc.internal.pageSize.getWidth();
 
   decorate(doc, model.title, id, logo);
 
@@ -1596,11 +1796,18 @@ export async function exportBookingPdf(booking) {
     theme: 'plain',
     styles: { fontSize: 9, cellPadding: 1.2 },
     columnStyles: { 0: { fontStyle: 'bold', textColor: BRAND(), cellWidth: 32 } },
-    margin: { left: 14, right: 14 },
+    // The details give the QR its corner rather than wrapping under it: a
+    // long note has to flow somewhere, and "somewhere" must not be the code.
+    margin: { left: 14, right: qr ? 14 + QR_SIZE + QR_GAP : 14 },
   });
 
+  let detailsY = doc.lastAutoTable.finalY;
+  if (qr) {
+    detailsY = Math.max(detailsY, qrBlock(doc, width - 14 - QR_SIZE, CONTENT_TOP - 3, qr));
+  }
+
   doc.autoTable({
-    startY: doc.lastAutoTable.finalY + 6,
+    startY: detailsY + 6,
     head: [model.head],
     body: model.rows,
     styles: { fontSize: 9, cellPadding: 1.8 },
@@ -1630,16 +1837,12 @@ export async function exportBookingPdf(booking) {
   y += 4;
 
   if (model.signature) {
-    // Two rules now, so the taller block needs more room left on the page than
-    // the old single pair did.
-    if (y > height - 58) {
+    if (y > height - (HANDOVER_HEIGHT + 24)) {
       doc.addPage();
       decorate(doc, model.title, id, logo);
       y = CONTENT_TOP;
     }
-    signatures(doc, y, 'Handed over by', 'Received by');
-    // The ticked boxes above are only a packing record if someone owns them.
-    signatures(doc, y + 18, 'Packed by', 'Checked by');
+    handover(doc, y, model, drawing);
   }
 
   footer(doc);
