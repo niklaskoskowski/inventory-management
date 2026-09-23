@@ -6,6 +6,141 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-09-23
+
+### Added
+
+- **Terms & conditions, and what a signature accepts.** A hand-over signature used to confirm
+  receipt and nothing else; it can now be given under published terms.
+  - **Settings → Terms**: the text in Markdown, with a live preview rendered by the server
+    (`terms.preview`), so what the operator sees is exactly what the customer is shown. **Every
+    save publishes a new version**; older ones stay in an archive (`data.terms`, not settings) and
+    remain readable at `terms.php?v=N`, because signatures point at them. Saving an empty text
+    withdraws the terms.
+  - **`terms.php`** (clean URL `/terms`): the version in force, or one archived version with a
+    note saying when it stopped applying. Linked in the **footer of every public page** —
+    `index.php`, `view.php`, `booking.php` — for as long as terms are in force.
+  - **At the signature pad** — at the counter and on the customer's booking link — a note, the
+    terms folded out in place (booking page) or linked, and a **mandatory tick box**. The version
+    shown goes to the server with the drawing and is re-checked under the lock: a page opened
+    before the terms changed is refused with a message rather than accepting text nobody saw.
+  - **The signature records the accepted version** (`signature.terms: {version, at}`), shown on
+    the checkout card and the customer's page with a link to that version.
+  - **The hand-over PDF names the terms** under the signature block: the accepted version once
+    signed, the version in force while the sheet is still to be signed on paper.
+  - `lib/markdown.php`: a small, safe Markdown renderer (headings, lists, quotes, rules, emphasis,
+    code, links). Raw HTML is escaped; only http(s), mailto, tel and scheme-less links survive.
+
+### Fixed
+
+- **The booking page's signing form lost the server's answer.** After posting, the script
+  reloaded the bare page instead of the redirect target, so "too many attempts" and every other
+  message never showed. It now follows the redirect it was given.
+
+## 2026-09-22
+
+### Added
+
+- **A QR code on the hand-over sheet, and the sheet itself on the booking page.**
+  - The **handover PDF now carries a QR code** of the customer's own booking link, top right of the
+    details block. Scanned off the paper it leads straight back to the page — to sign for the gear
+    when it was not signed at the counter, to look at the condition photos, or to pull the sheet
+    again. Encoded **server-side** by the `phpqrcode` the printed labels already use, from
+    `trax_booking_url()` — the one place that builds this link, so the printed code and the
+    e-mailed link can never point at different pages. The endpoint is `booking.php?t=<token>&qr=1`,
+    guarded by the same token as the page, and it encodes the link for **that token only**, never
+    text from the request.
+  - **The scanner reads that code too**: scanning a hand-over sheet in the admin opens that
+    hand-over's card in **Checkouts**, instead of refusing it as "not a label". The sheet carries
+    a token, not an id — the admin already holds the bookings, so it is one lookup in this tab and
+    the token never leaves it.
+  - **The booking page can download the very same sheet** — one button, no server round trip. The
+    sheet doubles as the packing checklist (a tick box per unit), and whoever is loading the van
+    needs it more often than the paper survives the journey.
+  - To make that possible, `app/lib/pdf.js` **no longer imports the store**: branding is injected
+    through `configurePdf({ settings })` — from the store in the admin, from a three-field array in
+    `booking.php` — so one builder serves both pages and the customer's page does not drag the
+    admin's API client and reactive state onto a public URL.
+  - The customer's copy has its own allow-list: no operator notes, no e-mail address, and **no
+    `handedOverBy`** — that is a login name, and their copy has no business carrying it.
+
+- **The branding logo can be a URL.** `Settings → Branding → Logo file` still takes a file name in
+  the project root, and now also an absolute `https://…` (or `http://`) address, so the mark can
+  live on the operator's own site or a CDN. Nothing is fetched on the server — the PDF builder
+  loads it in the browser, which is also why a host that sends no `Access-Control-Allow-Origin`
+  header leaves the PDF header as text. **Labels are drawn server-side off a local file**, so a URL
+  prints the organisation name there instead; the field says so. A URL carrying a password, or
+  anything that is not plain `http(s)`, is refused. The favicon is unchanged — local file only.
+
+- **One checkout card, opened in full.** The Checkouts overview now shows only what is needed to
+  read the list: who has it, **how many assets are in the booking**, when it is due — plus the job,
+  the kits and whether it is signed, as chips. **The whole card opens** the hand-over; only the
+  select-all box keeps its own click.
+
+  Everything else moved into that panel: the gear itself, line by line, with its units, the
+  condition-photo button and the partial-return steppers; the value out and what the hire bills;
+  the handover and rental PDFs; the booking link and re-sending the confirmation; taking or
+  removing the signature; and **Check in / Extend**, which act on what is ticked in the panel or on
+  the whole booking when nothing is — the same one path the selection bar uses, which is still
+  there for picking across several customers at once.
+
+  The list stays readable with twenty customers out, and the panel is addressed by **booking id** —
+  which is what a scanned hand-over sheet resolves to.
+
+- **One signature on the hand-over, stored and shown everywhere it matters.**
+  - The handover sheet used to print **four** rules — *Handed over by / Received by* and
+    *Packed by / Checked by*. It prints **one** now. The other side of a hand-over is never the
+    part in dispute, so it is recorded rather than signed: `handedOverBy` is stamped from the
+    operator who made the checkout and printed as a fact.
+  - **Signed at the counter**, from the checkout card: hand the tablet over, the customer types
+    their name and signs, done. Pointer events, so a finger, a stylus and a mouse are one code
+    path, and the drawing is cropped to the ink before it is stored — storing the empty pad around
+    a signature means printing the signature small.
+  - **Or signed by the customer**, on their own booking link. This is the first write this public
+    page accepts, and it is narrow by construction: the token in the URL is the capability (it
+    already shows everything the page would tell you), plus a honeypot field, a per-session attempt
+    counter, and **one signature ever** — re-checked under the lock, so two taps on a slow phone
+    cannot produce two. Only the operator can clear it, from the admin, and then it can be signed
+    again. Answers are POST/redirect/GET, so a reload never re-posts.
+  - The signature shows in **all three places**: on the handover PDF (the drawing itself, over the
+    rule, with the typed name and the time), on the customer's own page, and on the checkout card —
+    with who signed, when, and whether it happened at the counter or on their link.
+  - Storage: `signature` (`{file, name, at, source, actor}`) and `handedOverBy` on the booking. The
+    drawing goes through the ordinary image pipeline — sniffed, decoded and re-encoded by GD — and
+    lands in `uploads/` under a 128-bit random name, which is what lets the customer's own page
+    show it back to them. Removing a signature deletes the file; so does deleting the asset it
+    hangs off.
+
+## 2026-09-21 (events)
+
+### Added
+
+- **Events — the jobs the gear goes out on.**
+  - A new **Events** view: create, edit and delete a job (name, client, location, on-site contact,
+    start and end, notes), filter by Open / Running / Closed / All, and see everything booked on it
+    — the checkout lines with their units and due dates, and the reservations — with the value and
+    what the job bills over its own window.
+  - **Statuses**, moved by hand from the list while somebody is holding a flight case: the workflow
+    ships as *Reserved → Packed → At customer → Returned* and is **configurable** under
+    **Settings → Events** — rename, recolour, reorder, add or remove, and mark the ones that end a
+    job as *closed* so it drops out of the open list. A status is stored by its **id**, so renaming
+    "At customer" to "Beim Kunden" leaves every event on it exactly where it was.
+  - **Pick an event when checking out or reserving**: an optional select in the selection drawer,
+    which stores `eventId` on the checkout line, the reservation and the booking. Optional by
+    design — plenty of gear leaves the building without a project behind it — and the picker can be
+    switched off entirely for an install that does no event work.
+  - The checkout list and the reservations list chip the job they belong to; the Events view can
+    export the **rental quote** for one job, priced over the event's own dates.
+  - **Gear is never "inside" an event.** It is checked out or reserved *against* one, so
+    availability is still decided exactly where it was before — no second opinion on what is free,
+    and no second place to change what is booked. Deleting an event deletes nothing else: the
+    bookings simply stop naming it, and the app says how many did.
+  - Storage: a top-level `events` list, `settings.events` (`statuses`, `defaultStatus`, `enabled`)
+    and a nullable `eventId` on the checkout line, the reservation and the booking. Everything
+    written before this reads back with no event, which is what it had. `api.php` refuses an
+    unknown event id, an end before its start, a workflow with no statuses left and two statuses
+    sharing a name — each with the reason, before the mutation.
+
 ## 2026-09-21
 
 ### Added

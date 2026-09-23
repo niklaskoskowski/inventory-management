@@ -1,11 +1,14 @@
 import { ref, computed, watch } from 'vue';
-import { state, settings, taxonomyUsage, mutate, toast } from '../store.js';
+import {
+  state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl,
+} from '../store.js';
 import * as api from '../api.js';
-import { formatMoney } from '../lib/format.js';
+import { formatMoney, formatDateTime } from '../lib/format.js';
 import {
   BLANK_RULE, daysLabel, formatPercent, serviceFactorOf, tierFor,
 } from '../lib/rental.js';
 import { BLANK_RULE as BLANK_INSPECTION } from '../lib/inspection.js';
+import { DEFAULT_STATUSES } from '../lib/events.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 import RentalRate from './RentalRate.js';
 
@@ -24,8 +27,10 @@ const SECTIONS = [
   { id: 'taxonomy', label: 'Taxonomy', icon: 'bi-tags' },
   { id: 'rental', label: 'Rental rates', icon: 'bi-cash-coin' },
   { id: 'inspection', label: 'Inspections', icon: 'bi-clipboard-check' },
+  { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
   { id: 'email', label: 'Email', icon: 'bi-envelope' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
+  { id: 'terms', label: 'Terms', icon: 'bi-file-earmark-text' },
   { id: 'defaults', label: 'Defaults & automation', icon: 'bi-sliders' },
   { id: 'account', label: 'Account', icon: 'bi-person-lock' },
   { id: 'authentication', label: 'Authentication', icon: 'bi-shield-lock' },
@@ -161,6 +166,14 @@ export default {
       next.rental = next.rental || {};
       next.rental.default = { ...clone(BLANK_RULE), ...(next.rental.default || {}) };
       next.rental.categories = Array.isArray(next.rental.categories) ? next.rental.categories : [];
+      next.events = next.events || {};
+      // The server ships the built-in workflow when an install has none, so an
+      // empty list here only happens before the first snapshot lands.
+      next.events.statuses = Array.isArray(next.events.statuses) && next.events.statuses.length
+        ? next.events.statuses
+        : clone(DEFAULT_STATUSES);
+      next.events.defaultStatus = next.events.defaultStatus || next.events.statuses[0].id;
+      next.events.enabled = next.events.enabled !== false;
       next.inspection = next.inspection || {};
       next.inspection.categories = Array.isArray(next.inspection.categories)
         ? next.inspection.categories
@@ -388,6 +401,58 @@ export default {
         + service(total);
     };
 
+    // --- Events ---
+    // The workflow an event walks through. Stored by ID and shown by LABEL, so
+    // renaming "Packed" to "Gepackt" leaves every packed event packed.
+
+    /** The same slug rule as trax_slug() on the server. */
+    const slugify = (value) => String(value ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+
+    const eventStatuses = computed(() => draft.value.events.statuses || []);
+
+    const addEventStatus = () => {
+      if (eventStatuses.value.length >= 12) return;
+      draft.value.events.statuses.push({ id: '', label: '', color: '#6B7280', closed: false });
+    };
+
+    /**
+     * A new row gets its id from its label, once — after that the id is fixed.
+     *
+     * That is what makes a rename safe: the events store the id, so changing
+     * the label must never change it. A row that has never been saved has no
+     * id yet, which is the only moment one may be handed out.
+     */
+    const nameEventStatus = (status) => {
+      if (!status.id) status.id = slugify(status.label);
+    };
+
+    const removeEventStatus = (index) => {
+      const [gone] = draft.value.events.statuses.splice(index, 1);
+      // The default has to point at something that still exists.
+      if (gone && draft.value.events.defaultStatus === gone.id) {
+        draft.value.events.defaultStatus = draft.value.events.statuses[0]?.id || '';
+      }
+    };
+
+    /** The workflow reads in order, so the order is editable. */
+    const moveEventStatus = (index, by) => {
+      const list = draft.value.events.statuses;
+      const to = index + by;
+      if (to < 0 || to >= list.length) return;
+      const [row] = list.splice(index, 1);
+      list.splice(to, 0, row);
+    };
+
+    /** How many events are on a status — what removing it would orphan. */
+    const eventsOnStatus = (id) =>
+      state.events.filter((event) => event.status === id).length;
+
     // --- Inspections ---
     // Ticking a category is what switches testing on for it: the rule's
     // PRESENCE in the list is the flag, so there is nothing that can disagree
@@ -566,6 +631,73 @@ export default {
       }
     };
 
+    // --- Terms & conditions ---
+    // Not part of the settings draft: every save publishes a VERSION, which
+    // signatures point at, so it has its own action (terms.update), its own
+    // save bar and no "save along with the branding" by accident.
+
+    /** Server-side the text is trimmed with LF line ends; compare the same way. */
+    const termsNormal = (text) => String(text ?? '').replace(/\r\n?/g, '\n').trim();
+
+    const termsDraft = ref(state.terms.text || '');
+    // A new version — ours or another operator's — replaces the draft.
+    watch(() => state.terms.version, () => { termsDraft.value = state.terms.text || ''; });
+
+    const termsBusy = ref(false);
+    const termsMax = computed(() => state.meta?.termsMax || 30000);
+    const termsDirty = computed(() => termsNormal(termsDraft.value) !== termsNormal(state.terms.text));
+    /** Saving an empty text while terms are in force takes them down. */
+    const termsWithdraw = computed(() => state.terms.active && termsNormal(termsDraft.value) === '');
+    const termsVersions = computed(() => [...(state.terms.versions || [])].reverse());
+
+    const saveTermsDraft = async () => {
+      termsBusy.value = true;
+      try {
+        await saveTerms(termsDraft.value);
+        toast(state.terms.active
+          ? `Terms published as version ${state.terms.version}.`
+          : 'Terms withdrawn. Nothing is shown or accepted any more.', 'success');
+      } catch {
+        /* toast already raised by the store */
+      } finally {
+        termsBusy.value = false;
+      }
+    };
+
+    const revertTerms = () => { termsDraft.value = state.terms.text || ''; };
+
+    // The preview is the server's renderer, so it is exactly what terms.php
+    // and the booking page will show. Debounced: a request per keystroke
+    // would be a request per keystroke.
+    const termsHtml = ref('');
+    const termsPreviewError = ref('');
+    let previewTimer = null;
+    let previewSeq = 0;
+    const refreshPreview = () => {
+      clearTimeout(previewTimer);
+      if (section.value !== 'terms') return;
+      previewTimer = setTimeout(async () => {
+        const seq = ++previewSeq;
+        const text = termsNormal(termsDraft.value);
+        if (!text) {
+          termsHtml.value = '';
+          termsPreviewError.value = '';
+          return;
+        }
+        try {
+          const html = await previewTerms(text);
+          // A slow answer to an older draft must not overwrite a newer one.
+          if (seq === previewSeq) {
+            termsHtml.value = html;
+            termsPreviewError.value = '';
+          }
+        } catch (error) {
+          if (seq === previewSeq) termsPreviewError.value = error.message;
+        }
+      }, 350);
+    };
+    watch([termsDraft, section], refreshPreview, { immediate: true });
+
     // --- Account ---
     // The one thing on this view that is not a setting: it writes users.json,
     // not data.json, and it is the only way to change the password without
@@ -720,6 +852,8 @@ export default {
       section, draft, busy, patch, dirty, save, revert,
       rentalRows, addRentalRule, removeRentalRule, rulePreview, previewDays,
       defaultFactor, factorOf, serviceFactorOf,
+      eventStatuses, addEventStatus, nameEventStatus, removeEventStatus,
+      moveEventStatus, eventsOnStatus,
       inspectionRows, toggleInspection, addInspectionField, removeInspectionField,
       inspectionSummary,
       currency, daysLabel, formatPercent,
@@ -734,6 +868,8 @@ export default {
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
+      state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
+      saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
   },
   template: `
@@ -889,6 +1025,132 @@ export default {
               Nothing uses a category yet, so there is nothing to price separately.
             </li>
           </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Events ------------------------------------------------------------ -->
+    <div v-else-if="section === 'events'" class="row g-3">
+      <div class="col-12 col-xl-7">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">
+              <i class="bi bi-calendar-event"></i> Workflow
+              <span class="text-secondary small">({{ eventStatuses.length }})</span>
+            </h2>
+            <p class="trax-page-sub">
+              The states a job walks through — booked, in a case in the warehouse, out with the
+              customer. They read top to bottom; the arrows reorder them. A <strong>closed</strong>
+              status ends the job and drops it out of the open list.
+            </p>
+          </div>
+
+          <ul class="list-group list-group-flush">
+            <li v-for="(status, si) in eventStatuses" :key="si"
+                class="list-group-item bg-transparent">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <div class="btn-group btn-group-sm">
+                  <button type="button" class="btn btn-outline-secondary py-0 px-1"
+                          :disabled="si === 0" :aria-label="'Move ' + (status.label || 'status') + ' up'"
+                          @click="moveEventStatus(si, -1)">
+                    <i class="bi bi-chevron-up"></i>
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary py-0 px-1"
+                          :disabled="si === eventStatuses.length - 1"
+                          :aria-label="'Move ' + (status.label || 'status') + ' down'"
+                          @click="moveEventStatus(si, 1)">
+                    <i class="bi bi-chevron-down"></i>
+                  </button>
+                </div>
+
+                <input class="form-control form-control-sm" style="max-width:14rem"
+                       v-model="status.label" maxlength="40" placeholder="e.g. At customer"
+                       :aria-label="'Name of status ' + (si + 1)"
+                       @blur="nameEventStatus(status)">
+
+                <input class="form-control form-control-color form-control-sm" type="color"
+                       style="width:2.75rem" v-model="status.color"
+                       :aria-label="'Colour of ' + (status.label || 'status ' + (si + 1))">
+
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" role="switch"
+                         :id="'ev-closed-' + si" v-model="status.closed">
+                  <label class="form-check-label small" :for="'ev-closed-' + si">Closed</label>
+                </div>
+
+                <span class="flex-grow-1"></span>
+                <span v-if="status.id && eventsOnStatus(status.id)" class="trax-kind-chip">
+                  {{ eventsOnStatus(status.id) }}
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                        :disabled="eventStatuses.length <= 1"
+                        :aria-label="'Remove ' + (status.label || 'status ' + (si + 1))"
+                        @click="removeEventStatus(si)">
+                  <i class="bi bi-x"></i>
+                </button>
+              </div>
+              <div v-if="status.id" class="form-text small mb-0 font-monospace">{{ status.id }}</div>
+            </li>
+          </ul>
+
+          <div class="trax-card-pad d-flex align-items-center gap-2">
+            <span class="small text-secondary flex-grow-1">
+              A status is stored by its id, so renaming one leaves every event on it where it is.
+            </span>
+            <button type="button" class="btn btn-sm btn-outline-primary"
+                    :disabled="busy || eventStatuses.length >= 12" @click="addEventStatus()">
+              <i class="bi bi-plus"></i> Status
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-5">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title"><i class="bi bi-sliders"></i> Defaults</h2>
+
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" role="switch" id="ev-enabled"
+                     v-model="draft.events.enabled">
+              <label class="form-check-label small" for="ev-enabled">
+                Offer an event when checking out and reserving
+                <span class="d-block text-secondary" style="font-size:.72rem">
+                  Off hides the picker in the selection drawer. Events already booked keep theirs.
+                </span>
+              </label>
+            </div>
+
+            <label class="form-label small" for="ev-default">A new event starts as</label>
+            <select id="ev-default" class="form-select form-select-sm"
+                    v-model="draft.events.defaultStatus">
+              <option v-for="status in eventStatuses" :key="status.id || status.label"
+                      :value="status.id">
+                {{ status.label || status.id }}
+              </option>
+            </select>
+          </div>
+
+          <div class="trax-card-pad pt-0">
+            <h3 class="trax-page-title">How it works</h3>
+            <ul class="small text-secondary ps-3 mb-0">
+              <li class="mb-2">
+                An event is a <strong>job</strong>: a festival, a conference, a shoot. It is created
+                under Events and picked in the selection drawer when gear is checked out or reserved.
+              </li>
+              <li class="mb-2">
+                Gear is never "inside" an event. The checkout line and the reservation carry the
+                job's name, so availability is decided exactly where it was before.
+              </li>
+              <li class="mb-2">
+                The status is moved by hand, from the Events list, while somebody is holding the
+                flight case. It changes no stock: what is free is still what is not checked out.
+              </li>
+              <li>
+                Deleting an event never deletes gear — the bookings simply stop naming it.
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -1229,9 +1491,16 @@ export default {
             <label class="form-label small mt-2" for="set-logo">Logo file</label>
             <input id="set-logo" class="form-control form-control-sm" v-model="draft.branding.logoFile">
             <div class="form-text small">
-              A PNG or JPEG in the project root, e.g. <code>logo.png</code>. The label
-              renderer reads it off disk, so a name that points at nothing is dropped.
-              Leave it empty and labels print the organisation name as text instead.
+              A PNG or JPEG in the project root, e.g. <code>logo.png</code>, <strong>or an
+              absolute URL</strong> like <code>https://cdn.example.org/logo.png</code>.
+              A file name that points at nothing is dropped, and so is a URL that is not
+              plain <code>http(s)</code> — never one carrying a password.
+              <br>
+              The two are not interchangeable: <strong>labels</strong> are drawn on the server
+              and read the file off disk, so a URL prints the organisation name as text instead;
+              <strong>PDFs</strong> are built in the browser and load either, as long as the
+              host allows it (a CDN that sends no <code>Access-Control-Allow-Origin</code>
+              header leaves the header as text too). Leave it empty for no logo at all.
             </div>
 
             <label class="form-label small mt-2" for="set-favicon">Favicon file</label>
@@ -1262,6 +1531,86 @@ export default {
             <p class="small text-secondary mt-2 mb-0">
               {{ draft.branding.brandColor }} — used on labels and customer-facing pages.
             </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terms & conditions ---------------------------------------------- -->
+    <div v-else-if="section === 'terms'" class="row g-3">
+      <div class="col-12 col-xl-6">
+        <div class="trax-card">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Terms &amp; conditions</h2>
+            <p class="trax-page-sub">
+              What a customer accepts when they sign for a hand-over. Once published, the terms are
+              linked in the footer of every public page, have to be ticked next to the signature
+              pad (at the counter and on the customer's booking link), and are named on the
+              hand-over sheet.
+            </p>
+            <p v-if="state.terms.active" class="small mb-0">
+              <i class="bi bi-check-circle text-success"></i>
+              In force: <strong>version {{ state.terms.version }}</strong>,
+              published {{ formatDateTime(state.terms.at) }}<span v-if="state.terms.actor">
+              by {{ state.terms.actor }}</span> ·
+              <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">open public page</a>
+            </p>
+            <p v-else class="small text-secondary mb-0">
+              <i class="bi bi-dash-circle"></i>
+              Nothing is published: no footer link, no tick box, no line on the sheet.
+            </p>
+          </div>
+          <div class="trax-card-pad pt-0">
+            <label class="form-label small" for="set-terms">Text (Markdown)</label>
+            <textarea id="set-terms" class="form-control form-control-sm font-monospace" rows="18"
+                      spellcheck="true" :maxlength="termsMax" v-model="termsDraft"
+                      placeholder="# Terms &amp; conditions&#10;&#10;## 1. Scope&#10;These terms apply to every hire …"></textarea>
+            <div class="form-text small d-flex gap-2">
+              <span class="flex-grow-1">
+                <code># Heading</code>, <code>**bold**</code>, <code>*italic*</code>,
+                <code>- list</code>, <code>1. list</code>, <code>[label](https://…)</code>.
+                A line break stays a line break.
+              </span>
+              <span class="text-nowrap">{{ termsDraft.length }} / {{ termsMax }}</span>
+            </div>
+            <div class="form-text small">
+              Every save publishes a new version. Signatures already taken keep pointing at the
+              version they accepted, which stays readable at its own link below.
+            </div>
+          </div>
+        </div>
+
+        <div v-if="termsVersions.length" class="trax-card mt-3">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Versions</h2>
+            <ul class="list-unstyled small mb-0">
+              <li v-for="entry in termsVersions" :key="entry.version" class="py-1">
+                <a v-if="!entry.empty" :href="termsUrl(entry.version)" target="_blank"
+                   rel="noopener noreferrer">Version {{ entry.version }}</a>
+                <span v-else class="text-secondary">Version {{ entry.version }} (withdrawn)</span>
+                <span class="text-secondary">
+                  · {{ formatDateTime(entry.at) }}<span v-if="entry.actor"> · {{ entry.actor }}</span>
+                </span>
+                <span v-if="entry.version === state.terms.version && state.terms.active"
+                      class="trax-kind-chip ms-1">in force</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-6">
+        <div class="trax-card">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Preview</h2>
+            <p class="trax-page-sub">As customers see it, rendered by the server.</p>
+          </div>
+          <div class="trax-card-pad pt-0">
+            <div v-if="termsPreviewError" class="alert alert-danger py-2 px-3 small" role="alert">
+              {{ termsPreviewError }}
+            </div>
+            <div v-if="termsHtml" class="trax-terms-preview" v-html="termsHtml"></div>
+            <p v-else class="small text-secondary mb-0">Nothing to preview.</p>
           </div>
         </div>
       </div>
@@ -1534,8 +1883,28 @@ export default {
 
     <!-- Save bar -------------------------------------------------------- -->
     <!-- Account and Authentication are not part of the settings draft: they
-         write users.json and lib/config.local.php, and each saves itself. -->
-    <div v-if="section !== 'taxonomy' && section !== 'account' && section !== 'authentication'"
+         write users.json and lib/config.local.php, and each saves itself.
+         Terms neither: a save there publishes a version, so it has its own bar. -->
+    <div v-if="section === 'terms'" class="trax-selection-bar">
+      <span v-if="termsWithdraw" class="small text-warning-emphasis">
+        Saving an empty text withdraws the terms.
+      </span>
+      <span v-else-if="termsDirty" class="small">
+        Unsaved changes. Saving publishes <strong>version {{ state.terms.version + 1 }}</strong>.
+      </span>
+      <span v-else class="text-secondary small">No unsaved changes.</span>
+      <span class="flex-grow-1"></span>
+      <button class="btn btn-sm btn-outline-secondary" :disabled="!termsDirty || termsBusy"
+              @click="revertTerms()">
+        Discard
+      </button>
+      <button class="btn btn-sm" :class="termsWithdraw ? 'btn-outline-danger' : 'btn-primary'"
+              :disabled="!termsDirty || termsBusy" @click="saveTermsDraft()">
+        <span v-if="termsBusy" class="spinner-border spinner-border-sm me-1"></span>
+        {{ termsWithdraw ? 'Withdraw terms' : 'Publish' }}
+      </button>
+    </div>
+    <div v-else-if="section !== 'taxonomy' && section !== 'account' && section !== 'authentication'"
          class="trax-selection-bar">
       <span v-if="dirty"><strong>{{ Object.keys(patch).length }}</strong> section(s) changed</span>
       <span v-else class="text-secondary small">No unsaved changes.</span>

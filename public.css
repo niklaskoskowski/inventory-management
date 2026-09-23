@@ -179,6 +179,88 @@ button,
   font-weight: 600;
 }
 
+/* The terms link, on every public page once terms are published. */
+.pub-foot a {
+  color: var(--trax-muted);
+}
+
+.pub-foot a:hover,
+.pub-foot a:focus-visible {
+  color: var(--trax-text);
+}
+
+.pub-foot-sep {
+  margin: 0 0.4rem;
+}
+
+/* ---------------------------------------------------------------- Terms --- */
+
+/* Operator-written Markdown, rendered by lib/markdown.php: headings start at
+   h2 because the page owns the h1. Long words (URLs, compound nouns) break
+   rather than push a 320px screen sideways. */
+.pub-terms {
+  margin-top: 1.1rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.pub-terms h2,
+.pub-terms h3,
+.pub-terms h4 {
+  margin: 1.4rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.pub-terms h2 { font-size: 1.15rem; }
+.pub-terms h3 { font-size: 1.02rem; }
+.pub-terms h4 { font-size: 0.95rem; }
+.pub-terms > :first-child { margin-top: 0; }
+
+.pub-terms p,
+.pub-terms ul,
+.pub-terms ol,
+.pub-terms blockquote {
+  margin: 0 0 0.75rem;
+}
+
+.pub-terms ul,
+.pub-terms ol {
+  padding-left: 1.3rem;
+}
+
+.pub-terms blockquote {
+  border-left: 3px solid var(--trax-border-strong);
+  padding-left: 0.8rem;
+  color: var(--trax-muted);
+}
+
+.pub-terms hr {
+  border: 0;
+  border-top: 1px solid var(--trax-border);
+  margin: 1.2rem 0;
+}
+
+.pub-terms code {
+  font-family: var(--trax-mono);
+  font-size: 0.88em;
+}
+
+.pub-terms a,
+.pub-terms-old a {
+  color: var(--trax-brand-mark);
+}
+
+.pub-terms-old {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--trax-rsvd);
+  border-radius: 10px;
+  font-size: 0.88rem;
+  color: var(--trax-text);
+}
+
 /* --------------------------------------------------------------- Cards --- */
 
 .pub-card {

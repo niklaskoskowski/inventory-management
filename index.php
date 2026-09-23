@@ -273,6 +273,10 @@ function pub_e(string $value): string
 
 <footer class="pub-foot">
   Property of <strong><?php echo pub_e($ownerName); ?></strong>
+<?php if (trax_terms_published() !== null): ?>
+  <span class="pub-foot-sep" aria-hidden="true">·</span>
+  <a href="terms.php">Terms &amp; conditions</a>
+<?php endif; ?>
 </footer>
 
 <dialog id="lostContactModal" class="pub-modal" aria-labelledby="lostContactTitle"

@@ -35,6 +35,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `public.php` | Public asset lookup, allow-list of safe fields. Feeds `index.php` and `view.php`. |
 | `view.php` | Public read-only inventory board, refreshes every 30s. |
 | `booking.php` | Customer booking page, addressed **only** by a 64-hex token (`?t=`). |
+| `terms.php` | Public terms & conditions: the version in force, or `?v=N` for one archived version. |
 | `captcha.php` | GD-rendered captcha PNG for the public report form; the code lives in the session. |
 | `label.php`, `label-w.php` | GD-rendered PNG labels, portrait 14×30 mm and wide 30×14 mm. |
 | `download.php` | The only read path into `documents/`; that directory denies the web outright. `?inline=1` switches the response to `Content-Disposition: inline` for PDFs and images so the app can preview them. |
@@ -49,6 +50,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `lib/public-session.php` | `trax_public_session()`, the auth-free session start for `index.php` and `captcha.php`. A standalone twin of `trax_ensure_session()`. |
 | `lib/mailer.php` | Transactional mail; addresses and headers validated and CR/LF-stripped. |
 | `lib/photo.php` | Photos re-encoded through GD (strips EXIF, neutralises payloads). |
+| `lib/markdown.php` | The one Markdown renderer (a safe subset), for the terms. `terms.php`, `booking.php` and `terms.preview` all use it. |
 | `lib/documents.php` | Documents are stored as uploaded — hence the separate, web-denied directory. |
 | `lib/config-local.php` | The single writer of `lib/config.local.php` (installer + Settings → Authentication). |
 | `lib/demo-data.php` | Optional demo dataset the installer can seed. |
@@ -62,7 +64,9 @@ the `TRAX_DATA_DIR` environment variable when it names a readable directory): `d
 `uploads/`, `documents/`, `.trax.lock`.
 
 `trax_normalize_data()` (`lib/store.php:1329-1376`) **is** the schema: `rev`, `assets`, `events`,
-`reservations`, `rentalHistory`, `bookings`, `settings`, `cronState`. A top-level key not in that
+`reservations`, `rentalHistory`, `bookings`, `settings`, `terms`, `cronState`. (`events` was an unused
+passthrough that install.php and the demo data both wrote as `[]`; it holds the jobs now — see
+[Events](#events).) A top-level key not in that
 literal is dropped on the next write, because `trax_mutate()` re-normalises the whole tree before
 committing. Add a key only together with its normaliser.
 
@@ -189,6 +193,14 @@ auto-fill the warranty date in the asset sheet, `0` off —, `currency`, `allowP
 `overdueGraceDays`, `locale`, `dateFormat`), `rental.*` and `inspection.*` (see below) and `cron.*`
 (`secret`, `dueSoonHours`, `overdueRepeatDays`). Each key falls back to a `TRAX_*` constant.
 
+`branding.logoFile` is the one image setting that may also be an **absolute http(s) URL**
+(`trax_image_url()` — scheme, host, no credentials, nothing needing escaping downstream). Nothing
+fetches it server-side, so there is no request to make and no SSRF to have: the PDF builder loads
+it in the browser, and a host that sends no CORS header simply leaves the header as text. The
+**label** renderers read a local file off disk (`trax_label_logo_image()`, basename only), so a URL
+means a label prints the organisation name instead. `faviconFile` stays local-only — it goes into a
+`<link>` on pages that should not depend on a second host.
+
 ## Rental pricing
 
 What a piece of gear is **worth** is `price`. What it costs to **hire** is a rule, and the rule is
@@ -253,6 +265,113 @@ is a fraction of what the gear cost to buy, so printing it beside the price woul
 over by division, and the factor is the same kind of internal number. `formatPercent()` and the
 resolved rate belong to the operator's screens (settings, the asset sheet), never to a customer
 document.
+
+## Hand-over signature
+
+One per booking, the customer's alone — `signature` on the booking record:
+`{file, name, at, source: ADMIN|CUSTOMER, actor, terms}`, or `null` (`terms` — see
+[Terms & conditions](#terms--conditions)). The other side of a hand-over is
+**`handedOverBy`**, stamped from the operator who made the checkout and never signed: that half is
+always known and never in dispute. `buildBookingDocument()` prints one rule instead of the four it
+used to (the *Packed by / Checked by* pair is gone).
+
+Captured in two places, landing in the same field:
+
+- **At the counter**, from the checkout card (`SignaturePad.js` → `booking.sign`, multipart). The
+  drawing is cropped to the ink before upload: everything downstream scales it to fit, and the
+  empty pad around a signature would print it small. `signedName` has to be listed in the
+  multipart payload allow-list in `api.php` — a field that array does not name never reaches the
+  action.
+- **On the customer's own link** (`booking.php`, the one write that page accepts). The token in the
+  URL is the capability; on top of it a honeypot, a per-session attempt counter, and one signature
+  ever — re-checked under the lock so a double tap cannot produce two. Only `booking.unsign` (admin)
+  clears it. POST/redirect/GET, so a reload never re-posts.
+
+The bitmap goes through `trax_store_photo_as()` like every other image — sniffed, decoded and
+re-encoded by GD — into `uploads/` under `sig-<32 hex>.jpg`. Random because `uploads/` is served
+without auth, which is also what lets the customer's page and the PDF read it back. It is drawn
+**dark on white**, not on transparency, so the same picture travels from tablet to page to PDF
+without an inversion anywhere.
+
+## Terms & conditions
+
+What a hand-over signature is given under. Stored as **`data.terms.versions`** — every version
+ever published, `{version, at, actor, text}` (Markdown, ≤ `TRAX_MAX_TERMS`) — and deliberately
+**not** in `settings`: settings ride in every snapshot, and this is an archive. The newest version
+is the one in force when its text is non-empty; an empty version means the terms were withdrawn.
+The snapshot carries `terms: {version, at, actor, text, active, versions: [{version, at, actor,
+empty}]}` — the newest text in full, the rest without text.
+
+- **Written** only by `terms.update` (Settings → Terms). A save that changes the text appends the
+  next version; an unchanged text is refused, an over-long one is refused rather than cut.
+- **Rendered** only by `lib/markdown.php`. The Settings preview posts to `terms.preview`, so it is
+  byte for byte what `terms.php` and `booking.php` show. Raw HTML in the source is escaped; links
+  keep http(s), mailto, tel and scheme-less targets only.
+- **Accepted** on both signing paths. `trax_signature_terms()` is the one rule: no terms in force
+  → nothing to accept; otherwise the box must be ticked (`acceptTerms`) **and** the version the
+  page showed (`termsVersion`) must still be the one in force, checked under the lock. The
+  signature then records `terms: {version, at}`; `null` means none were in force.
+- **Shown**: a footer link on `index.php`, `view.php` and `booking.php` while terms are in force
+  (`trax_terms_published()`); the text folded under the pad on `booking.php`; the tick box next to
+  `SignaturePad` in Checkouts (`locked` keeps *Save* disabled until it is ticked); and one line
+  under the hand-over block of the PDF — the accepted version once signed, the version in force
+  while not. Every version stays readable at `terms.php?v=N`, which is what those links name.
+
+## The hand-over sheet, twice
+
+`buildBookingDocument()` + `exportBookingPdf()` (`app/lib/pdf.js`) build **one** document, and two
+pages run it: the admin's checkout card and the customer's `booking.php`. So the sheet the customer
+downloads is the sheet they were handed — tick boxes, QR code and signature included.
+
+That is why **`pdf.js` imports no store**. Branding comes in through
+`configurePdf({ settings: () => … })`: `app/main.js` points it at the reactive settings, and
+`booking.php` hands it a three-field array (`appName`, `brandColor`, `logoFile`). Importing the
+store here would drag the API client, the CSRF token and the whole reactive state onto a public
+page that needs none of it.
+
+The customer's payload is its **own allow-list**, shorter than the page's: no operator notes, no
+e-mail address, and no `handedOverBy` — an operator's login name is the organisation's business.
+Dates go out raw, because the builder formats them.
+
+**The QR code** points at `bookingUrl`, and its picture is that link plus `&qr=1`. `booking.php`
+answers it with a PNG drawn by `phpqrcode` — already in the repo for the printed labels; both
+vendored JavaScript QR files are *decoders*, not encoders — from `trax_booking_url($token)`, the
+one place that builds this link. The endpoint encodes **only** that, never text from the request,
+so it cannot be used to print a code pointing somewhere else; an unknown or expired token gets the
+same 404 as the page. Drawn into the PDF with jsPDF's `'NONE'` compression: a QR code is a grid of
+hard edges, and letting the renderer interpolate it is how a printed code stops scanning. A
+reservation carries no token, so it gets no QR block and gives up no width for one.
+
+## Events
+
+A job the gear goes out on: a festival, a conference, a shoot.
+
+**Gear is never "inside" an event.** It is checked out or reserved *against* one, so an event is a
+label the existing booking machinery carries — a nullable `eventId` on the **checkout line**, the
+**reservation** and the **booking** — and never a second place where availability is decided. What
+is booked on an event is derived from the records that name it (`bookedOn()` in
+`app/lib/events.js`), so the Events view cannot drift from the counter.
+
+`trax_normalize_event()` (`lib/store.php`) is `{id, name, client, location, contact, startAt,
+endAt, status, notes, createdAt}`. Dates are instants (load-out at 06:00) and both are optional —
+an event pencilled in before anything is fixed is still an event.
+
+`settings.events` is `{statuses: [{id, label, color, closed}], defaultStatus, enabled}`:
+
+- The workflow ships as *Reserved → Packed → At customer → Returned* and is fully editable. The
+  list can never be empty: an event has to be able to say where it is, so an empty one normalises
+  back to the built-in four and `trax_events_patch_error()` refuses a save that would empty it.
+- An event stores the status **id**, never the label, so renaming a status leaves every event on
+  it. An id the workflow no longer has is **kept** rather than rewritten — the event still says
+  what it said — and `statusOf()` renders it as unknown.
+- `closed` ends a job: it drops out of the Open filter. `enabled` decides whether the selection
+  drawer offers the picker at all.
+- The status is a workflow marker the operator moves by hand. It is deliberately **not** wired into
+  availability — what is free is still decided by checkouts and reservations.
+
+Written through `event.create`, `event.update` and `event.delete`. Deleting an event deletes
+nothing else: the lines, reservations and bookings that named it have their `eventId` cleared and
+the action reports how many.
 
 ## Inspections
 
@@ -487,7 +606,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
 - `app/lib/` — `format.js` (dates, money, `STATUS_LABEL`/`STATUS_CLASS`, UI locale), `scroll-lock.js`
   (the counted `body.style.overflow` lock every full-screen layer shares), `schedule.js`
   (interval conflicts and the calendar timeline), `insights.js` (utilisation maths), `rental.js`
-  (hire rates: resolution, the discount ladder, `rentalOfLines()`), `inspection.js` (test rules,
+  (hire rates: resolution, the discount ladder, `rentalOfLines()`), `events.js` (jobs: the
+  configurable workflow, and what is booked on one), `inspection.js` (test rules,
   per-piece histories and the derived due state), `pdf.js` (jsPDF
   is a UMD bundle, so it is injected as a `<script>` on demand and read off `window` — ~400 KB kept
   out of the initial load).
@@ -495,8 +615,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   `AssetCards` (narrow), `AssetSheet`, `SetEditor`, `BasketDrawer`, `BulkEditDrawer`, `ScanDrawer`
   (jsQR, loaded on demand), `LabelDrawer`, `RentalRate` (one hire rate as a form — the install
   default, a category's, an asset's and a unit's are the same three fields), and the views
-  `DashboardView`, `CheckoutsView`,
-  `ReservationsView`, `CalendarView`, `InsightsView`, `SettingsView`. Shared primitives in
+  `EventSheet` (create/edit one job), `DashboardView`, `CheckoutsView`,
+  `ReservationsView`, `EventsView`, `CalendarView`, `InsightsView`, `SettingsView`. Shared primitives in
   `app/components/ui/`: `Drawer`, `ConfirmDialog`, `ToastHost`, `StatusBadge`, `Lightbox`.
 - `Lightbox` is mounted once by `AppShell` and driven only by `state.preview` —
   `{kind: 'image'|'pdf'|'file', src, title, downloadHref, size, items, index}`, `null` when nothing
@@ -505,8 +625,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   overlay with one store call. It sits at z-index 1070/1071, above `.trax-drawer` (1055), because
   most of the pictures being clicked are inside a drawer; a `pdf` preview points at
   `download.php?file=…&inline=1`, an `image` at `uploads/<file>`, and `items` makes it a gallery.
-- Navigation ids: `dashboard`, `inventory`, `kits`, `checkouts`, `reservations`, `calendar`,
-  `insights`, `settings` (`AppShell.js:24-32`). The table/cards switch and the mobile nav run off
+- Navigation ids: `dashboard`, `inventory`, `kits`, `checkouts`, `reservations`, `events`,
+  `calendar`, `insights`, `settings` (`AppShell.js:24-32`). The table/cards switch and the mobile nav run off
   `matchMedia('(max-width: 991.98px)')` (`AppShell.js:56`, `:184`).
 - CSS: `app/app.css` is a dark-only theme layer of `--trax-*` tokens that also re-points Bootstrap's
   `--bs-*` variables; `public.css` covers the public pages.

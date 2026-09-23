@@ -1,5 +1,8 @@
-import { ref, computed } from 'vue';
-import { state, mutate, toast, getAsset, load } from '../store.js';
+import { ref, computed, watch, onMounted } from 'vue';
+import {
+  state, mutate, toast, getAsset, load, eventById, openPreview,
+  signBooking, unsignBooking, termsUrl,
+} from '../store.js';
 import * as api from '../api.js';
 import {
   formatDateTime, daysOverdue, isOverdue, toLocalInput, parseDate, formatTotals,
@@ -10,6 +13,23 @@ import {
 } from '../lib/rental.js';
 import { exportBookingPdf, exportRentalPdf } from '../lib/pdf.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
+import Drawer from './ui/Drawer.js';
+import SignaturePad from './SignaturePad.js';
+
+/**
+ * The booking a scan asked for, parked until this view is on screen.
+ *
+ * A module-level ref rather than a field on the store: nothing is persisted
+ * and nothing else reads it — it is one hand-off, from whoever recognised a
+ * booking to the view that can show it. Cleared as soon as it is acted on.
+ */
+const pending = ref(null);
+
+/** Ask the checkouts view to open one booking's card in full. */
+export function openCheckout(bookingId) {
+  const id = Number(bookingId);
+  pending.value = Number.isFinite(id) && id > 0 ? id : null;
+}
 
 /**
  * Open checkouts, grouped by customer.
@@ -20,7 +40,7 @@ import ConfirmDialog from './ui/ConfirmDialog.js';
  */
 export default {
   name: 'CheckoutsView',
-  components: { ConfirmDialog },
+  components: { ConfirmDialog, Drawer, SignaturePad },
   emits: ['open'],
   setup(props, { emit }) {
     // Selection is by lineId now — an asset id can appear on several lines.
@@ -85,10 +105,14 @@ export default {
           // somehow disagree is priced line by line rather than averaged; this
           // is only what the CHIP says.
           const hire = hireOf(group.lines[0]);
+          // The job these went out on, when they name one. Read off the first
+          // line: a group is one hand-over, so they all carry the same answer.
+          const event = eventById.value.get(Number(group.lines[0]?.eventId)) || null;
           return {
             ...group,
             days,
             hire,
+            event,
             value: valueOfLines(
               group.lines.map((line) => ({ id: line.assetId, qty: line.qty })),
               getAsset,
@@ -380,15 +404,41 @@ export default {
       failedPhotos.value = null;
     };
 
+    /**
+     * The terms line for the sheet: what the signature accepted, or — not
+     * signed yet — what signing on this paper would accept. Null when neither.
+     */
+    const pdfTerms = (booking) => {
+      if (booking?.signature) {
+        const accepted = booking.signature.terms;
+        return accepted
+          ? { version: accepted.version, at: accepted.at, url: termsUrl(accepted.version) }
+          : null;
+      }
+      if (!state.terms.active) return null;
+      return { version: state.terms.version, at: state.terms.at, url: termsUrl(state.terms.version) };
+    };
+
     /** The handover sheet for one customer's open lines. */
     const bookingPdf = async (group) => {
       exporting.value = true;
       try {
         const first = group.lines[0] || {};
+        const booking = bookingOf(group);
         await exportBookingPdf({
           kind: 'checkout',
           customerName: group.customerName,
           customerEmail: group.customerEmail,
+          // The hand-over block: who handed it over, and what the customer
+          // signed. Absent on a legacy line that has no booking, which then
+          // prints the rule to sign on paper.
+          handedOverBy: booking?.handedOverBy || '',
+          signature: booking?.signature || null,
+          terms: pdfTerms(booking),
+          // Printed as a QR code: the sheet is the checklist the gear travels
+          // with, and the code is how the customer gets from paper back to
+          // their own page — to sign, or to pull the sheet again.
+          bookingUrl: bookingUrl(booking),
           reference: group.reservationId ? `Reservation #${group.reservationId}` : '',
           startAt: first.checkedOut,
           endAt: group.dueAt,
@@ -442,6 +492,137 @@ export default {
       } finally {
         exporting.value = false;
       }
+    };
+
+    // --- One card, in full -------------------------------------------------
+    // The overview says what is out and when it is due; everything else about
+    // a hand-over — the money, the link, the documents, the signature — lives
+    // in here, so the list stays readable when twenty customers are out.
+
+    /** The group whose panel is open, by group key, or null. */
+    const detailKey = ref(null);
+    const detail = computed(
+      () => groups.value.find((group) => group.key === detailKey.value) || null,
+    );
+
+    const openDetail = (group) => { detailKey.value = group.key; };
+
+    /**
+     * What the panel's two buttons act on: the lines ticked in it, or the
+     * whole hand-over when nothing is. Opening the panel and pressing Check in
+     * is the common case — a partial return is the one that needs ticking.
+     */
+    const detailLines = computed(() => {
+      const lines = detail.value?.lines || [];
+      const picked = lines.filter((line) => selected.value.includes(line.lineId));
+      return picked.length ? picked : lines;
+    });
+
+    const detailUnits = computed(
+      () => detailLines.value.reduce((sum, line) => sum + qtyFor(line.lineId), 0),
+    );
+
+    /** Hand the selection to the bar's own flow, so there is one check-in path. */
+    const takeDetail = () => { selected.value = detailLines.value.map((line) => line.lineId); };
+    const detailCheckIn = () => { takeDetail(); confirmReturn.value = true; };
+    const detailExtend = () => { takeDetail(); startExtend(); };
+    const closeDetail = () => { detailKey.value = null; closeSignature(); };
+
+    /**
+     * Open the card holding one booking — the id a scanned hand-over sheet
+     * resolves to. The booking is the address, not the group key: a key is an
+     * implementation detail of how lines are grouped here.
+     */
+    const showBooking = (bookingId) => {
+      const id = Number(bookingId);
+      const group = groups.value.find((entry) => Number(bookingOf(entry)?.id) === id);
+      if (!group) {
+        toast(`Booking #${id} has nothing checked out.`, 'warning');
+        return false;
+      }
+      detailKey.value = group.key;
+      return true;
+    };
+
+    // A scan can land before this view is mounted, or while it already is.
+    const takePending = () => {
+      if (pending.value === null) return;
+      const id = pending.value;
+      pending.value = null;
+      showBooking(id);
+    };
+    onMounted(takePending);
+    watch(pending, takePending);
+
+    // --- Hand-over signature ---------------------------------------------
+    // One per booking, the customer's alone. Captured here at the counter, or
+    // by the customer on their own link — either way it lands in the same
+    // place and shows up on the sheet, the PDF and their page.
+
+    /** The group whose pad is open, or null. */
+    const signing = ref(null);
+    const signName = ref('');
+    // The customer's tick against the terms in force. Reset with every pad,
+    // and whenever the terms change under an open one.
+    const signTerms = ref(false);
+    watch(() => state.terms.version, () => { signTerms.value = false; });
+    const signLocked = computed(() => (
+      state.terms.active && !signTerms.value
+        ? 'The customer has to accept the terms first.'
+        : ''
+    ));
+    const signBusy = ref(false);
+    const unsigning = ref(null);
+
+    const openSignature = (group) => {
+      signing.value = group.key;
+      // Prefilled with who the booking is for; whoever actually signs can
+      // overwrite it, which is the point of asking at all.
+      signName.value = group.customerName || '';
+      signTerms.value = false;
+    };
+
+    const closeSignature = () => { signing.value = null; signName.value = ''; signTerms.value = false; };
+
+    const saveSignature = async (group, blob) => {
+      const booking = bookingOf(group);
+      if (!booking) return;
+      signBusy.value = true;
+      try {
+        // The version on screen, not whatever is newest by the time this
+        // lands: if the terms changed meanwhile the server says so.
+        await signBooking(
+          booking.id,
+          signName.value.trim(),
+          blob,
+          state.terms.active ? state.terms.version : null,
+        );
+        toast('Signature stored.', 'success');
+        closeSignature();
+      } catch {
+        /* toast already raised by the store */
+      } finally {
+        signBusy.value = false;
+      }
+    };
+
+    const removeSignature = async () => {
+      const booking = unsigning.value;
+      unsigning.value = null;
+      if (!booking) return;
+      try {
+        await unsignBooking(booking.id);
+        toast('Signature removed.', 'success');
+      } catch { /* toast already raised */ }
+    };
+
+    /** The stored drawing in the preview overlay, at a readable size. */
+    const openSignatureImage = (booking) => {
+      openPreview({
+        kind: 'image',
+        src: `uploads/${booking.signature.file}`,
+        title: `${booking.signature.name} · ${formatDateTime(booking.signature.at)}`,
+      });
     };
 
     const doReturn = async () => {
@@ -503,8 +684,12 @@ export default {
       openPhotos, closePhotos, pickItemPhotos, uploadItemPhotos,
       retryPhotos, discardPhotos,
       bookingOf, bookingUrl, copyLink, resendEmail,
+      detailKey, detail, openDetail, closeDetail, showBooking,
+      detailLines, detailUnits, detailCheckIn, detailExtend,
       formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
       rentalPdf, daysLabel, HIRE_LABEL,
+      signing, signName, signBusy, unsigning, signTerms, signLocked, termsUrl,
+      openSignature, closeSignature, saveSignature, removeSignature, openSignatureImage,
     };
   },
   template: `
@@ -530,121 +715,43 @@ export default {
     </div>
 
     <div v-else class="d-flex flex-column gap-3">
-      <article v-for="group in groups" :key="group.key" class="trax-card">
-        <div class="trax-card-pad d-flex align-items-center gap-2 flex-wrap border-bottom border-secondary-subtle">
+      <!-- The whole card opens the hand-over. The one control that is not the
+           panel — select this customer's lines — stops the click itself. -->
+      <article v-for="group in groups" :key="group.key" class="trax-card"
+               role="button" tabindex="0" style="cursor:pointer"
+               :aria-label="'Open the hand-over for ' + group.customerName"
+               @click="openDetail(group)"
+               @keydown.enter.prevent="openDetail(group)"
+               @keydown.space.prevent="openDetail(group)">
+        <div class="trax-card-pad d-flex align-items-center gap-2 flex-wrap">
           <input class="form-check-input" type="checkbox"
                  :checked="group.lines.every(r => selected.includes(r.lineId))"
-                 @change="toggleGroup(group)"
+                 @click.stop @change="toggleGroup(group)"
                  :aria-label="'Select all items out with ' + group.customerName">
           <div class="flex-grow-1 min-w-0">
             <strong>{{ group.customerName }}</strong>
             <span class="text-secondary small ms-2">{{ group.customerEmail }}</span>
             <div class="small" :class="isOverdue(group.dueAt) ? 'text-danger' : 'text-secondary'">
-              {{ group.units }} unit(s) on {{ group.lines.length }} line(s) · due {{ formatDateTime(group.dueAt) }}
+              {{ group.lines.length }} asset(s) in booking · due {{ formatDateTime(group.dueAt) }}
               <span v-if="isOverdue(group.dueAt)">— {{ daysOverdue(group.dueAt) }} days late</span>
             </div>
-            <!-- Internal figure: what this customer is holding. -->
-            <div class="small text-secondary">
-              Value out: <strong>{{ formatTotals(group.value.totals) }}</strong>
-              <span v-if="group.value.unpricedCount">
-                · {{ group.value.unpricedCount }} item(s) without a price
-              </span>
-            </div>
-            <!-- What the hire is billed for over the booked period. -->
-            <div class="small text-secondary">
-              <span class="trax-kind-chip">{{ HIRE_LABEL[group.hire] }}</span>
-              Rental · {{ daysLabel(group.days) }}:
-              <strong>{{ formatTotals(group.rental.totals) }}</strong>
-              <span v-if="group.rental.unratedCount">
-                · {{ group.rental.unratedCount }} line(s) without a rate
-              </span>
-              <span v-if="group.rental.unpricedCount">
-                · {{ group.rental.unpricedCount }} without a value
-              </span>
-            </div>
           </div>
+
+          <!-- At a glance only: the job, the kits, and whether it is signed.
+               Everything that DOES something is one click away, in the panel. -->
+          <span v-if="group.event" class="trax-kind-chip">
+            <i class="bi bi-calendar-event"></i> {{ group.event.name }}
+          </span>
           <span v-for="setId in [...group.setIds]" :key="setId" class="trax-kind-chip">
             <i class="bi bi-box-seam"></i> {{ setName(setId) }}
           </span>
-          <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
-                  @click="bookingPdf(group)"
-                  :aria-label="'Handover PDF for ' + group.customerName">
-            <i class="bi bi-filetype-pdf"></i> PDF
-          </button>
-          <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
-                  @click="rentalPdf(group)"
-                  :aria-label="'Rental quote PDF for ' + group.customerName">
-            <i class="bi bi-receipt"></i> Rental
-          </button>
-          <button v-if="bookingOf(group)" class="btn btn-sm btn-outline-secondary"
-                  @click="copyLink(group)"
-                  :aria-label="'Copy the booking link for ' + group.customerName">
-            <i class="bi bi-link-45deg"></i> Copy link
-          </button>
-          <button v-if="bookingOf(group)" class="btn btn-sm btn-outline-secondary"
-                  :disabled="state.loading" @click="resendEmail(group)"
-                  :aria-label="'Re-send the confirmation to ' + group.customerEmail">
-            <i class="bi bi-envelope"></i> Resend email
-          </button>
+          <span v-if="bookingOf(group) && bookingOf(group).signature" class="trax-kind-chip"
+                :title="'Signed by ' + bookingOf(group).signature.name">
+            <i class="bi bi-pen"></i> signed
+          </span>
+
+          <i class="bi bi-chevron-right text-secondary"></i>
         </div>
-
-        <!-- Keyed by lineId: the same asset id can appear on several lines. -->
-        <ul class="list-group list-group-flush">
-          <li v-for="line in group.lines" :key="line.lineId"
-              class="list-group-item bg-transparent d-flex flex-wrap align-items-center gap-2">
-            <input class="form-check-input" type="checkbox"
-                   :checked="selected.includes(line.lineId)" @change="toggle(line.lineId)"
-                   :aria-label="'Select ' + line.name">
-            <button class="trax-name-btn flex-grow-1" @click="emit('open', line.assetId)">
-              {{ line.name || ('#' + line.assetId) }}
-            </button>
-            <span class="trax-kind-chip">×{{ line.qty }}</span>
-            <!-- Which physical units left, when the asset tracks them. -->
-            <span v-if="line.unitNos?.length" class="trax-kind-chip font-monospace"
-                  :title="unitTitle(line)">{{ unitCodes(line) }}</span>
-
-            <!-- Partial return: hand back some of the units on this line. -->
-            <div v-if="selected.includes(line.lineId) && !line.unitNos?.length && line.qty > 1"
-                 class="input-group input-group-sm" style="width:8rem">
-              <button class="btn btn-outline-secondary py-0 px-2"
-                      @click="setQtyFor(line.lineId, qtyFor(line.lineId) - 1)"
-                      :aria-label="'Return one fewer ' + line.name">−</button>
-              <input class="form-control text-center px-0" type="number" min="1" :max="line.qty"
-                     :value="qtyFor(line.lineId)"
-                     @input="setQtyFor(line.lineId, $event.target.value)"
-                     :aria-label="'Units of ' + line.name + ' to check in'">
-              <button class="btn btn-outline-secondary py-0 px-2"
-                      @click="setQtyFor(line.lineId, qtyFor(line.lineId) + 1)"
-                      :aria-label="'Return one more ' + line.name">+</button>
-            </div>
-
-            <!-- Photos belong to one piece of gear, so they are taken from
-                 the line rather than from the check-in dialog. -->
-            <button class="btn btn-sm btn-outline-secondary" @click="openPhotos(line)"
-                    :aria-label="'Condition photos of ' + (line.name || ('#' + line.assetId))">
-              <i class="bi bi-camera"></i>
-            </button>
-
-            <span class="text-secondary font-monospace small">#{{ line.assetId }}</span>
-            <span v-if="line.setId" class="trax-kind-chip">in kit</span>
-
-            <!-- Partial return, unit by unit: the numbers are the quantity, so
-                 a line that names them gets check boxes instead of a stepper. -->
-            <div v-if="selected.includes(line.lineId) && line.unitNos?.length && line.qty > 1"
-                 class="w-100 d-flex flex-wrap gap-3 ps-4">
-              <div v-for="no in line.unitNos" :key="no" class="form-check mb-0">
-                <input class="form-check-input" type="checkbox"
-                       :id="'ret-' + line.lineId + '-' + no"
-                       :checked="unitPicked(line.lineId, no)"
-                       @change="toggleUnitFor(line.lineId, no)">
-                <label class="form-check-label small" :for="'ret-' + line.lineId + '-' + no">
-                  <span class="font-monospace">{{ line.assetId }}.{{ no }}</span>
-                  <span v-if="unitLabel(line, no)" class="text-secondary ms-1">{{ unitLabel(line, no) }}</span>
-                </label>
-              </div>
-            </div>
-          </li>
-        </ul>
       </article>
     </div>
 
@@ -659,6 +766,232 @@ export default {
       </button>
       <button class="btn btn-sm btn-outline-secondary" @click="selected = []">Clear</button>
     </div>
+
+    <!-- One hand-over, in full: what it is worth, what it bills, the customer's
+         link, the documents and the signature. Opened from the card, and by
+         booking id from a scanned hand-over sheet. -->
+    <Drawer v-if="detail" wide icon="bi-box-arrow-right"
+            :title="detail.customerName" @close="closeDetail">
+      <p class="text-secondary small">
+        {{ detail.customerEmail }}
+        <span v-if="bookingOf(detail)"> · Booking #{{ bookingOf(detail).id }}</span>
+      </p>
+
+      <div class="row g-3 mb-3">
+        <div class="col-6 col-md-3">
+          <div class="form-label small mb-0 text-secondary">Out</div>
+          <div>{{ detail.units }} unit(s) on {{ detail.lines.length }} line(s)</div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="form-label small mb-0 text-secondary">Due</div>
+          <div :class="isOverdue(detail.dueAt) ? 'text-danger' : ''">
+            {{ formatDateTime(detail.dueAt) }}
+            <span v-if="isOverdue(detail.dueAt)">— {{ daysOverdue(detail.dueAt) }} days late</span>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="form-label small mb-0 text-secondary">Hire</div>
+          <div><span class="trax-kind-chip">{{ HIRE_LABEL[detail.hire] }}</span></div>
+        </div>
+        <div class="col-6 col-md-3" v-if="detail.event">
+          <div class="form-label small mb-0 text-secondary">Event</div>
+          <div>{{ detail.event.name }}</div>
+        </div>
+      </div>
+
+      <!-- Internal figures: what the customer is holding, and what it bills
+           over the booked period. Neither reaches the customer's documents. -->
+      <div class="small text-secondary mb-1">
+        Value out: <strong>{{ formatTotals(detail.value.totals) }}</strong>
+        <span v-if="detail.value.unpricedCount">
+          · {{ detail.value.unpricedCount }} item(s) without a price
+        </span>
+      </div>
+      <div class="small text-secondary mb-3">
+        Rental · {{ daysLabel(detail.days) }}:
+        <strong>{{ formatTotals(detail.rental.totals) }}</strong>
+        <span v-if="detail.rental.unratedCount">
+          · {{ detail.rental.unratedCount }} line(s) without a rate
+        </span>
+        <span v-if="detail.rental.unpricedCount">
+          · {{ detail.rental.unpricedCount }} without a value
+        </span>
+      </div>
+
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
+                @click="bookingPdf(detail)"
+                :aria-label="'Handover PDF for ' + detail.customerName">
+          <i class="bi bi-filetype-pdf"></i> Handover PDF
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
+                @click="rentalPdf(detail)"
+                :aria-label="'Rental quote PDF for ' + detail.customerName">
+          <i class="bi bi-receipt"></i> Rental PDF
+        </button>
+        <button v-if="bookingOf(detail)" class="btn btn-sm btn-outline-secondary"
+                @click="copyLink(detail)"
+                :aria-label="'Copy the booking link for ' + detail.customerName">
+          <i class="bi bi-link-45deg"></i> Copy link
+        </button>
+        <button v-if="bookingOf(detail)" class="btn btn-sm btn-outline-secondary"
+                :disabled="state.loading" @click="resendEmail(detail)"
+                :aria-label="'Re-send the confirmation to ' + detail.customerEmail">
+          <i class="bi bi-envelope"></i> Resend email
+        </button>
+      </div>
+
+      <!-- What is out, and where it is handed back: the check boxes here feed
+           the same selection the overview's bar acts on, so a partial return
+           picked in this panel is the one that is checked in. -->
+      <h3 class="trax-page-title mt-4 mb-2">{{ detail.lines.length }} asset(s) · {{ detail.units }} unit(s)</h3>
+      <ul class="list-group list-group-flush mb-3">
+        <li v-for="line in detail.lines" :key="line.lineId"
+            class="list-group-item bg-transparent d-flex flex-wrap align-items-center gap-2">
+          <input class="form-check-input" type="checkbox"
+                 :checked="selected.includes(line.lineId)" @change="toggle(line.lineId)"
+                 :aria-label="'Select ' + line.name">
+          <button class="trax-name-btn flex-grow-1" @click="emit('open', line.assetId)">
+            {{ line.name || ('#' + line.assetId) }}
+          </button>
+          <span class="trax-kind-chip">×{{ line.qty }}</span>
+          <!-- Which physical units left, when the asset tracks them. -->
+          <span v-if="line.unitNos?.length" class="trax-kind-chip font-monospace"
+                :title="unitTitle(line)">{{ unitCodes(line) }}</span>
+
+          <!-- Partial return: hand back some of the units on this line. -->
+          <div v-if="selected.includes(line.lineId) && !line.unitNos?.length && line.qty > 1"
+               class="input-group input-group-sm" style="width:8rem">
+            <button class="btn btn-outline-secondary py-0 px-2"
+                    @click="setQtyFor(line.lineId, qtyFor(line.lineId) - 1)"
+                    :aria-label="'Return one fewer ' + line.name">−</button>
+            <input class="form-control text-center px-0" type="number" min="1" :max="line.qty"
+                   :value="qtyFor(line.lineId)"
+                   @input="setQtyFor(line.lineId, $event.target.value)"
+                   :aria-label="'Units of ' + line.name + ' to check in'">
+            <button class="btn btn-outline-secondary py-0 px-2"
+                    @click="setQtyFor(line.lineId, qtyFor(line.lineId) + 1)"
+                    :aria-label="'Return one more ' + line.name">+</button>
+          </div>
+
+          <!-- Photos belong to one piece of gear, so they are taken from
+               the line rather than from the check-in dialog. -->
+          <button class="btn btn-sm btn-outline-secondary" @click="openPhotos(line)"
+                  :aria-label="'Condition photos of ' + (line.name || ('#' + line.assetId))">
+            <i class="bi bi-camera"></i>
+          </button>
+
+          <span class="text-secondary font-monospace small">#{{ line.assetId }}</span>
+          <span v-if="line.setId" class="trax-kind-chip">in kit</span>
+
+          <!-- Partial return, unit by unit: the numbers are the quantity, so
+               a line that names them gets check boxes instead of a stepper. -->
+          <div v-if="selected.includes(line.lineId) && line.unitNos?.length && line.qty > 1"
+               class="w-100 d-flex flex-wrap gap-3 ps-4">
+            <div v-for="no in line.unitNos" :key="no" class="form-check mb-0">
+              <input class="form-check-input" type="checkbox"
+                     :id="'ret-' + line.lineId + '-' + no"
+                     :checked="unitPicked(line.lineId, no)"
+                     @change="toggleUnitFor(line.lineId, no)">
+              <label class="form-check-label small" :for="'ret-' + line.lineId + '-' + no">
+                <span class="font-monospace">{{ line.assetId }}.{{ no }}</span>
+                <span v-if="unitLabel(line, no)" class="text-secondary ms-1">{{ unitLabel(line, no) }}</span>
+              </label>
+            </div>
+          </div>
+        </li>
+      </ul>
+
+      <!-- What was signed for, once it has been. -->
+      <div v-if="bookingOf(detail) && bookingOf(detail).signature"
+           class="d-flex align-items-center gap-2 flex-wrap">
+        <button type="button" class="trax-thumb-btn"
+                :aria-label="'Show the signature of ' + bookingOf(detail).signature.name"
+                @click="openSignatureImage(bookingOf(detail))">
+          <img class="trax-sig-thumb" :src="'uploads/thumb/' + bookingOf(detail).signature.file"
+               alt="">
+        </button>
+        <div class="small">
+          <strong>{{ bookingOf(detail).signature.name }}</strong>
+          <span class="text-secondary"> signed {{ formatDateTime(bookingOf(detail).signature.at) }}</span>
+          <div class="text-secondary">
+            <span v-if="bookingOf(detail).signature.source === 'CUSTOMER'">
+              on their own booking link
+            </span>
+            <span v-else>at the counter</span>
+            <span v-if="bookingOf(detail).handedOverBy">
+              · handed over by {{ bookingOf(detail).handedOverBy }}
+            </span>
+          </div>
+          <div v-if="bookingOf(detail).signature.terms" class="text-secondary">
+            Accepted the
+            <a :href="termsUrl(bookingOf(detail).signature.terms.version)" target="_blank"
+               rel="noopener noreferrer">terms, version {{ bookingOf(detail).signature.terms.version }}</a>
+          </div>
+        </div>
+        <span class="flex-grow-1"></span>
+        <button class="btn btn-sm btn-outline-danger py-0 px-1"
+                :aria-label="'Remove the signature of ' + bookingOf(detail).signature.name"
+                @click="unsigning = bookingOf(detail)">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+
+      <!-- Only where there is a booking to hang it on: a legacy line without
+           one has nothing to sign for. The pad: hand the tablet over, done. -->
+      <template v-else-if="bookingOf(detail)">
+        <button v-if="signing !== detail.key" class="btn btn-sm btn-outline-secondary"
+                :aria-label="'Take a hand-over signature from ' + detail.customerName"
+                @click="openSignature(detail)">
+          <i class="bi bi-pen"></i> Take signature
+        </button>
+        <div v-else>
+          <label class="form-label small" :for="'sig-name-' + detail.key">Signed by</label>
+          <input class="form-control form-control-sm mb-2" :id="'sig-name-' + detail.key"
+                 v-model="signName" maxlength="200" placeholder="Name in block letters">
+          <SignaturePad :busy="signBusy" :locked="signLocked"
+                        @submit="saveSignature(detail, $event)" @cancel="closeSignature" />
+          <!-- What the signature is given under. The tick is the customer's,
+               on the same screen they sign on; the version it was given for
+               goes to the server with the drawing. -->
+          <div v-if="state.terms.active" class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" :id="'sig-terms-' + detail.key"
+                   v-model="signTerms">
+            <label class="form-check-label small" :for="'sig-terms-' + detail.key">
+              I have read and accept the
+              <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>
+              (version {{ state.terms.version }} of {{ formatDateTime(state.terms.at) }}).
+            </label>
+          </div>
+          <p class="form-text small mb-0">
+            Confirms the customer received the items listed on the card<span
+              v-if="state.terms.active"> and accepts the terms &amp; conditions</span>. They can
+            also sign it themselves from their booking link.
+          </p>
+        </div>
+      </template>
+
+      <!-- The same two actions as the overview's bar, on this hand-over: what
+           is ticked here, or the whole booking when nothing is. -->
+      <template #footer>
+        <span class="small text-secondary flex-grow-1">
+          {{ detailLines.length }} line(s) · {{ detailUnits }} unit(s)
+        </span>
+        <button class="btn btn-sm btn-outline-secondary" @click="detailExtend">
+          <i class="bi bi-calendar-plus"></i> Extend
+        </button>
+        <button class="btn btn-sm btn-success" @click="detailCheckIn">
+          <i class="bi bi-box-arrow-in-left"></i> Check in
+        </button>
+      </template>
+    </Drawer>
+
+    <ConfirmDialog v-if="unsigning"
+                   title="Remove this signature?"
+                   :message="'The signature of ' + unsigning.signature.name + ' and its image are deleted. '
+                     + 'The hand-over can then be signed again, at the counter or on the booking link.'"
+                   confirm-label="Remove" danger
+                   @confirm="removeSignature" @cancel="unsigning = null" />
 
     <ConfirmDialog v-if="confirmReturn"
                    title="Check these items back in?"

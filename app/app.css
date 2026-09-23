@@ -1219,3 +1219,56 @@ kbd {
   .trax-shell { grid-template-columns: 1fr; }
   body { background: #fff; color: #000; }
 }
+
+/* --- Signature ---------------------------------------------------------- */
+/* Dark ink on white, both on the pad and everywhere the drawing is shown
+   back: the same bitmap travels from the tablet to the customer's page to the
+   PDF, and a theme-coloured pad would be the one place it inverted. */
+.trax-sig-pad {
+  display: block;
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--trax-border);
+  border-radius: .5rem;
+  cursor: crosshair;
+  /* The browser must not treat a signature stroke as a scroll gesture. */
+  touch-action: none;
+}
+
+.trax-sig-thumb {
+  height: 36px;
+  width: auto;
+  max-width: 9rem;
+  object-fit: contain;
+  background: #fff;
+  border-radius: .25rem;
+  padding: 2px;
+}
+
+/* Settings → Terms: the server-rendered preview. The same subset of Markdown
+   as public.css styles on terms.php (headings from h2, lists, quotes). */
+.trax-terms-preview {
+  max-height: 70vh;
+  overflow-y: auto;
+  font-size: .9rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.trax-terms-preview h2,
+.trax-terms-preview h3,
+.trax-terms-preview h4 {
+  margin: 1.2rem 0 .45rem;
+  font-weight: 600;
+}
+
+.trax-terms-preview h2 { font-size: 1.1rem; }
+.trax-terms-preview h3 { font-size: 1rem; }
+.trax-terms-preview h4 { font-size: .92rem; }
+.trax-terms-preview > :first-child { margin-top: 0; }
+
+.trax-terms-preview blockquote {
+  border-left: 3px solid var(--trax-border-strong);
+  padding-left: .75rem;
+  color: var(--trax-muted);
+}

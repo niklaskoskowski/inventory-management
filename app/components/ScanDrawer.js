@@ -61,6 +61,29 @@ export function extractRef(text) {
   return path ? ref(path[1], path[2]) : null;
 }
 
+/**
+ * The booking token a hand-over sheet's QR code carries, or null.
+ *
+ * `https://host/booking.php?t=<64 hex>` — the code exportBookingPdf() prints,
+ * built by trax_booking_url(). `/booking` is the same page through the clean
+ * URL in .htaccess, so both spellings are read.
+ *
+ * The TOKEN and not an id, because that is all the sheet carries: a booking
+ * has no id-addressable public form, deliberately. Turning it back into a
+ * booking is a lookup in what this admin already holds.
+ */
+export function extractBookingToken(text) {
+  const raw = String(text || '').trim();
+  try {
+    const url = new URL(raw);
+    if (!/\/booking(?:\.php)?$/i.test(url.pathname)) return null;
+    const token = url.searchParams.get('t') || '';
+    return /^[0-9a-f]{64}$/i.test(token) ? token.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Just the asset id of a label payload, or null. */
 export function extractId(text) {
   const ref = extractRef(text);
@@ -163,7 +186,7 @@ export function extractId(text) {
 export default {
   name: 'ScanDrawer',
   components: { Drawer, StatusBadge },
-  emits: ['close', 'open', 'basket'],
+  emits: ['close', 'open', 'basket', 'booking'],
   setup(props, { emit }) {
     /**
      * What this install calls itself, for the messages below. A plain function
@@ -454,6 +477,24 @@ export default {
       decoderText.value = '';
     };
 
+    /**
+     * A scanned hand-over sheet: the token back to the booking it was printed
+     * for, and from there to its card in Checkouts.
+     *
+     * Looked up in what the admin already holds, so nothing has to be asked of
+     * the server and no token leaves this tab.
+     */
+    const handleBooking = async (token) => {
+      const booking = state.bookings.find((entry) => entry.token === token);
+      if (!booking) {
+        toast('That hand-over sheet belongs to no open booking.', 'warning', 3000);
+        return;
+      }
+      await stop();
+      emit('close');
+      emit('booking', booking.id);
+    };
+
     const onDecoded = (text) => {
       onFrameScanned();
       // The loop reads the same label many times a second; debounce repeats.
@@ -461,6 +502,14 @@ export default {
       if (text === lastCode && now - lastAt < 2500) return;
       lastCode = text;
       lastAt = now;
+
+      // A hand-over sheet's QR code is not a label — it is the booking. Scan
+      // the paper, open that hand-over in Checkouts.
+      const token = extractBookingToken(text);
+      if (token) {
+        handleBooking(token);
+        return;
+      }
 
       const ref = extractRef(text);
       if (!ref) {

@@ -291,5 +291,23 @@ described above.
   whether it passed, the measured values and the certificate. Cable 183.5 keeps
   its own history, overdue and failed pieces show up on the dashboard, and the
   **Test report** PDF is the documentation for one item, piece by piece.
+- **Events** are the jobs your gear goes out on — a festival, a conference, a
+  shoot. Create one under Events, then pick it when you check gear out or
+  reserve it, and everything on that job is listed together with what it is
+  worth and what it bills. Each job carries a status you move by hand as it
+  walks out of the building — *Reserved → Packed → At customer → Returned* by
+  default, and you can rename, recolour and reorder those under
+  Settings → Events. Deleting a job never deletes gear.
+- **Hand-over signatures.** When gear goes out, the customer signs for it —
+  either on your tablet from the checkout card, or themselves on their own
+  booking link. One signature, theirs; who handed it over is recorded
+  automatically and never signed. It then shows on the handover PDF, on their
+  booking page and in the checkout list. Sign it again by removing the old one.
+- **The hand-over sheet travels.** It prints a **QR code** of the customer's own
+  booking link, so scanning the paper leads straight back to the page — to sign
+  for the gear, to look at the condition photos, or to pull the sheet again from
+  the **Download checklist** button there. The sheet doubles as the packing list:
+  one tick box per unit, and whoever is loading the van needs it more often than
+  the paper survives the journey.
 - Anyone who finds a lost item can scan its label and reach you through the
   public page, without an account.
