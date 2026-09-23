@@ -178,6 +178,10 @@ export const state = reactive({
   // checkout lines and reservations that name it — see app/lib/events.js.
   events: [],
   settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
+  // The terms & conditions: the newest version in full, the older ones as a
+  // list without text (terms.php?v=N shows those). `version` is what a counter
+  // signature sends back, so the server can tell the customer saw these.
+  terms: { version: 0, at: null, actor: '', text: '', active: false, versions: [] },
   meta: {},
 
   selected: [],
@@ -675,6 +679,7 @@ function applySnapshot(data) {
     // changes it takes effect without a reload.
     setUiLocale(data.settings?.defaults?.locale);
   }
+  if (data.terms && typeof data.terms === 'object') state.terms = data.terms;
   if (data.meta) state.meta = data.meta;
 }
 
@@ -846,13 +851,24 @@ export async function deleteInspection(assetId, inspectionId) {
 // `booking.handedOverBy`, stamped from the operator at checkout — that half is
 // recorded, never signed.
 
-/** Stores the drawn signature. `blob` is what the pad produced. */
-export async function signBooking(bookingId, name, blob) {
+/**
+ * Stores the drawn signature. `blob` is what the pad produced.
+ *
+ * `termsVersion` is the version of the terms the customer was shown and
+ * ticked, or null when none are in force. The server refuses the signature
+ * when that is no longer the version in force.
+ */
+export async function signBooking(bookingId, name, blob, termsVersion = null) {
   state.loading = true;
   try {
     // `signedName`, not `name`: the multipart payload in api.php is an
     // allow-list, and a field it does not name never reaches the action.
-    const body = await api.uploadMany('booking.sign', [blob], { bookingId, signedName: name });
+    const fields = { bookingId, signedName: name };
+    if (termsVersion) {
+      fields.acceptTerms = '1';
+      fields.termsVersion = termsVersion;
+    }
+    const body = await api.uploadMany('booking.sign', [blob], fields);
     applySnapshot(body.data);
     state.rev = body.rev ?? state.rev;
     return body.data;
@@ -862,6 +878,26 @@ export async function signBooking(bookingId, name, blob) {
   } finally {
     state.loading = false;
   }
+}
+
+// --- Terms & conditions ----------------------------------------------------
+
+/** Publishes `text` as the next version. An empty text withdraws the terms. */
+export async function saveTerms(text) {
+  return mutate('terms.update', { text });
+}
+
+/** The server's rendering of `text`, exactly as terms.php would show it. */
+export async function previewTerms(text) {
+  const body = await api.post('terms.preview', { text });
+  return String(body.data?.html || '');
+}
+
+/** `<origin><publicPath>terms.php`, or with `?v=N` for one version. */
+export function termsUrl(version = null) {
+  const origin = (typeof location === 'object' && location.origin) || '';
+  const base = state.settings?.branding?.publicPath || '/';
+  return `${origin}${base}terms.php${version ? `?v=${version}` : ''}`;
 }
 
 /** Clears it, and deletes the drawing. The only way a booking can be re-signed. */

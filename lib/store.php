@@ -891,6 +891,29 @@ function trax_normalize_signature(mixed $raw): ?array
         // The operator on duty when it was signed at the counter. Empty when
         // the customer signed it themselves, where there was none.
         'actor'  => trax_str($raw['actor'] ?? '', 120),
+        // Which terms & conditions the signer accepted, or null when none were
+        // published at the time (and for every signature taken before terms
+        // existed). A version number, not the text: the text lives once, in
+        // the archive under data.terms, and terms.php?v=N shows it back.
+        'terms'  => trax_normalize_signature_terms($raw['terms'] ?? null),
+    ];
+}
+
+/** {version, at} of the accepted terms, or null. */
+function trax_normalize_signature_terms(mixed $raw): ?array
+{
+    if (!is_array($raw)) {
+        return null;
+    }
+    $version = trax_int($raw['version'] ?? null);
+    if ($version === null || $version < 1) {
+        return null;
+    }
+    return [
+        'version' => $version,
+        // When that version was published — printed next to the number, so a
+        // sheet says "version 3 of 12.05.2026" without a lookup.
+        'at'      => trax_iso($raw['at'] ?? null),
     ];
 }
 
@@ -2079,6 +2102,134 @@ function trax_normalize_settings(mixed $raw): array
     ];
 }
 
+// ---------------------------------------------------------------------------
+// Terms & conditions
+// ---------------------------------------------------------------------------
+//
+// What a hand-over signature is given under. Kept OUT of settings on purpose:
+// settings ride in every snapshot, and this is an archive — every version ever
+// published, because a signature names the version it accepted and that text
+// has to stay readable after the terms change. Only terms.update writes it.
+
+/** One published version. Running it twice changes nothing. */
+function trax_normalize_terms_version(mixed $raw): ?array
+{
+    $raw     = is_array($raw) ? $raw : [];
+    $version = trax_int($raw['version'] ?? null);
+    if ($version === null || $version < 1) {
+        return null;
+    }
+
+    return [
+        'version' => $version,
+        'at'      => trax_iso($raw['at'] ?? null) ?? gmdate('Y-m-d\TH:i:s.000\Z'),
+        'actor'   => trax_str($raw['actor'] ?? '', 120),
+        // Empty is a real version: the operator withdrew the terms, and from
+        // then on nothing is shown and nothing is accepted.
+        'text'    => trax_terms_text($raw['text'] ?? ''),
+    ];
+}
+
+/** Markdown as it is stored: LF line ends, no control characters, capped. */
+function trax_terms_text(mixed $raw): string
+{
+    if (!is_string($raw)) {
+        return '';
+    }
+    return trax_str(str_replace(["\r\n", "\r"], "\n", $raw), TRAX_MAX_TERMS);
+}
+
+/** The archive, oldest first, one entry per version number. */
+function trax_normalize_terms(mixed $raw): array
+{
+    $raw      = is_array($raw) ? $raw : [];
+    $versions = [];
+    foreach ((array)($raw['versions'] ?? []) as $item) {
+        $entry = trax_normalize_terms_version($item);
+        if ($entry !== null) {
+            $versions[$entry['version']] = $entry;
+        }
+    }
+    ksort($versions);
+
+    return ['versions' => array_values($versions)];
+}
+
+/** The newest version, published or withdrawn, or null before the first save. */
+function trax_terms_latest(array $data): ?array
+{
+    $versions = $data['terms']['versions'] ?? [];
+    return $versions === [] ? null : $versions[array_key_last($versions)];
+}
+
+/** The terms in force: the newest version, when it says anything. */
+function trax_terms_current(array $data): ?array
+{
+    $latest = trax_terms_latest($data);
+    return $latest !== null && $latest['text'] !== '' ? $latest : null;
+}
+
+/** One version by number, or null. */
+function trax_terms_version(array $data, int $version): ?array
+{
+    foreach ($data['terms']['versions'] ?? [] as $entry) {
+        if ($entry['version'] === $version) {
+            return $entry;
+        }
+    }
+    return null;
+}
+
+/**
+ * The terms in force, read straight off disk once per request.
+ *
+ * For the public pages that only need to know whether to link them: the
+ * footer of index.php and view.php, which otherwise never load the data.
+ */
+function trax_terms_published(): ?array
+{
+    static $current = false;
+    if ($current === false) {
+        $raw     = trax_read_json_file(TRAX_DATA_FILE, []);
+        $current = trax_terms_current([
+            'terms' => trax_normalize_terms(is_array($raw) ? ($raw['terms'] ?? null) : null),
+        ]);
+    }
+    return $current;
+}
+
+/**
+ * What a signature records about the terms, or why it may not be taken.
+ *
+ * Returns ['terms' => {version, at}|null, 'error' => null|'accept'|'changed'].
+ * Called by both signing paths — the counter (api.php) and the customer's own
+ * link (booking.php) — and under the lock, so the version checked is the one
+ * that gets written:
+ *
+ *   - no terms in force: nothing to accept, the signature carries null;
+ *   - not ticked: 'accept';
+ *   - ticked, but against another version than the one in force — the page
+ *     was loaded before the terms were changed — 'changed'. Accepting what
+ *     somebody never saw is exactly what this is here to prevent.
+ */
+function trax_signature_terms(array $data, bool $accepted, ?int $version): array
+{
+    $current = trax_terms_current($data);
+    if ($current === null) {
+        return ['terms' => null, 'error' => null];
+    }
+    if (!$accepted) {
+        return ['terms' => null, 'error' => 'accept'];
+    }
+    if ($version !== $current['version']) {
+        return ['terms' => null, 'error' => 'changed'];
+    }
+    return [
+        'terms' => ['version' => $current['version'], 'at' => $current['at']],
+        'error' => null,
+    ];
+}
+
 /** The deploy-time constant a settings path falls back to, if it has one. */
 function trax_setting_constant(string $path): mixed
 {
@@ -2214,6 +2365,9 @@ function trax_normalize_data(mixed $raw): array
         'rentalHistory' => array_values($history),
         'bookings'      => array_values($bookings),
         'settings'      => trax_normalize_settings($raw['settings'] ?? null),
+        // Every published version of the terms & conditions. See
+        // trax_normalize_terms() for why this is not part of settings.
+        'terms'         => trax_normalize_terms($raw['terms'] ?? null),
         'cronState'     => trax_normalize_cron_state($raw['cronState'] ?? null),
     ];
 }

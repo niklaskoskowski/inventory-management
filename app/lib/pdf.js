@@ -473,6 +473,27 @@ function signatures(doc, y, left, right) {
 const HANDOVER_HEIGHT = 30;
 /** The box a stored signature is fitted into, in mm. */
 const SIGNATURE_BOX = { width: 78, height: 20 };
+/** Line height of the terms note under the hand-over block, in mm. */
+const TERMS_LINE = 3.4;
+
+/**
+ * The sentence under the hand-over block naming the terms, or ''.
+ *
+ * `booking.terms` is {version, at, url}, resolved by the page that holds the
+ * booking: the version the signature accepted once there is one, the version
+ * in force while there is not. Signed, the sheet records what was accepted;
+ * unsigned, it tells whoever signs the paper what they are agreeing to.
+ */
+function termsNoteOf(booking, reservation) {
+  const terms = booking.terms;
+  if (reservation || !terms?.version) return '';
+  const when = terms.at ? ` of ${formatDate(terms.at)}` : '';
+  const where = terms.url ? ` (${terms.url})` : '';
+  const what = `terms & conditions, version ${terms.version}${when}${where}`;
+  return booking.signature
+    ? `Signed subject to the ${what}.`
+    : `By signing, the customer accepts the ${what}.`;
+}
 
 /**
  * The hand-over block: who handed it over, and the customer's signature.
@@ -486,7 +507,7 @@ const SIGNATURE_BOX = { width: 78, height: 20 };
  * when. Unsigned, it prints the rule to sign on paper, because a sheet walking
  * out to a van has to work when the tablet stays behind.
  */
-function handover(doc, y, model, signature) {
+function handover(doc, y, model, signature, termsLines = []) {
   doc.setFontSize(8);
   doc.setTextColor(100);
   doc.text('Handed over by', 14, y + 16);
@@ -531,6 +552,19 @@ function handover(doc, y, model, signature) {
     doc.setTextColor(100);
     doc.text(model.signedName, 112, y + 20);
     if (model.signedAt) doc.text(model.signedAt, 112, y + 24);
+    doc.setTextColor(0, 0, 0);
+  }
+
+  // Across the full width, under both halves: it is what the whole hand-over
+  // was given under, not a caption of either side.
+  if (termsLines.length) {
+    doc.setFontSize(7.5);
+    doc.setTextColor(100);
+    let line = y + 29;
+    for (const text of termsLines) {
+      doc.text(text, 14, line);
+      line += TERMS_LINE;
+    }
     doc.setTextColor(0, 0, 0);
   }
 }
@@ -1617,7 +1651,9 @@ function dateStamp(value) {
  *     startAt,          // checked out (checkout) / start (reservation)
  *     endAt,            // due back    (checkout) / end   (reservation)
  *     status, notes, reference,
- *     items: [{ name, assetId, qty, setId, setName }]
+ *     items: [{ name, assetId, qty, setId, setName }],
+ *     signature,        // the stored hand-over signature, or null
+ *     terms,            // {version, at, url} the hand-over is given under, or null
  *   }
  */
 /**
@@ -1707,6 +1743,9 @@ export function buildBookingDocument(booking = {}) {
     signedName: String(booking.signature?.name || '').trim(),
     signedAt: booking.signature?.at ? formatDateTime(booking.signature.at) : '',
     signatureFile: String(booking.signature?.file || '').trim(),
+    // The terms this hand-over is given under, as one sentence. Empty prints
+    // nothing — no terms in force, or a signature taken without them.
+    termsNote: termsNoteOf(booking, reservation),
     // Where the printed QR code points, and where its picture comes from.
     // The page that is holding this booking passes its own link; the PNG is
     // that link plus `&qr=1`, which booking.php answers for this token only.
@@ -1837,12 +1876,17 @@ export async function exportBookingPdf(booking) {
   y += 4;
 
   if (model.signature) {
-    if (y > height - (HANDOVER_HEIGHT + 24)) {
+    // Wrapped here, at the size it is drawn in, so the page break below
+    // knows how tall the block really is.
+    doc.setFontSize(7.5);
+    const termsLines = model.termsNote ? doc.splitTextToSize(model.termsNote, width - 28) : [];
+    const needed = HANDOVER_HEIGHT + termsLines.length * TERMS_LINE;
+    if (y > height - (needed + 24)) {
       doc.addPage();
       decorate(doc, model.title, id, logo);
       y = CONTENT_TOP;
     }
-    handover(doc, y, model, drawing);
+    handover(doc, y, model, drawing, termsLines);
   }
 
   footer(doc);

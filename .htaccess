@@ -74,6 +74,7 @@ RewriteRule ^login/?$ login.php [L,QSA]
 RewriteRule ^logout/?$ logout.php [L,QSA]
 RewriteRule ^booking/?$ booking.php [L,QSA]
 RewriteRule ^view/?$ view.php [L,QSA]
+RewriteRule ^terms/?$ terms.php [L,QSA]
 
 # Short label URLs: /12 -> the asset, /12.1 -> unit 1 of it.
 # This is what every printed QR encodes when TRAX_LABEL_URL_FORM is 'short'.

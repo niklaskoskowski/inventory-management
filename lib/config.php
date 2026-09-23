@@ -394,6 +394,14 @@ if (!defined('TRAX_MAX_MAIL_SUBJECT')) define('TRAX_MAX_MAIL_SUBJECT', 200);
  * read and rewritten on every mutation.
  */
 if (!defined('TRAX_MAX_MAIL_BODY')) define('TRAX_MAX_MAIL_BODY', 8000);
+/**
+ * The terms & conditions, in Markdown. Real ones run to 10-15 KB of plain text
+ * once liability, deposits and cancellation are spelled out; 30000 leaves
+ * room for a second language without letting the block grow unbounded. Every
+ * published version is kept (a signature points at the one it accepted), so
+ * this is also the unit the archive grows by — and it only grows on a save.
+ */
+if (!defined('TRAX_MAX_TERMS')) define('TRAX_MAX_TERMS', 30000);
 if (!defined('TRAX_MAX_MEMBERS')) define('TRAX_MAX_MEMBERS', 100);    // distinct members per set
 if (!defined('TRAX_MAX_QUANTITY')) define('TRAX_MAX_QUANTITY', 9999);   // physical units one asset record may stand for
 if (!defined('TRAX_MAX_MEMBER_QTY')) define('TRAX_MAX_MEMBER_QTY', 999);    // units of a single member inside one set
@@ -551,6 +559,15 @@ function trax_label_url(int $id, ?int $unit = null): string
 function trax_booking_url(string $token): string
 {
     return trax_base_url() . '/booking.php?t=' . rawurlencode($token);
+}
+
+/**
+ * The public terms page: the version in force, or one named version when a
+ * signature needs to point at exactly what it accepted.
+ */
+function trax_terms_url(?int $version = null): string
+{
+    return trax_base_url() . '/terms.php' . ($version === null ? '' : '?v=' . $version);
 }
 
 // --- Mail templates --------------------------------------------------------

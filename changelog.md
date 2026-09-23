@@ -6,6 +6,37 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-09-23
+
+### Added
+
+- **Terms & conditions, and what a signature accepts.** A hand-over signature used to confirm
+  receipt and nothing else; it can now be given under published terms.
+  - **Settings → Terms**: the text in Markdown, with a live preview rendered by the server
+    (`terms.preview`), so what the operator sees is exactly what the customer is shown. **Every
+    save publishes a new version**; older ones stay in an archive (`data.terms`, not settings) and
+    remain readable at `terms.php?v=N`, because signatures point at them. Saving an empty text
+    withdraws the terms.
+  - **`terms.php`** (clean URL `/terms`): the version in force, or one archived version with a
+    note saying when it stopped applying. Linked in the **footer of every public page** —
+    `index.php`, `view.php`, `booking.php` — for as long as terms are in force.
+  - **At the signature pad** — at the counter and on the customer's booking link — a note, the
+    terms folded out in place (booking page) or linked, and a **mandatory tick box**. The version
+    shown goes to the server with the drawing and is re-checked under the lock: a page opened
+    before the terms changed is refused with a message rather than accepting text nobody saw.
+  - **The signature records the accepted version** (`signature.terms: {version, at}`), shown on
+    the checkout card and the customer's page with a link to that version.
+  - **The hand-over PDF names the terms** under the signature block: the accepted version once
+    signed, the version in force while the sheet is still to be signed on paper.
+  - `lib/markdown.php`: a small, safe Markdown renderer (headings, lists, quotes, rules, emphasis,
+    code, links). Raw HTML is escaped; only http(s), mailto, tel and scheme-less links survive.
+
+### Fixed
+
+- **The booking page's signing form lost the server's answer.** After posting, the script
+  reloaded the bare page instead of the redirect target, so "too many attempts" and every other
+  message never showed. It now follows the redirect it was given.
+
 ## 2026-09-22
 
 ### Added

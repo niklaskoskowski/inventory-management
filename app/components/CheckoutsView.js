@@ -1,7 +1,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import {
   state, mutate, toast, getAsset, load, eventById, openPreview,
-  signBooking, unsignBooking,
+  signBooking, unsignBooking, termsUrl,
 } from '../store.js';
 import * as api from '../api.js';
 import {
@@ -404,6 +404,21 @@ export default {
       failedPhotos.value = null;
     };
 
+    /**
+     * The terms line for the sheet: what the signature accepted, or — not
+     * signed yet — what signing on this paper would accept. Null when neither.
+     */
+    const pdfTerms = (booking) => {
+      if (booking?.signature) {
+        const accepted = booking.signature.terms;
+        return accepted
+          ? { version: accepted.version, at: accepted.at, url: termsUrl(accepted.version) }
+          : null;
+      }
+      if (!state.terms.active) return null;
+      return { version: state.terms.version, at: state.terms.at, url: termsUrl(state.terms.version) };
+    };
+
     /** The handover sheet for one customer's open lines. */
     const bookingPdf = async (group) => {
       exporting.value = true;
@@ -419,6 +434,7 @@ export default {
           // prints the rule to sign on paper.
           handedOverBy: booking?.handedOverBy || '',
           signature: booking?.signature || null,
+          terms: pdfTerms(booking),
           // Printed as a QR code: the sheet is the checklist the gear travels
           // with, and the code is how the customer gets from paper back to
           // their own page — to sign, or to pull the sheet again.
@@ -546,6 +562,15 @@ export default {
     /** The group whose pad is open, or null. */
     const signing = ref(null);
     const signName = ref('');
+    // The customer's tick against the terms in force. Reset with every pad,
+    // and whenever the terms change under an open one.
+    const signTerms = ref(false);
+    watch(() => state.terms.version, () => { signTerms.value = false; });
+    const signLocked = computed(() => (
+      state.terms.active && !signTerms.value
+        ? 'The customer has to accept the terms first.'
+        : ''
+    ));
     const signBusy = ref(false);
     const unsigning = ref(null);
 
@@ -554,16 +579,24 @@ export default {
       // Prefilled with who the booking is for; whoever actually signs can
       // overwrite it, which is the point of asking at all.
       signName.value = group.customerName || '';
+      signTerms.value = false;
     };
 
-    const closeSignature = () => { signing.value = null; signName.value = ''; };
+    const closeSignature = () => { signing.value = null; signName.value = ''; signTerms.value = false; };
 
     const saveSignature = async (group, blob) => {
       const booking = bookingOf(group);
       if (!booking) return;
       signBusy.value = true;
       try {
-        await signBooking(booking.id, signName.value.trim(), blob);
+        // The version on screen, not whatever is newest by the time this
+        // lands: if the terms changed meanwhile the server says so.
+        await signBooking(
+          booking.id,
+          signName.value.trim(),
+          blob,
+          state.terms.active ? state.terms.version : null,
+        );
         toast('Signature stored.', 'success');
         closeSignature();
       } catch {
@@ -655,7 +688,7 @@ export default {
       detailLines, detailUnits, detailCheckIn, detailExtend,
       formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
       rentalPdf, daysLabel, HIRE_LABEL,
-      signing, signName, signBusy, unsigning,
+      signing, signName, signBusy, unsigning, signTerms, signLocked, termsUrl,
       openSignature, closeSignature, saveSignature, removeSignature, openSignatureImage,
     };
   },
@@ -890,6 +923,11 @@ export default {
               · handed over by {{ bookingOf(detail).handedOverBy }}
             </span>
           </div>
+          <div v-if="bookingOf(detail).signature.terms" class="text-secondary">
+            Accepted the
+            <a :href="termsUrl(bookingOf(detail).signature.terms.version)" target="_blank"
+               rel="noopener noreferrer">terms, version {{ bookingOf(detail).signature.terms.version }}</a>
+          </div>
         </div>
         <span class="flex-grow-1"></span>
         <button class="btn btn-sm btn-outline-danger py-0 px-1"
@@ -911,11 +949,24 @@ export default {
           <label class="form-label small" :for="'sig-name-' + detail.key">Signed by</label>
           <input class="form-control form-control-sm mb-2" :id="'sig-name-' + detail.key"
                  v-model="signName" maxlength="200" placeholder="Name in block letters">
-          <SignaturePad :busy="signBusy"
+          <SignaturePad :busy="signBusy" :locked="signLocked"
                         @submit="saveSignature(detail, $event)" @cancel="closeSignature" />
+          <!-- What the signature is given under. The tick is the customer's,
+               on the same screen they sign on; the version it was given for
+               goes to the server with the drawing. -->
+          <div v-if="state.terms.active" class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" :id="'sig-terms-' + detail.key"
+                   v-model="signTerms">
+            <label class="form-check-label small" :for="'sig-terms-' + detail.key">
+              I have read and accept the
+              <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>
+              (version {{ state.terms.version }} of {{ formatDateTime(state.terms.at) }}).
+            </label>
+          </div>
           <p class="form-text small mb-0">
-            Confirms the customer received the items listed on the card. They can also sign it
-            themselves from their booking link.
+            Confirms the customer received the items listed on the card<span
+              v-if="state.terms.active"> and accepts the terms &amp; conditions</span>. They can
+            also sign it themselves from their booking link.
           </p>
         </div>
       </template>
