@@ -2111,13 +2111,8 @@ try {
     |--------------------------------------------------------------------------
     */
 
-    /*
-     * 36, not 30: the extra height goes to the ID, which is what gets read
-     * off a sticker from across the shelf. It still ends 9 px above the edge.
-     */
-
     $barHeight =
-        wp(36);
+        wp(30);
 
 
     $barY =

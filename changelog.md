@@ -13,8 +13,7 @@ only record. There is no git history to mine.
 - **Labels: a bigger ID, sized to fit.** On both the portrait and the wide label the ID is now as
   large as its bar allows: the size is found from the text's measured ink, so a short `ID 1`
   fills the bar and a long unit code (`ID 12345.12`) comes out smaller instead of running off the
-  edge. It is centred on its ink both ways. The wide label's ID bar is 36 px instead of 30 (at 1×)
-  to give the ID the room.
+  edge. It is centred on its ink both ways. The bars themselves keep their size.
 - **Portrait label: `ID 12` instead of `ID: 12`**, matching the wide label.
 - **Portrait label: the asset name is centred vertically** between the QR code and the ID bar,
   rather than hanging from a fixed line. At most three lines as before, fewer when a tall logo has
