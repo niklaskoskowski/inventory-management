@@ -1929,19 +1929,39 @@ try {
 
 
     /*
-     * As large as the bar allows: sized to the bar's width and height, so
-     * "1" fills it and a unit code ("12345.12") shrinks until it fits
-     * rather than running off both ends white on white. Then centred on its
-     * own ink, both ways.
+     * One size for every ordinary number: the size at which "999.99" fits
+     * the bar is the standard, so "1", "42" and "123.4" all print alike.
+     * Only a number longer than that ("12345.12") shrinks further, until it
+     * fits rather than running off both ends white on white. Then centred
+     * on its own ink, both ways.
      */
+
+    $idMaxWidth =
+        $width - label_px(20);
+
+
+    $idMaxHeight =
+        $height - $barTop - label_px(26);
+
+
+    [$idStandardSize] =
+        label_fit_text(
+            $heavyFont,
+            '999.99',
+            $idMaxWidth,
+            $idMaxHeight,
+            label_font_px(40),
+            label_font_px(9)
+        );
+
 
     [$idFontSize, $idBox] =
         label_fit_text(
             $heavyFont,
             $idText,
-            $width - label_px(12),
-            $height - $barTop - label_px(22),
-            label_font_px(40),
+            $idMaxWidth,
+            $idMaxHeight,
+            $idStandardSize,
             label_font_px(9)
         );
 
