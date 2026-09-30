@@ -2144,8 +2144,9 @@ try {
     |--------------------------------------------------------------------------
     */
 
+    // The number alone: the black bar already says what it is, and every
+    // character left off is size the number gets instead.
     $idText =
-        'ID ' .
         (
             $unitNo !== null &&
             function_exists(
@@ -2166,8 +2167,8 @@ try {
 
 
     /*
-     * As large as the bar allows, sized to its width and height: "ID 1" fills
-     * it and a unit code ("ID 1234.12") shrinks until it fits rather than
+     * As large as the bar allows, sized to its width and height: "1" fills
+     * it and a unit code ("1234.12") shrinks until it fits rather than
      * running off both ends white on white. Centred on its own ink.
      */
 

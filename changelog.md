@@ -11,10 +11,11 @@ only record. There is no git history to mine.
 ### Changed
 
 - **Labels: a bigger ID, sized to fit.** On both the portrait and the wide label the ID is now as
-  large as its bar allows: the size is found from the text's measured ink, so a short `ID 1`
-  fills the bar and a long unit code (`ID 12345.12`) comes out smaller instead of running off the
+  large as its bar allows: the size is found from the text's measured ink, so a short `1`
+  fills the bar and a long unit code (`12345.12`) comes out smaller instead of running off the
   edge. It is centred on its ink both ways. The bars themselves keep their size.
-- **Portrait label: `ID 12` instead of `ID: 12`**, matching the wide label.
+- **The ID bar prints the number alone** — `12`, `12.1` — on both labels, without `ID` or
+  `ID:` in front. The bar says what it is, and the number gets the room.
 - **Portrait label: the asset name is centred vertically** between the QR code and the ID bar,
   rather than hanging from a fixed line. At most three lines as before, fewer when a tall logo has
   pushed the QR code down.
