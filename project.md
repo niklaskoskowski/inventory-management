@@ -587,7 +587,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
 - Neither public page may include `lib/auth.php`: it does `require_once TRAX_AUTH_INCLUDE` at global
   scope in external-auth mode, which puts a scanned label behind the host login. They include
   `lib/public-session.php` and call `trax_public_session()` instead (`index.php:21`, `captcha.php:19`).
-- `label.php` / `label-w.php` take the same `u` and print `ID: 12.1`. Portrait appends the unit's
+- `label.php` / `label-w.php` take the same `u` and print `ID 12.1`, sized to fill the ID bar
+  (`label_fit_text()` / `wide_label_fit_text()`: largest size whose ink fits, then centred on it). Portrait appends the unit's
   own label to the asset name; wide puts it in the notes strip.
 - `ScanDrawer.extractRef()` is the client-side inverse and accepts all of `12.1`, `/12.1`,
   `?id=12&u=1` and the loose fallbacks. It is exported for testing.
@@ -683,8 +684,8 @@ Deliberate or simply true, and surprising either way. Each was checked against t
   the built-in PHP server ignores `.htaccess` entirely, so `/12.1` has never been exercised end to
   end. The `?id=&u=` form is verified and is what `index.php` falls back on.
 - **The portrait label can truncate a unit label.** It prints `<name> – <unit label>` in the name
-  area, which is capped by a y-coordinate at three wrapped lines (`label.php:1646-1712`); the
-  overflow is dropped silently, with no ellipsis. The wide label avoids this by putting the unit
+  area, capped at three wrapped lines (fewer when a tall logo pushes the QR down), centred between
+  the QR code and the ID bar; the overflow is dropped silently, with no ellipsis. The wide label avoids this by putting the unit
   label in the notes strip instead.
 - Sticky `thead th` in the asset table does not stick. Pre-existing, unrelated to the scroll fix.
 

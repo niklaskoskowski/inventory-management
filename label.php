@@ -388,6 +388,101 @@ try {
 
     /*
     |--------------------------------------------------------------------------
+    | Helper: ink box
+    |--------------------------------------------------------------------------
+    |
+    | Where the ink of $text lands relative to the point label_text() is given
+    | (x = left edge, y = baseline): [left, top, right, bottom]. top is
+    | negative — above the baseline. Measured, not assumed, so centring on it
+    | centres what is actually printed. The built-in face has no metrics, so
+    | it gets an approximation of its cap height.
+    */
+
+    function label_text_box(
+        $font,
+        float $size,
+        string $text
+    ): array {
+
+        if (
+            is_string($font) &&
+            is_file($font) &&
+            function_exists(
+                'imagettfbbox'
+            )
+        ) {
+
+            $box = imagettfbbox(
+                $size,
+                0,
+                $font,
+                $text
+            );
+
+
+            if ($box !== false) {
+
+                return [
+                    min($box[0], $box[6]),
+                    min($box[5], $box[7]),
+                    max($box[2], $box[4]),
+                    max($box[1], $box[3]),
+                ];
+            }
+        }
+
+
+        return [
+            0,
+            -(int)round($size * 0.75),
+            label_text_width($font, $size, $text),
+            0,
+        ];
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Helper: largest size that fits
+    |--------------------------------------------------------------------------
+    |
+    | Walks down from $maxSize in half-point steps until the ink of $text fits
+    | $maxWidth x $maxHeight, and returns [size, box]. A short ID fills the
+    | space; a long unit code ("12345.12") comes out smaller instead of
+    | running off the edge. $minSize is the floor either way.
+    */
+
+    function label_fit_text(
+        $font,
+        string $text,
+        int $maxWidth,
+        int $maxHeight,
+        float $maxSize,
+        float $minSize
+    ): array {
+
+        $size = $maxSize;
+        $box  = label_text_box($font, $size, $text);
+
+        while (
+            $size > $minSize &&
+            (
+                $box[2] - $box[0] > $maxWidth ||
+                $box[3] - $box[1] > $maxHeight
+            )
+        ) {
+
+            $size -= label_font_px(0.5);
+            $box   = label_text_box($font, $size, $text);
+        }
+
+
+        return [$size, $box];
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
     | Helper: text width
     |--------------------------------------------------------------------------
     */
@@ -1663,27 +1758,98 @@ try {
         );
 
 
-    $yStart =
-        label_px(240);
-
+    /*
+     * Centred vertically in the gap between the QR code and the ID bar, on
+     * the ink of the lines actually printed — one line sits in the middle,
+     * three fill the gap. At most three lines, as before, and fewer when a
+     * tall logo has pushed the QR down: the lines that do not fit are left
+     * off rather than printed over the bar.
+     */
 
     $lineHeight =
         label_px(23);
 
 
+    $gapTop =
+        $qrY +
+        $qrSize;
+
+
+    $barTop =
+        label_px(300);
+
+
+    $gapBottom =
+        $barTop;
+
+
+    $gapPad =
+        label_px(4);
+
+
+    $lines   = [];
+    $inkTop  = 0;
+    $inkBase = 0;
+
     foreach (
-        $wrapped
-        as $line
+        array_slice($wrapped, 0, 3)
+        as $index => $line
     ) {
 
+        $box =
+            label_text_box(
+                $font,
+                $fontSize,
+                $line
+            );
+
+
+        $top =
+            min(
+                $inkTop,
+                $index * $lineHeight + $box[1]
+            );
+
+
+        $bottom =
+            max(
+                $inkBase,
+                $index * $lineHeight + $box[3]
+            );
+
+
         if (
-            $yStart >
-            label_px(292)
+            $lines !== [] &&
+            $bottom - $top >
+            $gapBottom - $gapTop - 2 * $gapPad
         ) {
 
             break;
         }
 
+
+        $lines[] = $line;
+        $inkTop  = $top;
+        $inkBase = $bottom;
+    }
+
+
+    // The first baseline, placed so the block's ink is centred in the gap.
+    $yStart =
+        (int)round(
+            (
+                $gapTop +
+                $gapBottom -
+                ($inkBase - $inkTop)
+            ) / 2 -
+            $inkTop
+        );
+
+
+    foreach (
+        $lines
+        as $line
+    ) {
 
         $textWidth =
             label_text_width(
@@ -1727,7 +1893,7 @@ try {
     imagefilledrectangle(
         $image,
         0,
-        label_px(300),
+        $barTop,
         $width,
         $height,
         $black
@@ -1747,7 +1913,7 @@ try {
 
 
     $idText =
-        'ID: ' .
+        'ID ' .
         (
             $unitNo !== null &&
             function_exists(
@@ -1761,53 +1927,42 @@ try {
         );
 
 
-    $idFontSize =
-        label_font_px(20);
-
-
-    $idWidth =
-        label_text_width(
-            $heavyFont,
-            $idFontSize,
-            $idText
-        );
-
-
     /*
-     * "ID: 1234" already fills the bar edge to edge — a unit code
-     * ("ID: 12345.12") ran off both ends and printed white on white. Shrink
-     * until it fits rather than lose characters.
+     * As large as the bar allows: sized to the bar's width and height, so
+     * "ID 1" fills it and a unit code ("ID 12345.12") shrinks until it fits
+     * rather than running off both ends white on white. Then centred on its
+     * own ink, both ways.
      */
 
-    $idMaxWidth =
-        $width -
-        label_px(10);
-
-
-    while (
-        $idWidth > $idMaxWidth &&
-        $idFontSize > label_font_px(9)
-    ) {
-
-        $idFontSize -=
-            label_font_px(0.5);
-
-
-        $idWidth =
-            label_text_width(
-                $heavyFont,
-                $idFontSize,
-                $idText
-            );
-    }
+    [$idFontSize, $idBox] =
+        label_fit_text(
+            $heavyFont,
+            $idText,
+            $width - label_px(12),
+            $height - $barTop - label_px(16),
+            label_font_px(40),
+            label_font_px(9)
+        );
 
 
     $idX =
         (int)round(
             (
                 $width -
-                $idWidth
-            ) / 2
+                ($idBox[2] - $idBox[0])
+            ) / 2 -
+            $idBox[0]
+        );
+
+
+    $idY =
+        (int)round(
+            (
+                $barTop +
+                $height -
+                ($idBox[3] - $idBox[1])
+            ) / 2 -
+            $idBox[1]
         );
 
 
@@ -1816,7 +1971,7 @@ try {
         $heavyFont,
         $idFontSize,
         $idX,
-        label_px(335),
+        $idY,
         $white,
         $idText
     );

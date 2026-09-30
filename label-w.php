@@ -402,6 +402,96 @@ function wide_label_text_width(
 
 /*
 |--------------------------------------------------------------------------
+| Ink box helper
+|--------------------------------------------------------------------------
+|
+| Where the ink of $text lands relative to the point wide_label_text() is
+| given (x = left edge, y = baseline): [left, top, right, bottom], top
+| negative. Measured, so centring on it centres what is printed; the
+| built-in face gets an approximation of its cap height.
+*/
+
+function wide_label_text_box(
+    $font,
+    float $fontSize,
+    string $text
+): array {
+
+    if (
+        is_string($font) &&
+        is_file($font) &&
+        function_exists('imagettfbbox')
+    ) {
+
+        $box = imagettfbbox(
+            $fontSize,
+            0,
+            $font,
+            $text
+        );
+
+
+        if ($box !== false) {
+
+            return [
+                min($box[0], $box[6]),
+                min($box[5], $box[7]),
+                max($box[2], $box[4]),
+                max($box[1], $box[3]),
+            ];
+        }
+    }
+
+
+    return [
+        0,
+        -(int)round($fontSize * 0.75),
+        wide_label_text_width($font, $fontSize, $text),
+        0,
+    ];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Fit helper
+|--------------------------------------------------------------------------
+|
+| The largest size, from $maxSize down in half-point steps, at which the ink
+| of $text fits $maxWidth x $maxHeight. Returns [size, box].
+*/
+
+function wide_label_fit_text(
+    $font,
+    string $text,
+    int $maxWidth,
+    int $maxHeight,
+    float $maxSize,
+    float $minSize
+): array {
+
+    $size = $maxSize;
+    $box  = wide_label_text_box($font, $size, $text);
+
+    while (
+        $size > $minSize &&
+        (
+            $box[2] - $box[0] > $maxWidth ||
+            $box[3] - $box[1] > $maxHeight
+        )
+    ) {
+
+        $size -= wf(0.5);
+        $box   = wide_label_text_box($font, $size, $text);
+    }
+
+
+    return [$size, $box];
+}
+
+
+/*
+|--------------------------------------------------------------------------
 | Text output helper
 |--------------------------------------------------------------------------
 */
@@ -2021,8 +2111,13 @@ try {
     |--------------------------------------------------------------------------
     */
 
+    /*
+     * 36, not 30: the extra height goes to the ID, which is what gets read
+     * off a sticker from across the shelf. It still ends 9 px above the edge.
+     */
+
     $barHeight =
-        wp(30);
+        wp(36);
 
 
     $barY =
@@ -2069,68 +2164,57 @@ try {
         );
 
 
-    $fontSizeId =
-        wf(20);
-
-
     $idFont =
         wide_label_font(
             'bold'
         );
 
 
-    $textWidth =
-        wide_label_text_width(
-            $idFont,
-            $fontSizeId,
-            $idText
-        );
-
-
     /*
-     * The bar is only as wide as the QR, and "ID 1234" already fills it edge to
-     * edge — a unit code ("ID 1234.12") ran off both ends and printed white on
-     * white. Shrink until it fits rather than lose characters.
+     * As large as the bar allows, sized to its width and height: "ID 1" fills
+     * it and a unit code ("ID 1234.12") shrinks until it fits rather than
+     * running off both ends white on white. Centred on its own ink.
      */
 
-    $idMaxWidth =
-        $qrSize -
-        wp(10);
+    $barLeft =
+        $qrX + wp(3);
 
 
-    while (
-        $textWidth > $idMaxWidth &&
-        $fontSizeId > wf(9)
-    ) {
-
-        $fontSizeId -=
-            wf(0.5);
+    $barWidth =
+        $qrSize - wp(6);
 
 
-        $textWidth =
-            wide_label_text_width(
-                $idFont,
-                $fontSizeId,
-                $idText
-            );
-    }
+    [$fontSizeId, $idBox] =
+        wide_label_fit_text(
+            $idFont,
+            $idText,
+            $barWidth - wp(8),
+            $barHeight - wp(10),
+            wf(40),
+            wf(9)
+        );
 
 
     $textX =
         (int)round(
-            $qrX +
+            $barLeft +
             (
-                $qrSize -
-                $textWidth
-            ) /
-            2
+                $barWidth -
+                ($idBox[2] - $idBox[0])
+            ) / 2 -
+            $idBox[0]
         );
 
 
     $textY =
-        $barY +
-        $barHeight -
-        wp(5);
+        (int)round(
+            $barY +
+            (
+                $barHeight -
+                ($idBox[3] - $idBox[1])
+            ) / 2 -
+            $idBox[1]
+        );
 
 
     wide_label_text(
