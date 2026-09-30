@@ -1976,22 +1976,13 @@ try {
         );
 
 
-    /*
-     * Centred above a safe margin rather than in the whole bar: the bar runs
-     * to the cut edge of the sticker, and a number sitting dead centre ended
-     * up too close to it once the cut drifts. Lifts the number ~0.35 mm.
-     */
-
-    $idSafe =
-        label_px(8);
-
-
+    // Centred in the bar; the smaller standard size is what keeps it clear
+    // of the cut edge the bar runs into.
     $idY =
         (int)round(
             (
                 $barTop +
                 $height -
-                $idSafe -
                 ($idBox[3] - $idBox[1])
             ) / 2 -
             $idBox[1]
