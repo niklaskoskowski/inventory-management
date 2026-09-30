@@ -1940,7 +1940,7 @@ try {
             $heavyFont,
             $idText,
             $width - label_px(12),
-            $height - $barTop - label_px(16),
+            $height - $barTop - label_px(22),
             label_font_px(40),
             label_font_px(9)
         );

@@ -16,8 +16,8 @@ only record. There is no git history to mine.
   edge. It is centred on its ink both ways. The bars themselves keep their size.
 - **The ID bar prints the number alone** — `12`, `12.1` — on both labels, without `ID` or
   `ID:` in front. The bar says what it is, and the number gets the room.
-- **Portrait label: the number sits a little above the bar's centre** (~0.35 mm), leaving a
-  safe margin to the cut edge the bar runs into.
+- **Portrait label: the number sits a little above the bar's centre** (~0.35 mm) and is capped a
+  little below the bar's full height, leaving a safe margin to the cut edge the bar runs into.
 - **Portrait label: the asset name is centred vertically** between the QR code and the ID bar,
   rather than hanging from a fixed line. At most three lines as before, fewer when a tall logo has
   pushed the QR code down.
