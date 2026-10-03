@@ -23,7 +23,7 @@ only record. There is no git history to mine.
   blank to wrap round the cable, and the same label turned 180° as the back, both with their top
   towards the cable, so the ends stuck back to back read the right way up from either side. In the
   label drawer as a third card, in Settings → Labels as the **Cable** format, file name
-  `label-cable-<id>.png`.
+  `label-cable-<id>.png`. A thin centre mark across the blank middle shows where the cable goes.
 - **Labeled / unlabeled.** Every label — the asset's own and each unit's — can be ticked as on the
   gear: a **Labeled** switch in the label drawer and on every tile in Settings → Labels, which
   filters **All / Unlabeled / Labeled** (with counts). The filter also decides what the ZIP holds,

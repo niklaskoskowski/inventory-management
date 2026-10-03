@@ -6,8 +6,8 @@
  * 90 x 14 mm — three 30 mm thirds of one strip:
  *
  *   +----------------+----------------+----------------+
- *   |  front (label  |  empty: wraps  |  back (label   |
- *   |  top → centre) |  the cable     |  top → centre) |
+ *   |  front (label  |  wraps the     |  back (label   |
+ *   |  top → centre) |  cable   |     |  top → centre) |
  *   +----------------+----------------+----------------+
  *        30 mm             30 mm            30 mm
  *
@@ -16,6 +16,9 @@
  * portrait label (14 x 30 mm) exactly as label.php draws it, turned so that
  * its top faces the cable; the back is the front turned by 180 degrees, which
  * is what makes both faces read the right way up once folded.
+ *
+ * The middle third is blank apart from a thin centre mark, to line the strip
+ * up on the cable.
  *
  * Takes the same ?id=<n>&u=<unit> as label.php, at the same render scale.
  */
@@ -57,6 +60,21 @@ $back  = imagerotate($portrait, 90, $white);
 
 imagecopy($strip, $front, 0, 0, 0, 0, $third, $side);
 imagecopy($strip, $back, $third * 2, 0, 0, 0, $third, $side);
+
+// The centre mark: one thin black line across the strip, halfway along, to
+// lay against the cable so both ends come out the same length. 0.25 mm at
+// any render scale ($side is 14 mm).
+$black  = imagecolorallocate($strip, 0, 0, 0);
+$stroke = max(1, (int)round($side * 0.25 / 14));
+$centre = intdiv($third * 3, 2);
+imagefilledrectangle(
+    $strip,
+    $centre - intdiv($stroke, 2),
+    0,
+    $centre - intdiv($stroke, 2) + $stroke - 1,
+    $side - 1,
+    $black
+);
 
 imagedestroy($front);
 imagedestroy($back);
