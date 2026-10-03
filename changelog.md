@@ -37,6 +37,13 @@ only record. There is no git history to mine.
   `12.1-wide.png` before), and in the `Content-Disposition` the label endpoints now send, so
   "Save image as" offers the same name.
 
+### Fixed
+
+- **The portrait label's heading ("PROPERTY OF") is centred.** It started at a fixed x, which sat
+  it visibly right of centre and ran a longer heading ("EIGENTUM VON") off the edge; it is now
+  centred on its ink and shrinks to fit when too wide. The cable flag draws the portrait label, so
+  it is fixed there too.
+
 ## 2026-09-30
 
 ### Changed

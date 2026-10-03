@@ -1297,11 +1297,35 @@ try {
     |--------------------------------------------------------------------------
     */
 
+    /*
+     * Centred on its own ink, at most the size it always had. It used to
+     * start at a fixed x, which sat "PROPERTY OF" visibly off-centre and ran
+     * a longer heading ("EIGENTUM VON") off the right edge; a heading too
+     * wide for the label now shrinks until it fits.
+     */
+
+    [$headingSize, $headingBox] =
+        label_fit_text(
+            $font,
+            $labelHeading,
+            $width - label_px(12),
+            label_px(40),
+            label_font_px(15),
+            label_font_px(8)
+        );
+
+
     label_text(
         $image,
         $font,
-        label_font_px(15),
-        label_px(15),
+        $headingSize,
+        (int)round(
+            (
+                $width -
+                ($headingBox[2] - $headingBox[0])
+            ) / 2 -
+            $headingBox[0]
+        ),
         label_px(35),
         $black,
         $labelHeading
