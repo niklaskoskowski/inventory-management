@@ -4,6 +4,7 @@ import {
 } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney, formatDateTime } from '../lib/format.js';
+import { assetLabelFiles, downloadLabelZip } from '../lib/labels.js';
 import {
   BLANK_RULE, daysLabel, formatPercent, serviceFactorOf, tierFor,
 } from '../lib/rental.js';
@@ -631,6 +632,39 @@ export default {
       }
     };
 
+    // --- Labels ---
+
+    /** How many label files "All labels" would pack: both formats, assets and units. */
+    const labelFileCount = computed(() => state.assets.reduce(
+      (sum, asset) => sum + 2 * (1 + (asset.units?.length || 0)),
+      0,
+    ));
+
+    /**
+     * Every label in the inventory as one ZIP: both formats of every asset,
+     * and of every unit an asset keeps. `labelZip` is {done, total} while it
+     * runs, so the button can say how far it has got.
+     */
+    const labelZip = ref(null);
+    const downloadAllLabels = async () => {
+      if (labelZip.value) return;
+      const files = state.assets.flatMap(assetLabelFiles);
+      if (!files.length) {
+        toast('There are no assets to label yet.', 'warning');
+        return;
+      }
+      labelZip.value = { done: 0, total: files.length };
+      try {
+        await downloadLabelZip(files, 'labels-all.zip', (done, total) => {
+          labelZip.value = { done, total };
+        });
+      } catch (error) {
+        toast(`Could not build the label archive: ${error.message}`, 'danger', 8000);
+      } finally {
+        labelZip.value = null;
+      }
+    };
+
     // --- Terms & conditions ---
     // Not part of the settings draft: every save publishes a VERSION, which
     // signatures point at, so it has its own action (terms.update), its own
@@ -868,6 +902,7 @@ export default {
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
+      labelFileCount, labelZip, downloadAllLabels,
       state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
       saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
@@ -1531,6 +1566,27 @@ export default {
             <p class="small text-secondary mt-2 mb-0">
               {{ draft.branding.brandColor }} — used on labels and customer-facing pages.
             </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="trax-card">
+          <div class="trax-card-pad d-flex align-items-center gap-3 flex-wrap">
+            <div class="flex-grow-1">
+              <h2 class="trax-page-title">Labels</h2>
+              <p class="trax-page-sub mb-0">
+                Every label in the inventory as one ZIP: portrait and wide, for every asset and
+                every unit ({{ labelFileCount }} files). Rendered with the saved branding —
+                save changes above first.
+              </p>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary"
+                    :disabled="!!labelZip || !state.assets.length" @click="downloadAllLabels()">
+              <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
+              <i v-else class="bi bi-file-earmark-zip"></i>
+              {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total : 'Download all labels' }}
+            </button>
           </div>
         </div>
       </div>

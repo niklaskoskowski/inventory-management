@@ -10,7 +10,7 @@ only record. There is no git history to mine.
 
 ### Added
 
-- **All labels at once.** Inventory has an **All labels** button: both formats of every asset, and
+- **All labels at once.** **Settings → Branding → Labels** has a **Download all labels** button: both formats of every asset, and
   of every unit an asset keeps, as one ZIP (`labels-all.zip`). Labels render six at a time and the
   button counts them off (`Labels 12 / 48`). Shared with the label drawer's "Download all unit
   labels" through `app/lib/labels.js`.
