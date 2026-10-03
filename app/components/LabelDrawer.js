@@ -1,6 +1,6 @@
 import { computed, ref, watch } from 'vue';
 import { state, getAsset, toast } from '../store.js';
-import { buildZip } from '../lib/zip.js';
+import { labelCode, labelFiles, downloadLabelZip } from '../lib/labels.js';
 import Drawer from './ui/Drawer.js';
 
 /** Preview and download the two server-rendered label formats. */
@@ -27,8 +27,7 @@ export default {
     watch(hasUnits, (has) => { if (!has) selected.value = ''; });
 
     const unitNo = computed(() => (selected.value ? Number(selected.value) : null));
-    const suffix = computed(() => (unitNo.value ? `&u=${unitNo.value}` : ''));
-    const code = computed(() => (unitNo.value ? `${props.assetId}.${unitNo.value}` : String(props.assetId)));
+    const code = computed(() => labelCode(props.assetId, unitNo.value));
 
     const unitOption = (unit) => {
       const label = unit.label ? ` · ${unit.label}` : '';
@@ -36,10 +35,13 @@ export default {
       return `${props.assetId}.${unit.no}${label}${oos}`;
     };
 
-    // Note the plain `?` — the old code built "label.php/?id=" with a stray
-    // slash, which only worked because of how that host rewrites PATH_INFO.
-    const portrait = computed(() => `label.php?id=${props.assetId}${suffix.value}`);
-    const wide = computed(() => `label-w.php?id=${props.assetId}${suffix.value}`);
+    // URL and download name of each format, ID at the end of the name:
+    // `label-12.png`, `label-wide-12.1.png`.
+    const files = computed(() => labelFiles(props.assetId, unitNo.value));
+    const portrait = computed(() => files.value[0].url);
+    const wide = computed(() => files.value[1].url);
+    const portraitName = computed(() => files.value[0].name);
+    const wideName = computed(() => files.value[1].name);
 
     const printLabel = (url) => {
       const frame = document.createElement('iframe');
@@ -101,37 +103,17 @@ export default {
       });
     };
 
-    // Same-origin, so the session cookie rides along and the PNG comes back
-    // rendered for this asset. The bytes go into the archive as they are.
-    const labelBytes = async (url) => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return new Uint8Array(await response.arrayBuffer());
-    };
-
     /**
      * The same shelf as printAllUnits(), but as files: both label formats of
-     * every unit, packed into one ZIP. One archive rather than one download per
-     * PNG because a browser blocks or prompts on the second programmatic
-     * download onwards.
+     * every unit, packed into one ZIP.
      */
     const downloadingAll = ref(false);
     const downloadAllUnits = async () => {
       if (!hasUnits.value || downloadingAll.value) return;
       downloadingAll.value = true;
       try {
-        const wanted = units.value.flatMap((unit) => [
-          { name: `${props.assetId}.${unit.no}.png`, url: `label.php?id=${props.assetId}&u=${unit.no}` },
-          { name: `${props.assetId}.${unit.no}-wide.png`, url: `label-w.php?id=${props.assetId}&u=${unit.no}` },
-        ]);
-        // In parallel: a shelf of twelve units is twenty-four round trips, and
-        // in series that is a visibly slow button.
-        const entries = await Promise.all(wanted.map(async (file) => ({
-          name: file.name,
-          data: await labelBytes(file.url),
-        })));
-
-        saveBlob(buildZip(entries), `labels-${props.assetId}.zip`);
+        const wanted = units.value.flatMap((unit) => labelFiles(props.assetId, unit.no));
+        await downloadLabelZip(wanted, `labels-${props.assetId}.zip`);
       } catch (error) {
         toast(`Could not build the label archive: ${error.message}`, 'danger', 8000);
       } finally {
@@ -139,23 +121,9 @@ export default {
       }
     };
 
-    // A Blob has no address a download attribute can point at, so it gets a
-    // temporary one. Revoked afterwards, or the bytes stay pinned for the life
-    // of the document.
-    const saveBlob = (blob, filename) => {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    };
-
     return {
       asset, appName, units, hasUnits, selected, code, unitOption,
-      portrait, wide, printLabel, printAllUnits, downloadingAll,
+      portrait, wide, portraitName, wideName, printLabel, printAllUnits, downloadingAll,
       downloadAllUnits, emit,
     };
   },
@@ -186,7 +154,7 @@ export default {
             <img :src="portrait" alt="Portrait label preview"
                  class="img-fluid bg-white rounded" style="max-height:280px">
             <div class="d-grid gap-1 mt-2">
-              <a class="btn btn-sm btn-outline-secondary" :href="portrait" download>
+              <a class="btn btn-sm btn-outline-secondary" :href="portrait" :download="portraitName">
                 <i class="bi bi-download"></i> Download
               </a>
               <button class="btn btn-sm btn-outline-secondary" @click="printLabel(portrait)">
@@ -202,7 +170,7 @@ export default {
             <img :src="wide" alt="Wide label preview"
                  class="img-fluid bg-white rounded" style="max-height:280px">
             <div class="d-grid gap-1 mt-2">
-              <a class="btn btn-sm btn-outline-secondary" :href="wide" download>
+              <a class="btn btn-sm btn-outline-secondary" :href="wide" :download="wideName">
                 <i class="bi bi-download"></i> Download
               </a>
               <button class="btn btn-sm btn-outline-secondary" @click="printLabel(wide)">

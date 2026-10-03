@@ -2259,6 +2259,19 @@ try {
     );
 
 
+    // The file name a browser saves it under: the ID at the end, the same
+    // name the admin's download buttons and label ZIPs use.
+    header(
+        'Content-Disposition: inline; filename="label-wide-' .
+        (
+            $unitNo !== null
+                ? $id . '.' . $unitNo
+                : $id
+        ) .
+        '.png"'
+    );
+
+
     /*
      * Handy for checking what the server produced.
      */

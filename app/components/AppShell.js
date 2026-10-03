@@ -4,6 +4,7 @@ import {
   selectedItemIds, selectedUnitCount, sets, toast,
 } from '../store.js';
 import * as api from '../api.js';
+import { assetLabelFiles, downloadLabelZip } from '../lib/labels.js';
 import ToastHost from './ui/ToastHost.js';
 import Lightbox from './ui/Lightbox.js';
 import FilterBar from './FilterBar.js';
@@ -134,6 +135,31 @@ export default {
       return null;
     });
 
+    /**
+     * Every label in the inventory as one ZIP: both formats of every asset,
+     * and of every unit an asset keeps. `labelZip` is {done, total} while it
+     * runs, so the button can say how far it has got.
+     */
+    const labelZip = ref(null);
+    const downloadAllLabels = async () => {
+      if (labelZip.value) return;
+      const files = state.assets.flatMap(assetLabelFiles);
+      if (!files.length) {
+        toast('There are no assets to label yet.', 'warning');
+        return;
+      }
+      labelZip.value = { done: 0, total: files.length };
+      try {
+        await downloadLabelZip(files, 'labels-all.zip', (done, total) => {
+          labelZip.value = { done, total };
+        });
+      } catch (error) {
+        toast(`Could not build the label archive: ${error.message}`, 'danger', 8000);
+      } finally {
+        labelZip.value = null;
+      }
+    };
+
     const openLabel = () => {
       if (labelTarget.value) {
         labelId.value = labelTarget.value;
@@ -226,6 +252,7 @@ export default {
       showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName,
       selectedItemIds, selectedUnitCount, account, loadAccount, csrf: api.csrf,
       openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, openLabel, labelTarget,
+      labelZip, downloadAllLabels,
       showEventSheet, eventSheetId, openEvent,
       // Not used by the template — exposed so the shortcut table can be driven
       // with synthetic events instead of a browser.
@@ -365,6 +392,14 @@ export default {
                   <button v-if="state.view === 'kits'" class="btn btn-sm btn-outline-primary"
                           @click="openSetEditor(null)">
                     <i class="bi bi-plus-lg"></i> New kit
+                  </button>
+                  <button v-if="state.view === 'inventory'" class="btn btn-sm btn-outline-secondary"
+                          :disabled="!!labelZip || !state.assets.length"
+                          title="Both label formats of every asset and unit, as one ZIP"
+                          @click="downloadAllLabels()">
+                    <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
+                    <i v-else class="bi bi-file-earmark-zip"></i>
+                    {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total : 'All labels' }}
                   </button>
                 </div>
 

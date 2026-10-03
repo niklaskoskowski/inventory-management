@@ -609,7 +609,8 @@ so it is served by `index.php` as the `DirectoryIndex`.)
   (interval conflicts and the calendar timeline), `insights.js` (utilisation maths), `rental.js`
   (hire rates: resolution, the discount ladder, `rentalOfLines()`), `events.js` (jobs: the
   configurable workflow, and what is booked on one), `inspection.js` (test rules,
-  per-piece histories and the derived due state), `pdf.js` (jsPDF
+  per-piece histories and the derived due state), `labels.js` (label file names — `label-<id>.png`,
+  `label-wide-<id>.png`, ID last — and the ZIP download, six renders at a time), `pdf.js` (jsPDF
   is a UMD bundle, so it is injected as a `<script>` on demand and read off `window` — ~400 KB kept
   out of the initial load).
 - `app/components/` — `AppShell` (nav, drawers, layout), `FilterBar`, `AssetTable` (desktop) /

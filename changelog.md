@@ -6,6 +6,22 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-10-03
+
+### Added
+
+- **All labels at once.** Inventory has an **All labels** button: both formats of every asset, and
+  of every unit an asset keeps, as one ZIP (`labels-all.zip`). Labels render six at a time and the
+  button counts them off (`Labels 12 / 48`). Shared with the label drawer's "Download all unit
+  labels" through `app/lib/labels.js`.
+
+### Changed
+
+- **Label file names end in the ID**: `label-12.png` and `label-wide-12.png`, `label-12.1.png` for
+  a unit — from the drawer's download buttons, inside every label ZIP (which used `12.1.png` /
+  `12.1-wide.png` before), and in the `Content-Disposition` the label endpoints now send, so
+  "Save image as" offers the same name.
+
 ## 2026-09-30
 
 ### Changed
