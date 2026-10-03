@@ -14,26 +14,33 @@ export function labelCode(assetId, unitNo = null) {
   return unitNo ? `${assetId}.${unitNo}` : String(assetId);
 }
 
-/** The two formats of one label: [{format, name, url}]. */
+/**
+ * The three formats of one label: [{format, name, url}], always in this order —
+ * portrait (14 x 30 mm), wide (30 x 14 mm) and the cable flag (90 x 14 mm:
+ * front, 30 mm round the cable, back).
+ */
 export function labelFiles(assetId, unitNo = null) {
   const code = labelCode(assetId, unitNo);
   const query = `id=${assetId}${unitNo ? `&u=${unitNo}` : ''}`;
   return [
     { format: 'portrait', name: `label-${code}.png`, url: `label.php?${query}` },
     { format: 'wide', name: `label-wide-${code}.png`, url: `label-w.php?${query}` },
+    { format: 'cable', name: `label-cable-${code}.png`, url: `label-c.php?${query}` },
   ];
 }
 
 /**
- * Every label an asset has: its own, and one per unit when it keeps units —
- * the same set the label drawer offers one by one.
+ * Every label an asset has, as items: the asset's own and one per unit, each
+ * with whether it is already on the gear (`labeled`).
  */
-export function assetLabelFiles(asset) {
-  const files = labelFiles(asset.id);
-  for (const unit of asset.units || []) {
-    files.push(...labelFiles(asset.id, unit.no));
-  }
-  return files;
+export function assetLabelItems(asset) {
+  return [null, ...(asset.units || [])].map((unit) => ({
+    assetId: asset.id,
+    unitNo: unit?.no ?? null,
+    code: labelCode(asset.id, unit?.no ?? null),
+    title: unit?.label ? `${asset.name} – ${unit.label}` : asset.name,
+    labeled: Boolean(unit ? unit.labeled : asset.labeled),
+  }));
 }
 
 // Same-origin, so the session cookie rides along and the PNG comes back

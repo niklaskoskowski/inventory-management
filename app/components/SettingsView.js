@@ -1,10 +1,10 @@
 import { ref, computed, watch } from 'vue';
 import {
-  state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl,
+  state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl, markLabeled,
 } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney, formatDateTime } from '../lib/format.js';
-import { assetLabelFiles, downloadLabelZip, labelCode, labelFiles } from '../lib/labels.js';
+import { assetLabelItems, downloadLabelZip, labelFiles } from '../lib/labels.js';
 import {
   BLANK_RULE, daysLabel, formatPercent, serviceFactorOf, tierFor,
 } from '../lib/rental.js';
@@ -43,6 +43,14 @@ const LABEL_FORMATS = [
   { id: 'all', label: 'All' },
   { id: 'portrait', label: 'Portrait' },
   { id: 'wide', label: 'Wide' },
+  { id: 'cable', label: 'Cable' },
+];
+
+/** Which labels Settings → Labels lists: all, or by whether they are on the gear. */
+const LABEL_STATES = [
+  { id: 'all', label: 'All' },
+  { id: 'unlabeled', label: 'Unlabeled' },
+  { id: 'labeled', label: 'Labeled' },
 ];
 
 /** The two ways in. Mirrors TRAX_AUTH_MODE in lib/config.php. */
@@ -644,54 +652,79 @@ export default {
 
     /** Which formats the preview shows and the ZIP holds. */
     const labelFormat = ref('all');
+    /** Which labels: all, only those still to stick on, or only those that are. */
+    const labelState = ref('all');
 
     const wantsFormat = (format) => labelFormat.value === 'all' || labelFormat.value === format;
 
-    const chosenLabelFiles = computed(() => state.assets
-      .flatMap(assetLabelFiles)
+    /** Every label in the inventory (asset and unit), filtered by labelState. */
+    const labelItems = computed(() => state.assets
+      .flatMap(assetLabelItems)
+      .filter((item) => labelState.value === 'all'
+        || (labelState.value === 'labeled') === item.labeled));
+
+    const labelCounts = computed(() => {
+      const all = state.assets.flatMap(assetLabelItems);
+      const labeled = all.filter((item) => item.labeled).length;
+      return { all: all.length, labeled, unlabeled: all.length - labeled };
+    });
+
+    const chosenLabelFiles = computed(() => labelItems.value
+      .flatMap((item) => labelFiles(item.assetId, item.unitNo))
       .filter((file) => wantsFormat(file.format)));
 
     const labelFileCount = computed(() => chosenLabelFiles.value.length);
 
     /**
-     * The live preview: every label the ZIP would hold, as the server renders
-     * it now. `v` is ignored by the label endpoints; it changes with every
-     * write (state.rev), so a saved branding change, a renamed asset or a new
-     * unit re-renders the tiles instead of showing the browser's cached PNG.
-     * The images load lazily, so a long inventory costs only what is scrolled to.
+     * The live preview: the chosen labels, as the server renders them now.
+     * `v` is ignored by the label endpoints; it changes with every write
+     * (state.rev), so a saved branding change, a renamed asset or a new unit
+     * re-renders the tiles instead of showing the browser's cached PNG. The
+     * images load lazily, so a long inventory costs only what is scrolled to.
      */
-    const labelPreviews = computed(() => state.assets.flatMap((asset) => [
-      null,
-      ...(asset.units || []),
-    ].map((unit) => {
-      const unitNo = unit?.no ?? null;
-      const [portrait, wide] = labelFiles(asset.id, unitNo);
+    const labelPreviews = computed(() => labelItems.value.map((item) => {
+      const [portrait, wide, cable] = labelFiles(item.assetId, item.unitNo);
       const v = `&v=${state.rev}`;
       return {
-        key: `${asset.id}.${unitNo ?? ''}`,
-        code: labelCode(asset.id, unitNo),
-        title: unit?.label ? `${asset.name} – ${unit.label}` : asset.name,
+        ...item,
+        key: `${item.assetId}.${item.unitNo ?? ''}`,
         portrait: wantsFormat('portrait') ? portrait.url + v : null,
         wide: wantsFormat('wide') ? wide.url + v : null,
+        cable: wantsFormat('cable') ? cable.url + v : null,
       };
-    })));
+    }));
+
+    /** Ticks a label as on the gear, or takes the tick off again. */
+    const labelBusy = ref('');
+    const toggleLabeled = async (item) => {
+      labelBusy.value = item.code;
+      try {
+        await markLabeled(item.assetId, item.unitNo, !item.labeled);
+      } catch {
+        /* toast already raised by the store */
+      } finally {
+        labelBusy.value = '';
+      }
+    };
 
     /**
-     * The chosen labels as one ZIP: `labels-all.zip`, `labels-portrait.zip`
-     * or `labels-wide.zip`. `labelZip` is {done, total} while it runs, so the
-     * button can say how far it has got.
+     * The chosen labels as one ZIP, named after the choice: `labels-all.zip`,
+     * `labels-cable-unlabeled.zip`. `labelZip` is {done, total} while it runs,
+     * so the button can say how far it has got.
      */
     const labelZip = ref(null);
     const downloadAllLabels = async () => {
       if (labelZip.value) return;
       const files = chosenLabelFiles.value;
       if (!files.length) {
-        toast('There are no assets to label yet.', 'warning');
+        toast('There are no labels to download for this choice.', 'warning');
         return;
       }
+      const name = ['labels', labelFormat.value, labelState.value === 'all' ? '' : labelState.value]
+        .filter(Boolean).join('-');
       labelZip.value = { done: 0, total: files.length };
       try {
-        await downloadLabelZip(files, `labels-${labelFormat.value}.zip`, (done, total) => {
+        await downloadLabelZip(files, `${name}.zip`, (done, total) => {
           labelZip.value = { done, total };
         });
       } catch (error) {
@@ -938,7 +971,8 @@ export default {
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
-      LABEL_FORMATS, labelFormat, labelFileCount, labelZip, downloadAllLabels, labelPreviews,
+      LABEL_FORMATS, LABEL_STATES, labelFormat, labelState, labelCounts, labelFileCount,
+      labelZip, downloadAllLabels, labelPreviews, labelBusy, toggleLabeled,
       state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
       saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
@@ -1608,38 +1642,51 @@ export default {
     </div>
 
     <!-- Labels ------------------------------------------------------------ -->
-    <!-- Not part of the settings draft: nothing here is saved. It shows what
-         the label endpoints render now, and packs it into a ZIP. -->
+    <!-- Not part of the settings draft: nothing here is saved through the
+         save bar. It shows what the label endpoints render now, ticks labels
+         off as they go on the gear (label.mark), and packs a ZIP. -->
     <div v-else-if="section === 'labels'" class="row g-3">
       <div class="col-12">
         <div class="trax-card">
-          <div class="trax-card-pad d-flex align-items-center gap-3 flex-wrap">
-            <div class="flex-grow-1">
-              <h2 class="trax-page-title">Labels</h2>
-              <p class="trax-page-sub mb-0">
-                Every label in the inventory, for every asset and every unit, as the server renders
-                it with the saved branding. Download them as one ZIP ({{ labelFileCount }} files).
-              </p>
-            </div>
-            <div class="btn-group btn-group-sm" role="group" aria-label="Label format">
-              <button v-for="option in LABEL_FORMATS" :key="option.id" type="button"
-                      class="btn btn-outline-secondary" :class="{ active: labelFormat === option.id }"
-                      :aria-pressed="labelFormat === option.id ? 'true' : 'false'"
-                      @click="labelFormat = option.id">
-                {{ option.label }}
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Labels</h2>
+            <p class="trax-page-sub mb-3">
+              Every label in the inventory, for every asset and every unit, as the server renders
+              it with the saved branding. Tick a label once it is on the gear; filter by that to
+              print only what is still missing.
+            </p>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <div class="btn-group btn-group-sm" role="group" aria-label="Label format">
+                <button v-for="option in LABEL_FORMATS" :key="option.id" type="button"
+                        class="btn btn-outline-secondary" :class="{ active: labelFormat === option.id }"
+                        :aria-pressed="labelFormat === option.id ? 'true' : 'false'"
+                        @click="labelFormat = option.id">
+                  {{ option.label }}
+                </button>
+              </div>
+              <div class="btn-group btn-group-sm" role="group" aria-label="Labeled or not">
+                <button v-for="option in LABEL_STATES" :key="option.id" type="button"
+                        class="btn btn-outline-secondary" :class="{ active: labelState === option.id }"
+                        :aria-pressed="labelState === option.id ? 'true' : 'false'"
+                        @click="labelState = option.id">
+                  {{ option.label }} <span class="text-secondary">{{ labelCounts[option.id] }}</span>
+                </button>
+              </div>
+              <span class="flex-grow-1"></span>
+              <button class="btn btn-sm btn-outline-secondary"
+                      :disabled="!!labelZip || !labelFileCount" @click="downloadAllLabels()">
+                <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
+                <i v-else class="bi bi-file-earmark-zip"></i>
+                {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total
+                  : 'Download ZIP (' + labelFileCount + ')' }}
               </button>
             </div>
-            <button class="btn btn-sm btn-outline-secondary"
-                    :disabled="!!labelZip || !labelFileCount" @click="downloadAllLabels()">
-              <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
-              <i v-else class="bi bi-file-earmark-zip"></i>
-              {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total : 'Download ZIP' }}
-            </button>
           </div>
           <div v-if="labelPreviews.length" class="trax-card-pad pt-0">
             <div class="trax-label-grid" :class="'trax-label-grid-' + labelFormat">
-              <figure v-for="label in labelPreviews" :key="label.key" class="trax-label-tile">
-                <div class="trax-label-pair">
+              <figure v-for="label in labelPreviews" :key="label.key" class="trax-label-tile"
+                      :class="{ 'trax-label-done': label.labeled }">
+                <div v-if="label.portrait || label.wide" class="trax-label-pair">
                   <a v-if="label.portrait" :href="label.portrait" target="_blank" rel="noopener"
                      :aria-label="'Portrait label ' + label.code">
                     <img class="trax-label-portrait" :src="label.portrait" alt="" loading="lazy">
@@ -1649,14 +1696,30 @@ export default {
                     <img class="trax-label-wide" :src="label.wide" alt="" loading="lazy">
                   </a>
                 </div>
-                <figcaption class="small text-truncate" :title="label.title">
-                  <span class="font-monospace">{{ label.code }}</span>
-                  <span class="text-secondary"> · {{ label.title }}</span>
+                <a v-if="label.cable" :href="label.cable" target="_blank" rel="noopener"
+                   :aria-label="'Cable flag ' + label.code">
+                  <img class="trax-label-cable" :src="label.cable" alt="" loading="lazy">
+                </a>
+                <figcaption class="d-flex align-items-center gap-2 small">
+                  <span class="text-truncate flex-grow-1" :title="label.title">
+                    <span class="font-monospace">{{ label.code }}</span>
+                    <span class="text-secondary"> · {{ label.title }}</span>
+                  </span>
+                  <span class="form-check form-switch mb-0" :title="'Label ' + label.code + ' is on the gear'">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                           :id="'labeled-' + label.key" :checked="label.labeled"
+                           :disabled="labelBusy === label.code" @change="toggleLabeled(label)">
+                    <label class="form-check-label text-secondary" :for="'labeled-' + label.key">
+                      Labeled
+                    </label>
+                  </span>
                 </figcaption>
               </figure>
             </div>
           </div>
-          <div v-else class="trax-card-pad pt-0 small text-secondary">No assets to label yet.</div>
+          <div v-else class="trax-card-pad pt-0 small text-secondary">
+            {{ state.assets.length ? 'No labels match this filter.' : 'No assets to label yet.' }}
+          </div>
         </div>
       </div>
     </div>

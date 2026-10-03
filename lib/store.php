@@ -326,6 +326,9 @@ function trax_normalize_unit(mixed $raw): ?array
         // Taken off the shelf by hand: broken, lent to the workshop, whatever.
         // It stays part of the asset and keeps its number.
         'outOfService'  => !empty($raw['outOfService']),
+        // Whether this piece carries its printed label yet. Set only through
+        // label.mark; apply_units_patch() carries it over from what is stored.
+        'labeled'       => !empty($raw['labeled']),
         'note'          => trax_str($raw['note'] ?? '', 500),
         // What THIS one costs to hire, when it differs from the asset's rate.
         // INHERIT on every unit written before rental pricing existed.
@@ -498,6 +501,9 @@ function trax_normalize_asset(mixed $raw, int $fallbackId = 0): array
         'warrantyUntil' => trax_date($raw['warrantyUntil'] ?? null),
         'condition'     => trax_enum($raw['condition'] ?? null, TRAX_CONDITIONS, 'GOOD'),
         'photo'         => trax_photo_name($raw['photo'] ?? null),
+        // Whether the asset itself carries its printed label yet. Set only
+        // through label.mark, never through an asset patch.
+        'labeled'       => !empty($raw['labeled']),
         'tags'          => $tags,
         // Dated condition photos of this one piece of gear, oldest first.
         'conditionLog'  => $conditionLog,

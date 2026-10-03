@@ -38,6 +38,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `terms.php` | Public terms & conditions: the version in force, or `?v=N` for one archived version. |
 | `captcha.php` | GD-rendered captcha PNG for the public report form; the code lives in the session. |
 | `label.php`, `label-w.php` | GD-rendered PNG labels, portrait 14×30 mm and wide 30×14 mm. |
+| `label-c.php` | Cable flag, 90×14 mm: the portrait label twice (front, and back turned 180°), tops facing a blank 30 mm middle that wraps the cable. Gets the portrait image from `label.php` by defining `TRAX_LABEL_EMBED` before requiring it. |
 | `download.php` | The only read path into `documents/`; that directory denies the web outright. `?inline=1` switches the response to `Content-Disposition: inline` for PDFs and images so the app can preview them. |
 | `cron.php` | Reminder cron. CLI (`php cron.php [--dry-run]`) or `GET ?secret=<cron.secret>`. |
 | `login.php`, `logout.php` | Session in, session out. Both require the CSRF token. |
@@ -79,7 +80,8 @@ committing. Add a key only together with its normaliser.
 | `status` | `FREE` \| `RSVD` \| `UNAV` \| `LOCK` (`lib/config.php:356`) |
 | `notes`, `category`, `location` | free text; category/location ≤ 120 |
 | `quantity` | int 1..`TRAX_MAX_QUANTITY` (9999); forced to 1 for a `SET`; **derived** from `units` when that list is non-empty |
-| `units` | `[{no, label, serial, condition, price, purchasedAt, warrantyUntil, outOfService, note}]`, `ITEM` only, always `[]` for a `SET` — see [Units](#units-per-unit-tracking) |
+| `units` | `[{no, label, serial, condition, price, purchasedAt, warrantyUntil, outOfService, labeled, note}]`, `ITEM` only, always `[]` for a `SET` — see [Units](#units-per-unit-tracking) |
+| `labeled` | bool — the asset's own printed label is on the gear. Units carry their own. Written only by `label.mark`; `apply_units_patch()` carries each unit's value over by number, so an asset save never resets it. |
 | `kind` | `ITEM` \| `SET` (`lib/config.php:358`) |
 | `members` | `[{assetId, qty}]`, sets only; legacy flat `[3,4,5]` still accepted |
 | `serial`, `supplier` | ≤ 120 |

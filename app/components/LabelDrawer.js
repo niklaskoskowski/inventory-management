@@ -1,5 +1,5 @@
 import { computed, ref, watch } from 'vue';
-import { state, getAsset, toast } from '../store.js';
+import { state, getAsset, toast, markLabeled } from '../store.js';
 import { labelCode, labelFiles, downloadLabelZip } from '../lib/labels.js';
 import Drawer from './ui/Drawer.js';
 
@@ -40,8 +40,28 @@ export default {
     const files = computed(() => labelFiles(props.assetId, unitNo.value));
     const portrait = computed(() => files.value[0].url);
     const wide = computed(() => files.value[1].url);
+    const cable = computed(() => files.value[2].url);
     const portraitName = computed(() => files.value[0].name);
     const wideName = computed(() => files.value[1].name);
+    const cableName = computed(() => files.value[2].name);
+
+    /** Whether the label picked above — the asset's or a unit's — is on the gear. */
+    const labeled = computed(() => {
+      if (!asset.value) return false;
+      if (unitNo.value === null) return Boolean(asset.value.labeled);
+      return Boolean(units.value.find((unit) => unit.no === unitNo.value)?.labeled);
+    });
+    const labeledBusy = ref(false);
+    const toggleLabeled = async () => {
+      labeledBusy.value = true;
+      try {
+        await markLabeled(props.assetId, unitNo.value, !labeled.value);
+      } catch {
+        /* toast already raised by the store */
+      } finally {
+        labeledBusy.value = false;
+      }
+    };
 
     const printLabel = (url) => {
       const frame = document.createElement('iframe');
@@ -123,7 +143,8 @@ export default {
 
     return {
       asset, appName, units, hasUnits, selected, code, unitOption,
-      portrait, wide, portraitName, wideName, printLabel, printAllUnits, downloadingAll,
+      portrait, wide, cable, portraitName, wideName, cableName, printLabel,
+      labeled, labeledBusy, toggleLabeled, printAllUnits, downloadingAll,
       downloadAllUnits, emit,
     };
   },
@@ -179,6 +200,33 @@ export default {
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="col-12 mt-3">
+        <div class="trax-card p-2 text-center">
+          <div class="small text-secondary mb-2">
+            Cable flag · 90 × 14 mm — the middle 30 mm wraps the cable, the ends meet back to back
+          </div>
+          <img :src="cable" alt="Cable flag label preview" class="img-fluid bg-white rounded">
+          <div class="d-flex gap-1 mt-2 justify-content-center">
+            <a class="btn btn-sm btn-outline-secondary" :href="cable" :download="cableName">
+              <i class="bi bi-download"></i> Download
+            </a>
+            <button class="btn btn-sm btn-outline-secondary" @click="printLabel(cable)">
+              <i class="bi bi-printer"></i> Print
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Whether this label is on the gear yet. Per label: the product label
+           and every unit's label each have their own. -->
+      <div class="form-check form-switch mt-3">
+        <input class="form-check-input" type="checkbox" role="switch" id="label-labeled"
+               :checked="labeled" :disabled="labeledBusy" @change="toggleLabeled">
+        <label class="form-check-label small" for="label-labeled">
+          Labeled — the {{ code }} label is on the gear
+        </label>
       </div>
 
       <div v-if="hasUnits" class="d-grid gap-2 mt-3">

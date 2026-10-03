@@ -880,6 +880,13 @@ export async function signBooking(bookingId, name, blob, termsVersion = null) {
   }
 }
 
+// --- Labels ------------------------------------------------------------------
+
+/** Marks the printed label of an asset — or of one unit — as on the gear, or not. */
+export async function markLabeled(assetId, unitNo, labeled) {
+  return mutate('label.mark', { id: assetId, unitNo: unitNo ?? null, labeled: Boolean(labeled) });
+}
+
 // --- Terms & conditions ----------------------------------------------------
 
 /** Publishes `text` as the next version. An empty text withdraws the terms. */

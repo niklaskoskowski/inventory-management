@@ -1316,3 +1316,17 @@ kbd {
 .trax-label-grid-portrait { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 .trax-label-grid-portrait .trax-label-portrait { height: 160px; }
 .trax-label-grid-wide .trax-label-wide { width: 170px; }
+
+/* The cable flag: 90 x 14 mm, under the pair (or alone, larger). */
+.trax-label-cable {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1062 / 165;
+  background: #fff;
+  border-radius: 3px;
+  margin-bottom: .4rem;
+}
+.trax-label-grid-cable { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+
+/* Already on the gear: still listed, but stepped back. */
+.trax-label-tile.trax-label-done img { opacity: .55; }

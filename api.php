@@ -850,6 +850,15 @@ function apply_units_patch(array $asset, mixed $units, array $linesForAsset, ?in
         $nextNo = max($nextNo, trax_int($entry['no'] ?? null) ?? 0);
     }
 
+    // Whether each stored unit is labelled. Server-managed (label.mark), so
+    // it is carried over by number rather than taken from the patch: the
+    // asset sheet does not know the field, and a save there must not peel
+    // every label off.
+    $labeled = [];
+    foreach ((array)($asset['units'] ?? []) as $unit) {
+        $labeled[(int)($unit['no'] ?? 0)] = !empty($unit['labeled']);
+    }
+
     $out  = [];
     $seen = [];
     foreach ($units as $entry) {
@@ -860,9 +869,10 @@ function apply_units_patch(array $asset, mixed $units, array $linesForAsset, ?in
         if (isset($seen[$no])) {
             throw new TraxInvalid('Unit ' . trax_unit_code($assetId, $no) . ' is listed twice.');
         }
-        $seen[$no]   = true;
-        $entry['no'] = $no;
-        $out[]       = $entry;
+        $seen[$no]        = true;
+        $entry['no']      = $no;
+        $entry['labeled'] = $labeled[$no] ?? false;
+        $out[]            = $entry;
     }
 
     // A unit that is physically with a customer cannot be deleted from under
@@ -1194,6 +1204,43 @@ try {
                 }
 
                 trax_append_history($data, 'asset_updated', ['assetId' => $id, 'actor' => $actor]);
+                return [];
+            });
+
+            trax_ok(trax_snapshot($result['data'], $result['checkouts']), $result['rev']);
+        }
+
+        case 'label.mark': {
+            // Whether a printed label is on the asset — or on one unit of it.
+            // Its own action, like the photos: not a field an asset patch can
+            // carry, so the asset sheet's save can never reset it.
+            $id      = req_int($payload, 'id');
+            $unitNo  = trax_int($payload['unitNo'] ?? null);
+            $labeled = !empty($payload['labeled']);
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($id, $unitNo, $labeled): array {
+                $asset = trax_find_asset($data['assets'], $id);
+                if ($asset === null) {
+                    throw new TraxInvalid("Asset #{$id} not found.");
+                }
+                if ($unitNo !== null && !in_array($unitNo, array_column($asset['units'], 'no'), true)) {
+                    throw new TraxInvalid('Unit ' . trax_unit_code($id, $unitNo) . ' not found.');
+                }
+
+                trax_update_asset($data, $id, static function (array $asset) use ($unitNo, $labeled): array {
+                    if ($unitNo === null) {
+                        $asset['labeled'] = $labeled;
+                        return $asset;
+                    }
+                    foreach ($asset['units'] as &$unit) {
+                        if ($unit['no'] === $unitNo) {
+                            $unit['labeled'] = $labeled;
+                        }
+                    }
+                    unset($unit);
+                    return $asset;
+                });
+
                 return [];
             });
 

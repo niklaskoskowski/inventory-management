@@ -2002,6 +2002,27 @@ try {
 
     /*
     |--------------------------------------------------------------------------
+    | Embedded
+    |--------------------------------------------------------------------------
+    |
+    | label-c.php (the cable flag) prints this very label twice. It defines
+    | TRAX_LABEL_EMBED and requires this file, and gets the finished image
+    | back instead of a response — one portrait layout, not a second copy.
+    */
+
+    if (
+        defined('TRAX_LABEL_EMBED')
+    ) {
+
+        $GLOBALS['traxLabelImage'] =
+            $image;
+
+        return;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
     | Output
     |--------------------------------------------------------------------------
     */
