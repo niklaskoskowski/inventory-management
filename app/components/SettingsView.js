@@ -31,10 +31,18 @@ const SECTIONS = [
   { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
   { id: 'email', label: 'Email', icon: 'bi-envelope' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
+  { id: 'labels', label: 'Labels', icon: 'bi-qr-code' },
   { id: 'terms', label: 'Terms', icon: 'bi-file-earmark-text' },
   { id: 'defaults', label: 'Defaults & automation', icon: 'bi-sliders' },
   { id: 'account', label: 'Account', icon: 'bi-person-lock' },
   { id: 'authentication', label: 'Authentication', icon: 'bi-shield-lock' },
+];
+
+/** The formats Settings → Labels can show and pack. */
+const LABEL_FORMATS = [
+  { id: 'all', label: 'All' },
+  { id: 'portrait', label: 'Portrait' },
+  { id: 'wide', label: 'Wide' },
 ];
 
 /** The two ways in. Mirrors TRAX_AUTH_MODE in lib/config.php. */
@@ -634,11 +642,16 @@ export default {
 
     // --- Labels ---
 
-    /** How many label files "All labels" would pack: both formats, assets and units. */
-    const labelFileCount = computed(() => state.assets.reduce(
-      (sum, asset) => sum + 2 * (1 + (asset.units?.length || 0)),
-      0,
-    ));
+    /** Which formats the preview shows and the ZIP holds. */
+    const labelFormat = ref('all');
+
+    const wantsFormat = (format) => labelFormat.value === 'all' || labelFormat.value === format;
+
+    const chosenLabelFiles = computed(() => state.assets
+      .flatMap(assetLabelFiles)
+      .filter((file) => wantsFormat(file.format)));
+
+    const labelFileCount = computed(() => chosenLabelFiles.value.length);
 
     /**
      * The live preview: every label the ZIP would hold, as the server renders
@@ -658,27 +671,27 @@ export default {
         key: `${asset.id}.${unitNo ?? ''}`,
         code: labelCode(asset.id, unitNo),
         title: unit?.label ? `${asset.name} – ${unit.label}` : asset.name,
-        portrait: portrait.url + v,
-        wide: wide.url + v,
+        portrait: wantsFormat('portrait') ? portrait.url + v : null,
+        wide: wantsFormat('wide') ? wide.url + v : null,
       };
     })));
 
     /**
-     * Every label in the inventory as one ZIP: both formats of every asset,
-     * and of every unit an asset keeps. `labelZip` is {done, total} while it
-     * runs, so the button can say how far it has got.
+     * The chosen labels as one ZIP: `labels-all.zip`, `labels-portrait.zip`
+     * or `labels-wide.zip`. `labelZip` is {done, total} while it runs, so the
+     * button can say how far it has got.
      */
     const labelZip = ref(null);
     const downloadAllLabels = async () => {
       if (labelZip.value) return;
-      const files = state.assets.flatMap(assetLabelFiles);
+      const files = chosenLabelFiles.value;
       if (!files.length) {
         toast('There are no assets to label yet.', 'warning');
         return;
       }
       labelZip.value = { done: 0, total: files.length };
       try {
-        await downloadLabelZip(files, 'labels-all.zip', (done, total) => {
+        await downloadLabelZip(files, `labels-${labelFormat.value}.zip`, (done, total) => {
           labelZip.value = { done, total };
         });
       } catch (error) {
@@ -925,7 +938,7 @@ export default {
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
-      labelFileCount, labelZip, downloadAllLabels, labelPreviews,
+      LABEL_FORMATS, labelFormat, labelFileCount, labelZip, downloadAllLabels, labelPreviews,
       state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
       saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
@@ -1592,34 +1605,46 @@ export default {
           </div>
         </div>
       </div>
+    </div>
 
+    <!-- Labels ------------------------------------------------------------ -->
+    <!-- Not part of the settings draft: nothing here is saved. It shows what
+         the label endpoints render now, and packs it into a ZIP. -->
+    <div v-else-if="section === 'labels'" class="row g-3">
       <div class="col-12">
         <div class="trax-card">
           <div class="trax-card-pad d-flex align-items-center gap-3 flex-wrap">
             <div class="flex-grow-1">
               <h2 class="trax-page-title">Labels</h2>
               <p class="trax-page-sub mb-0">
-                Every label in the inventory as one ZIP: portrait and wide, for every asset and
-                every unit ({{ labelFileCount }} files). Rendered with the saved branding —
-                save changes above first.
+                Every label in the inventory, for every asset and every unit, as the server renders
+                it with the saved branding. Download them as one ZIP ({{ labelFileCount }} files).
               </p>
             </div>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Label format">
+              <button v-for="option in LABEL_FORMATS" :key="option.id" type="button"
+                      class="btn btn-outline-secondary" :class="{ active: labelFormat === option.id }"
+                      :aria-pressed="labelFormat === option.id ? 'true' : 'false'"
+                      @click="labelFormat = option.id">
+                {{ option.label }}
+              </button>
+            </div>
             <button class="btn btn-sm btn-outline-secondary"
-                    :disabled="!!labelZip || !state.assets.length" @click="downloadAllLabels()">
+                    :disabled="!!labelZip || !labelFileCount" @click="downloadAllLabels()">
               <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
               <i v-else class="bi bi-file-earmark-zip"></i>
-              {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total : 'Download all labels' }}
+              {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total : 'Download ZIP' }}
             </button>
           </div>
           <div v-if="labelPreviews.length" class="trax-card-pad pt-0">
-            <div class="trax-label-grid">
+            <div class="trax-label-grid" :class="'trax-label-grid-' + labelFormat">
               <figure v-for="label in labelPreviews" :key="label.key" class="trax-label-tile">
                 <div class="trax-label-pair">
-                  <a :href="label.portrait" target="_blank" rel="noopener"
+                  <a v-if="label.portrait" :href="label.portrait" target="_blank" rel="noopener"
                      :aria-label="'Portrait label ' + label.code">
                     <img class="trax-label-portrait" :src="label.portrait" alt="" loading="lazy">
                   </a>
-                  <a :href="label.wide" target="_blank" rel="noopener"
+                  <a v-if="label.wide" :href="label.wide" target="_blank" rel="noopener"
                      :aria-label="'Wide label ' + label.code">
                     <img class="trax-label-wide" :src="label.wide" alt="" loading="lazy">
                   </a>
@@ -1631,6 +1656,7 @@ export default {
               </figure>
             </div>
           </div>
+          <div v-else class="trax-card-pad pt-0 small text-secondary">No assets to label yet.</div>
         </div>
       </div>
     </div>
@@ -2003,7 +2029,8 @@ export default {
         {{ termsWithdraw ? 'Withdraw terms' : 'Publish' }}
       </button>
     </div>
-    <div v-else-if="section !== 'taxonomy' && section !== 'account' && section !== 'authentication'"
+    <div v-else-if="section !== 'taxonomy' && section !== 'account' && section !== 'authentication'
+                    && section !== 'labels'"
          class="trax-selection-bar">
       <span v-if="dirty"><strong>{{ Object.keys(patch).length }}</strong> section(s) changed</span>
       <span v-else class="text-secondary small">No unsaved changes.</span>

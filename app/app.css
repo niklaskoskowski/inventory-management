@@ -1311,3 +1311,8 @@ kbd {
 /* Both at their true aspect ratios (14 x 30 and 30 x 14 mm). */
 .trax-label-portrait { height: 120px; aspect-ratio: 165 / 354; }
 .trax-label-wide { width: 112px; aspect-ratio: 354 / 165; }
+
+/* One format only: narrower tiles for portrait, a larger image for wide. */
+.trax-label-grid-portrait { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+.trax-label-grid-portrait .trax-label-portrait { height: 160px; }
+.trax-label-grid-wide .trax-label-wide { width: 170px; }

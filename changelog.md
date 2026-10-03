@@ -10,14 +10,14 @@ only record. There is no git history to mine.
 
 ### Added
 
-- **All labels at once.** **Settings → Branding → Labels** has a **Download all labels** button: both formats of every asset, and
-  of every unit an asset keeps, as one ZIP (`labels-all.zip`). Labels render six at a time and the
-  button counts them off (`Labels 12 / 48`). Shared with the label drawer's "Download all unit
-  labels" through `app/lib/labels.js`.
-- **Live preview of every label** under the same button: portrait and wide side by side for every
-  asset and unit, as the server renders them now. The tiles re-render after every save (the URL
-  carries `state.rev`, which the label endpoints ignore), so a branding change shows up as soon as
-  it is saved; images load lazily and open full size on click.
+- **Settings → Labels**, a tab of its own: a live preview of every label (every asset and every
+  unit, as the server renders it now) and a **Download ZIP** button. **All / Portrait / Wide**
+  picks what both show and pack — `labels-all.zip`, `labels-portrait.zip`, `labels-wide.zip`.
+  Labels render six at a time and the button counts them off (`Labels 12 / 48`). The tiles
+  re-render after every save (the URL carries `state.rev`, which the label endpoints ignore), so a
+  branding change shows up as soon as it is saved; images load lazily and open full size on
+  click. The ZIP code is shared with the label drawer's "Download all unit labels" through
+  `app/lib/labels.js`.
 
 ### Changed
 
