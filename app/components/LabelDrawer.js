@@ -45,6 +45,9 @@ export default {
     const wideName = computed(() => files.value[1].name);
     const cableName = computed(() => files.value[2].name);
 
+    /** The cable flag's blank middle, from Settings → Labels. */
+    const cableGapMm = computed(() => Number(state.settings?.labels?.cableGapMm) || 30);
+
     /** Whether the label picked above — the asset's or a unit's — is on the gear. */
     const labeled = computed(() => {
       if (!asset.value) return false;
@@ -144,7 +147,7 @@ export default {
     return {
       asset, appName, units, hasUnits, selected, code, unitOption,
       portrait, wide, cable, portraitName, wideName, cableName, printLabel,
-      labeled, labeledBusy, toggleLabeled, printAllUnits, downloadingAll,
+      labeled, labeledBusy, toggleLabeled, cableGapMm, printAllUnits, downloadingAll,
       downloadAllUnits, emit,
     };
   },
@@ -205,7 +208,8 @@ export default {
       <div class="col-12 mt-3">
         <div class="trax-card p-2 text-center">
           <div class="small text-secondary mb-2">
-            Cable flag · 90 × 14 mm — the middle 30 mm wraps the cable, the ends meet back to back
+            Cable flag · {{ 60 + cableGapMm }} × 14 mm — the middle {{ cableGapMm }} mm wraps the
+            cable, the ends meet back to back
           </div>
           <img :src="cable" alt="Cable flag label preview" class="img-fluid bg-white rounded">
           <div class="d-flex gap-1 mt-2 justify-content-center">

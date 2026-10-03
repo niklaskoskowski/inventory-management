@@ -160,6 +160,9 @@ const DEFAULT_SETTINGS = {
     default: { mode: 'PERCENT', percent: 0, fixed: 0, fixedPer: 'RENTAL', tiers: [] },
     categories: [],
   },
+  labels: {
+    cableGapMm: 30,
+  },
   cron: {
     secret: '',
     dueSoonHours: 24,

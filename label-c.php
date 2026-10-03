@@ -3,13 +3,16 @@
  * TRAX Cable Flag Label PNG endpoint
  *
  * Physical format:
- * 90 x 14 mm — three 30 mm thirds of one strip:
+ * (60 + gap) x 14 mm — two 30 mm ends and a blank middle between them:
  *
  *   +----------------+----------------+----------------+
  *   |  front (label  |  wraps the     |  back (label   |
  *   |  top → centre) |  cable   |     |  top → centre) |
  *   +----------------+----------------+----------------+
- *        30 mm             30 mm            30 mm
+ *        30 mm            gap              30 mm
+ *
+ * The gap is settings.labels.cableGapMm (30 mm by default, Settings → Labels):
+ * a thick multicore needs the full 30, a patch lead far less.
  *
  * The middle goes round the cable and the two ends are stuck back to back,
  * so the strip becomes a flag readable from both sides. Each end is the
@@ -17,7 +20,7 @@
  * its top faces the cable; the back is the front turned by 180 degrees, which
  * is what makes both faces read the right way up once folded.
  *
- * The middle third is blank apart from a thin centre mark, to line the strip
+ * The middle is blank apart from a thin centre mark, to line the strip
  * up on the cable.
  *
  * Takes the same ?id=<n>&u=<unit> as label.php, at the same render scale.
@@ -49,9 +52,20 @@ if (!$portrait instanceof GdImage) {
 $side  = imagesx($portrait);   // 14 mm
 $third = imagesy($portrait);   // 30 mm
 
-$strip = imagecreatetruecolor($third * 3, $side);
+// The blank middle, from mm to pixels at whatever scale label.php rendered.
+// The constants come from lib/config.php, which label.php only loads when it
+// is there — its dev/test mode runs without it.
+$gapMm = (int)label_setting('labels.cableGapMm', defined('TRAX_CABLE_GAP_DEFAULT') ? TRAX_CABLE_GAP_DEFAULT : 30);
+$gapMm = max(
+    defined('TRAX_CABLE_GAP_MIN') ? TRAX_CABLE_GAP_MIN : 2,
+    min(defined('TRAX_CABLE_GAP_MAX') ? TRAX_CABLE_GAP_MAX : 60, $gapMm)
+);
+$gap   = (int)round($side * $gapMm / 14);
+$total = $third * 2 + $gap;
+
+$strip = imagecreatetruecolor($total, $side);
 $white = imagecolorallocate($strip, 255, 255, 255);
-imagefilledrectangle($strip, 0, 0, $third * 3 - 1, $side - 1, $white);
+imagefilledrectangle($strip, 0, 0, $total - 1, $side - 1, $white);
 
 // imagerotate() turns counter-clockwise: 270 puts the label's top on the
 // right (towards the cable), 90 puts it on the left (towards the cable).
@@ -59,14 +73,14 @@ $front = imagerotate($portrait, 270, $white);
 $back  = imagerotate($portrait, 90, $white);
 
 imagecopy($strip, $front, 0, 0, 0, 0, $third, $side);
-imagecopy($strip, $back, $third * 2, 0, 0, 0, $third, $side);
+imagecopy($strip, $back, $third + $gap, 0, 0, 0, $third, $side);
 
 // The centre mark: one thin black line across the strip, halfway along, to
 // lay against the cable so both ends come out the same length. 0.25 mm at
 // any render scale ($side is 14 mm).
 $black  = imagecolorallocate($strip, 0, 0, 0);
 $stroke = max(1, (int)round($side * 0.25 / 14));
-$centre = intdiv($third * 3, 2);
+$centre = intdiv($total, 2);
 imagefilledrectangle(
     $strip,
     $centre - intdiv($stroke, 2),

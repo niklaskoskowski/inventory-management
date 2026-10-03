@@ -2096,6 +2096,17 @@ function trax_normalize_settings(mixed $raw): array
         // The workflow an event moves through, and whether events are offered
         // on the booking forms at all.
         'events' => trax_normalize_events_settings($raw['events'] ?? null),
+        // Label layout. Registered HERE or it is dropped on the next unrelated
+        // write, like everything else in this literal.
+        'labels' => [
+            // The cable flag's blank middle, whole millimetres.
+            'cableGapMm' => trax_clamp_int(
+                (is_array($raw['labels'] ?? null) ? $raw['labels'] : [])['cableGapMm'] ?? null,
+                TRAX_CABLE_GAP_MIN,
+                TRAX_CABLE_GAP_MAX,
+                TRAX_CABLE_GAP_DEFAULT
+            ),
+        ],
         'cron' => [
             // Shared secret for triggering cron.php over HTTP. Empty means the
             // HTTP trigger is refused outright; CLI never needs it.

@@ -46,6 +46,9 @@ const LABEL_FORMATS = [
   { id: 'cable', label: 'Cable' },
 ];
 
+/** The cable flag's blank middle, mm. Mirrors TRAX_CABLE_GAP_* in lib/config.php. */
+const CABLE_GAP = { min: 2, max: 60, default: 30 };
+
 /** Which labels Settings → Labels lists: all, or by whether they are on the gear. */
 const LABEL_STATES = [
   { id: 'all', label: 'All' },
@@ -694,6 +697,29 @@ export default {
       };
     }));
 
+    /** The cable flag's blank middle in mm, and saving a new one. */
+    const cableGapMm = computed(() => Number(state.settings?.labels?.cableGapMm) || CABLE_GAP.default);
+    const cableGapBusy = ref(false);
+    const saveCableGap = async (event) => {
+      const raw = Math.round(Number(event.target.value));
+      // Out of range or not a number: put the field back to what is stored
+      // rather than letting the server clamp it to something not typed.
+      if (!Number.isFinite(raw) || raw < CABLE_GAP.min || raw > CABLE_GAP.max) {
+        toast(`The cable gap is ${CABLE_GAP.min}–${CABLE_GAP.max} mm.`, 'warning');
+        event.target.value = cableGapMm.value;
+        return;
+      }
+      if (raw === cableGapMm.value) return;
+      cableGapBusy.value = true;
+      try {
+        await mutate('settings.update', { patch: { labels: { cableGapMm: raw } } });
+      } catch {
+        event.target.value = cableGapMm.value;
+      } finally {
+        cableGapBusy.value = false;
+      }
+    };
+
     /** Ticks a label as on the gear, or takes the tick off again. */
     const labelBusy = ref('');
     const toggleLabeled = async (item) => {
@@ -971,6 +997,7 @@ export default {
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
+      CABLE_GAP, cableGapMm, cableGapBusy, saveCableGap,
       LABEL_FORMATS, LABEL_STATES, labelFormat, labelState, labelCounts, labelFileCount,
       labelZip, downloadAllLabels, labelPreviews, labelBusy, toggleLabeled,
       state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
@@ -1649,12 +1676,7 @@ export default {
       <div class="col-12">
         <div class="trax-card">
           <div class="trax-card-pad">
-            <h2 class="trax-page-title">Labels</h2>
-            <p class="trax-page-sub mb-3">
-              Every label in the inventory, for every asset and every unit, as the server renders
-              it with the saved branding. Tick a label once it is on the gear; filter by that to
-              print only what is still missing.
-            </p>
+            <h2 class="trax-page-title mb-3">Labels</h2>
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <div class="btn-group btn-group-sm" role="group" aria-label="Label format">
                 <button v-for="option in LABEL_FORMATS" :key="option.id" type="button"
@@ -1671,6 +1693,16 @@ export default {
                         @click="labelState = option.id">
                   {{ option.label }} <span class="text-secondary">{{ labelCounts[option.id] }}</span>
                 </button>
+              </div>
+              <!-- Saved on change: this tab has no save bar, and the
+                   preview below re-renders from the saved value. -->
+              <div class="input-group input-group-sm trax-cable-gap"
+                   title="The blank middle of the cable flag, the part that goes round the cable">
+                <label class="input-group-text" for="set-cable-gap">Cable gap</label>
+                <input id="set-cable-gap" type="number" class="form-control" inputmode="numeric"
+                       :min="CABLE_GAP.min" :max="CABLE_GAP.max" step="1"
+                       :value="cableGapMm" :disabled="cableGapBusy" @change="saveCableGap($event)">
+                <span class="input-group-text">mm</span>
               </div>
               <span class="flex-grow-1"></span>
               <button class="btn btn-sm btn-outline-secondary"
@@ -1698,7 +1730,8 @@ export default {
                 </div>
                 <a v-if="label.cable" :href="label.cable" target="_blank" rel="noopener"
                    :aria-label="'Cable flag ' + label.code">
-                  <img class="trax-label-cable" :src="label.cable" alt="" loading="lazy">
+                  <img class="trax-label-cable" :src="label.cable" alt="" loading="lazy"
+                       :style="{ aspectRatio: (60 + cableGapMm) + ' / 14' }">
                 </a>
                 <figcaption class="d-flex align-items-center gap-2 small">
                   <span class="text-truncate flex-grow-1" :title="label.title">

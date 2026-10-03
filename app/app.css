@@ -1321,7 +1321,7 @@ kbd {
 .trax-label-cable {
   display: block;
   width: 100%;
-  aspect-ratio: 1062 / 165;
+  aspect-ratio: 90 / 14; /* overridden inline with the configured gap */
   background: #fff;
   border-radius: 3px;
   margin-bottom: .4rem;
@@ -1330,3 +1330,6 @@ kbd {
 
 /* Already on the gear: still listed, but stepped back. */
 .trax-label-tile.trax-label-done img { opacity: .55; }
+
+.trax-cable-gap { width: auto; }
+.trax-cable-gap .form-control { width: 4.5rem; }

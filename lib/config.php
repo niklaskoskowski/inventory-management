@@ -402,6 +402,13 @@ if (!defined('TRAX_MAX_MAIL_BODY')) define('TRAX_MAX_MAIL_BODY', 8000);
  * this is also the unit the archive grows by — and it only grows on a save.
  */
 if (!defined('TRAX_MAX_TERMS')) define('TRAX_MAX_TERMS', 30000);
+/**
+ * The blank middle of the cable flag (label-c.php), in mm: the part that goes
+ * round the cable. 30 suits a thick multicore; a patch lead wants far less.
+ */
+if (!defined('TRAX_CABLE_GAP_MIN')) define('TRAX_CABLE_GAP_MIN', 2);
+if (!defined('TRAX_CABLE_GAP_MAX')) define('TRAX_CABLE_GAP_MAX', 60);
+if (!defined('TRAX_CABLE_GAP_DEFAULT')) define('TRAX_CABLE_GAP_DEFAULT', 30);
 if (!defined('TRAX_MAX_MEMBERS')) define('TRAX_MAX_MEMBERS', 100);    // distinct members per set
 if (!defined('TRAX_MAX_QUANTITY')) define('TRAX_MAX_QUANTITY', 9999);   // physical units one asset record may stand for
 if (!defined('TRAX_MAX_MEMBER_QTY')) define('TRAX_MAX_MEMBER_QTY', 999);    // units of a single member inside one set
