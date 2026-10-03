@@ -4,7 +4,7 @@ import {
 } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney, formatDateTime } from '../lib/format.js';
-import { assetLabelFiles, downloadLabelZip } from '../lib/labels.js';
+import { assetLabelFiles, downloadLabelZip, labelCode, labelFiles } from '../lib/labels.js';
 import {
   BLANK_RULE, daysLabel, formatPercent, serviceFactorOf, tierFor,
 } from '../lib/rental.js';
@@ -641,6 +641,29 @@ export default {
     ));
 
     /**
+     * The live preview: every label the ZIP would hold, as the server renders
+     * it now. `v` is ignored by the label endpoints; it changes with every
+     * write (state.rev), so a saved branding change, a renamed asset or a new
+     * unit re-renders the tiles instead of showing the browser's cached PNG.
+     * The images load lazily, so a long inventory costs only what is scrolled to.
+     */
+    const labelPreviews = computed(() => state.assets.flatMap((asset) => [
+      null,
+      ...(asset.units || []),
+    ].map((unit) => {
+      const unitNo = unit?.no ?? null;
+      const [portrait, wide] = labelFiles(asset.id, unitNo);
+      const v = `&v=${state.rev}`;
+      return {
+        key: `${asset.id}.${unitNo ?? ''}`,
+        code: labelCode(asset.id, unitNo),
+        title: unit?.label ? `${asset.name} – ${unit.label}` : asset.name,
+        portrait: portrait.url + v,
+        wide: wide.url + v,
+      };
+    })));
+
+    /**
      * Every label in the inventory as one ZIP: both formats of every asset,
      * and of every unit an asset keeps. `labelZip` is {done, total} while it
      * runs, so the button can say how far it has got.
@@ -902,7 +925,7 @@ export default {
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
-      labelFileCount, labelZip, downloadAllLabels,
+      labelFileCount, labelZip, downloadAllLabels, labelPreviews,
       state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
       saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
@@ -1587,6 +1610,26 @@ export default {
               <i v-else class="bi bi-file-earmark-zip"></i>
               {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total : 'Download all labels' }}
             </button>
+          </div>
+          <div v-if="labelPreviews.length" class="trax-card-pad pt-0">
+            <div class="trax-label-grid">
+              <figure v-for="label in labelPreviews" :key="label.key" class="trax-label-tile">
+                <div class="trax-label-pair">
+                  <a :href="label.portrait" target="_blank" rel="noopener"
+                     :aria-label="'Portrait label ' + label.code">
+                    <img class="trax-label-portrait" :src="label.portrait" alt="" loading="lazy">
+                  </a>
+                  <a :href="label.wide" target="_blank" rel="noopener"
+                     :aria-label="'Wide label ' + label.code">
+                    <img class="trax-label-wide" :src="label.wide" alt="" loading="lazy">
+                  </a>
+                </div>
+                <figcaption class="small text-truncate" :title="label.title">
+                  <span class="font-monospace">{{ label.code }}</span>
+                  <span class="text-secondary"> · {{ label.title }}</span>
+                </figcaption>
+              </figure>
+            </div>
           </div>
         </div>
       </div>

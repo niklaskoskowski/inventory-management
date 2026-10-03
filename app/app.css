@@ -1272,3 +1272,42 @@ kbd {
   padding-left: .75rem;
   color: var(--trax-muted);
 }
+
+/* Settings → Branding → Labels: every label, both formats side by side.
+   White behind the PNGs because that is the sticker; scrolls inside the card
+   so a long inventory does not push the rest of the page away. */
+.trax-label-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: .75rem;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.trax-label-tile {
+  margin: 0;
+  padding: .5rem;
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius);
+  background: var(--trax-surface-2);
+  min-width: 0;
+}
+
+.trax-label-pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  margin-bottom: .4rem;
+}
+
+.trax-label-portrait,
+.trax-label-wide {
+  display: block;
+  background: #fff;
+  border-radius: 3px;
+}
+
+/* Both at their true aspect ratios (14 x 30 and 30 x 14 mm). */
+.trax-label-portrait { height: 120px; aspect-ratio: 165 / 354; }
+.trax-label-wide { width: 112px; aspect-ratio: 354 / 165; }
