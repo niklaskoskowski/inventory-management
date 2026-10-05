@@ -10,6 +10,22 @@ only record. There is no git history to mine.
 
 ### Added
 
+- **Batch printing on the label printer** — Settings → Labels, when the printer is switched on.
+  Every tile gets a tick box (**Select all shown** / **Clear**; ticks survive the filters), and a
+  *Batch print* panel picks the **format**, the **orientation** — *Along tape* (as large as the
+  tape allows) or *Rotated 90° (smaller)*, the long side across the tape — the **cutting** (half
+  cut into one continuous strip by default, or cut every label, or no cut) and **copies**. It
+  estimates the printed size and the strip length for the expected (or last reported) tape, shows
+  a **Preview** of the strip with the cut positions, and prints all ticked labels as **one job**:
+  the PT-P750W half-cuts between them and cuts once at the end, instead of feeding and cutting a
+  leader for every label. Afterwards *Mark them as labeled* ticks the printed labels off. Format,
+  orientation and cutting are remembered in the browser (`traxBatchPrintV1`).
+  The labels go up one request each (`printer.batchAdd`, three at a time) to a batch the bridge
+  holds (`printer.batchStart`), so no PHP upload limit gets in the way; `printer.batchPrint`
+  prints or previews it — a preview and the print after it reuse the same upload while the
+  selection, the format and `rev` are unchanged — and `printer.batchCancel` drops it. The old
+  "Send to printer (N)" button there, one job per label, is replaced by this.
+
 - **Label printer (Brother PT-P750W), off by default.** Settings → **Printer**: switch it on,
   enter the URL and token of a `pt750w-print-trax` bridge (a small service on a Raspberry Pi
   next to the printer, typically behind a Cloudflare Tunnel), optionally a Cloudflare Access

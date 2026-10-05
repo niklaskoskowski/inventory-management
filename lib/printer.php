@@ -197,12 +197,7 @@ function trax_printer_print_png(array $data, string $png, string $format, ?int $
     $printer  = $settings['printer'];
     [$widthMm, $heightMm] = trax_printer_label_mm($format, $settings);
 
-    $name = $format;
-    if ($assetId !== null) {
-        $asset = trax_find_asset($data['assets'] ?? [], $assetId);
-        $code  = $unitNo !== null ? trax_unit_code($assetId, $unitNo) : (string)$assetId;
-        $name  = $code . ' ' . trax_str($asset['name'] ?? '', 80) . ' (' . $format . ')';
-    }
+    $name = trax_printer_label_name($data, $format, $assetId, $unitNo);
 
     $payload = [
         'image'    => base64_encode($png),
@@ -226,4 +221,90 @@ function trax_printer_print_png(array $data, string $png, string $format, ?int $
         'job'     => is_array($answer['job'] ?? null) ? $answer['job'] : null,
         'printer' => is_array($answer['printer'] ?? null) ? $answer['printer'] : null,
     ], static fn($v) => $v !== null);
+}
+
+/** "12.1 Sommer cable (wide)" – what the bridge's history calls a label. */
+function trax_printer_label_name(array $data, string $format, ?int $assetId, ?int $unitNo): string
+{
+    if ($assetId === null) {
+        return $format;
+    }
+    $asset = trax_find_asset($data['assets'] ?? [], $assetId);
+    $code  = $unitNo !== null ? trax_unit_code($assetId, $unitNo) : (string)$assetId;
+    return trax_str($code . ' ' . trax_str($asset['name'] ?? '', 80) . ' (' . $format . ')', 120);
+}
+
+// ---------------------------------------------------------------------------
+// Batches: many labels, one job – see the printer.batch* actions in api.php
+// ---------------------------------------------------------------------------
+
+function trax_printer_batch_start(array $printer): string
+{
+    $answer = trax_printer_request($printer, 'POST', '/api/batches', [], 20);
+    $id = (string)($answer['batchId'] ?? '');
+    if (preg_match('/^[0-9a-f]{24}$/', $id) !== 1) {
+        throw new TraxPrinterError('The bridge did not start a batch – is it up to date?', 'BRIDGE');
+    }
+    return $id;
+}
+
+/** Adds one label; returns how many the batch holds now. */
+function trax_printer_batch_add(array $data, string $batchId, int $index, string $png, string $format,
+                                ?int $assetId, ?int $unitNo): int
+{
+    $settings = trax_normalize_settings($data['settings'] ?? null);
+    [$widthMm, $heightMm] = trax_printer_label_mm($format, $settings);
+
+    $answer = trax_printer_request($settings['printer'], 'POST', '/api/batches/' . $batchId . '/labels', [
+        'image'    => base64_encode($png),
+        'widthMm'  => $widthMm,
+        'heightMm' => $heightMm,
+        'index'    => $index,
+        'name'     => trax_printer_label_name($data, $format, $assetId, $unitNo),
+    ], 30);
+    return (int)($answer['count'] ?? 0);
+}
+
+/**
+ * Prints the batch as one job – or, with $dryRun, answers with a preview of
+ * the strip and keeps the batch for the real print.
+ */
+function trax_printer_batch_print(array $data, string $batchId, string $format, string $orientation,
+                                  string $cut, int $copies, bool $dryRun): array
+{
+    $settings = trax_normalize_settings($data['settings'] ?? null);
+    $printer  = $settings['printer'];
+
+    $payload = [
+        'orientation' => $orientation,
+        'cut'         => $cut,
+        // The strip ends with a feed and a full cut, whatever chain printing
+        // single labels use.
+        'chain'       => false,
+        'fit'         => $printer['fit'],
+        'marginMm'    => $printer['marginMm'],
+        'copies'      => $copies,
+        'dryRun'      => $dryRun,
+        'jobName'     => trax_str('Batch (' . $format . ($orientation === 'across' ? ', rotated' : '') . ')', 120),
+        'source'      => trax_str($settings['branding']['appName'] ?? 'inventory', 60),
+    ];
+    if ($printer['tapeMm'] > 0) {
+        $payload['tapeMm'] = $printer['tapeMm'];
+    }
+
+    $answer = trax_printer_request($printer, 'POST', '/api/batches/' . $batchId . '/print', $payload,
+        TRAX_PRINTER_BATCH_TIMEOUT);
+
+    $preview = (string)($answer['preview'] ?? '');
+    return array_filter([
+        'job'     => is_array($answer['job'] ?? null) ? $answer['job'] : null,
+        'printer' => is_array($answer['printer'] ?? null) ? $answer['printer'] : null,
+        // Only the strip the bridge drew, and only for a preview.
+        'preview' => $dryRun && str_starts_with($preview, 'data:image/png;base64,') ? $preview : null,
+    ], static fn($v) => $v !== null);
+}
+
+function trax_printer_batch_cancel(array $printer, string $batchId): void
+{
+    trax_printer_request($printer, 'DELETE', '/api/batches/' . $batchId, null, 10);
 }

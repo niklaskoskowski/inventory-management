@@ -1,7 +1,7 @@
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import {
   state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl, markLabeled,
-  printerEnabled, printerStatus, sendLabelToPrinter,
+  printerEnabled, printerStatus, buildLabelBatch, printLabelBatch, cancelLabelBatch,
 } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney, formatDateTime } from '../lib/format.js';
@@ -71,6 +71,19 @@ const PRINTER_TAPES = [
   { mm: 18, label: '18 mm' },
   { mm: 24, label: '24 mm' },
 ];
+
+/** Printable height per tape width, mm (180 dpi head). Mirrors ptbridge/protocol.py. */
+const TAPE_PRINTABLE_MM = { 4: 3.39, 6: 4.52, 9: 7.06, 12: 9.88, 18: 15.8, 24: 18.06 };
+
+/** Batch printing options remembered in this browser. */
+const BATCH_PREFS_KEY = 'traxBatchPrintV1';
+const loadBatchPrefs = () => {
+  try {
+    return JSON.parse(localStorage.getItem(BATCH_PREFS_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+};
 
 /** Which labels Settings → Labels lists: all, or by whether they are on the gear. */
 const LABEL_STATES = [
@@ -803,39 +816,194 @@ export default {
     };
     const printerTestStatus = computed(() => printerTest.value?.data?.printer?.status || null);
 
-    /**
-     * Settings → Labels → "Send to printer": the labels listed, one job each, in
-     * the chosen format — or the printer's default when the filter shows all.
-     * One at a time: the printer takes one job at a time anyway, and a stop
-     * button between two labels is worth more than a few seconds.
-     */
-    const batchFormat = computed(() => (labelFormat.value === 'all'
-      ? state.settings?.printer?.format || 'wide'
-      : labelFormat.value));
-    const labelPrint = ref(null);
-    const printAllLabels = async () => {
-      if (labelPrint.value) {
-        labelPrint.value.stop = true;
-        return;
-      }
-      const items = labelItems.value;
-      if (!items.length) return;
-      labelPrint.value = { done: 0, total: items.length, stop: false };
+    // --- Batch printing (Settings → Labels) ---
+    // Tick labels, pick format and orientation, print them as ONE job: the
+    // bridge half-cuts between them and cuts once at the end – one strip,
+    // no leading waste per label. The labels go up once (buildLabelBatch);
+    // a preview and the print after it reuse them while nothing changed.
+
+    const batchPrefs = loadBatchPrefs();
+    /** Ticked labels, by `${assetId}.${unitNo}`. Replaced, never mutated, so Vue sees every change. */
+    const picked = ref(new Set());
+    const batchFormat = ref(PRINTER_FORMATS.some((f) => f.id === batchPrefs.format)
+      ? batchPrefs.format
+      : (state.settings?.printer?.format || 'wide'));
+    const batchOrientation = ref(batchPrefs.orientation === 'across' ? 'across' : 'along');
+    const batchCut = ref(['half', 'each', 'none'].includes(batchPrefs.cut) ? batchPrefs.cut : 'half');
+    const batchCopies = ref(1);
+    watch([batchFormat, batchOrientation, batchCut], () => {
       try {
-        for (const item of items) {
-          if (labelPrint.value.stop) break;
-          await sendLabelToPrinter({ assetId: item.assetId, unitNo: item.unitNo, format: batchFormat.value });
-          labelPrint.value.done += 1;
-        }
-        const { done, total, stop } = labelPrint.value;
-        toast(stop ? `Stopped after ${done} of ${total} labels.` : `Sent ${done} labels to the printer.`,
-          stop ? 'warning' : 'success');
-      } catch (error) {
-        toast(`Stopped after ${labelPrint.value.done} of ${items.length}: ${error.message}`, 'danger', 9000);
-      } finally {
-        labelPrint.value = null;
+        localStorage.setItem(BATCH_PREFS_KEY, JSON.stringify({
+          format: batchFormat.value, orientation: batchOrientation.value, cut: batchCut.value,
+        }));
+      } catch { /* private mode: just not remembered */ }
+    });
+    // Looking at one format means printing that one.
+    watch(labelFormat, (format) => { if (format !== 'all') batchFormat.value = format; });
+
+    const labelKey = (item) => `${item.assetId}.${item.unitNo ?? ''}`;
+    /** The ticked labels, in inventory order – including ones the filter hides right now. */
+    const batchItems = computed(() => state.assets.flatMap(assetLabelItems)
+      .filter((item) => picked.value.has(labelKey(item))));
+    const batchHidden = computed(() => {
+      const shown = new Set(labelPreviews.value.map((label) => label.key));
+      return batchItems.value.filter((item) => !shown.has(labelKey(item))).length;
+    });
+    const isPicked = (label) => picked.value.has(label.key);
+    const togglePick = (label) => {
+      const next = new Set(picked.value);
+      if (next.has(label.key)) next.delete(label.key); else next.add(label.key);
+      picked.value = next;
+    };
+    const pickAllShown = () => {
+      const next = new Set(picked.value);
+      for (const label of labelPreviews.value) next.add(label.key);
+      picked.value = next;
+    };
+    const clearPicked = () => { picked.value = new Set(); };
+
+    /** The tape the estimate is for: the expected one, else what the printer last said. */
+    const printerTape = ref(null);
+    const loadPrinterTape = async () => {
+      if (!printerEnabled.value || printerTape.value !== null) return;
+      printerTape.value = 0;
+      try {
+        const data = await printerStatus();
+        printerTape.value = Number(data.printer?.status?.tapeMm) || 0;
+      } catch {
+        /* no estimate then – printing still tells */
       }
     };
+    watch(section, (id) => { if (id === 'labels') loadPrinterTape(); }, { immediate: true });
+    const batchTape = computed(() => Number(state.settings?.printer?.tapeMm) || printerTape.value || 0);
+
+    const formatMm = (format) => {
+      if (format === 'portrait') return [14, 30];
+      if (format === 'cable') return [60 + cableGapMm.value, 14];
+      return [30, 14];
+    };
+
+    /** What one label comes out as, and how long the strip gets – before anything is sent. */
+    const batchEstimate = computed(() => {
+      const printable = TAPE_PRINTABLE_MM[batchTape.value];
+      if (!printable) return null;
+      const [w, h] = formatMm(batchFormat.value);
+      const across = batchOrientation.value === 'across' ? Math.max(w, h) : Math.min(w, h);
+      const along = batchOrientation.value === 'across' ? Math.min(w, h) : Math.max(w, h);
+      const scale = state.settings?.printer?.fit === 'fill'
+        ? printable / across
+        : Math.min(1, printable / across);
+      const count = batchItems.value.length * Math.max(1, Number(batchCopies.value) || 1);
+      const margin = Number(state.settings?.printer?.marginMm) || 0;
+      return {
+        tape: batchTape.value,
+        length: (along * scale).toFixed(1),
+        height: (across * scale).toFixed(1),
+        pct: Math.round(scale * 100),
+        strip: count ? ((count * along * scale + (count - 1) * 2 * margin) / 10).toFixed(1) : '0',
+      };
+    });
+
+    /** null | {phase: upload|preview|print, done, total, stop} */
+    const batchBusy = ref(null);
+    /** The last preview: {src, job}. Cleared by anything that would change it. */
+    const batchPreview = ref(null);
+    /** Labels of the last printed batch, for "mark as labeled". */
+    const batchPrinted = ref([]);
+    let builtBatch = null;
+
+    watch([batchItems, batchFormat, batchOrientation, batchCut, batchCopies], () => {
+      batchPreview.value = null;
+    });
+
+    const batchSignature = () => JSON.stringify([
+      batchFormat.value, state.rev, batchItems.value.map(labelKey),
+    ]);
+
+    const ensureBatch = async () => {
+      const signature = batchSignature();
+      if (builtBatch && builtBatch.signature === signature) return builtBatch.id;
+      if (builtBatch) cancelLabelBatch(builtBatch.id);
+      builtBatch = null;
+      batchBusy.value = { phase: 'upload', done: 0, total: batchItems.value.length, stop: false };
+      const id = await buildLabelBatch(batchItems.value, batchFormat.value, (done, total) => {
+        if (batchBusy.value) batchBusy.value = { ...batchBusy.value, done, total };
+      }, () => Boolean(batchBusy.value?.stop));
+      builtBatch = { id, signature };
+      return id;
+    };
+
+    const runBatch = async (dryRun) => {
+      if (batchBusy.value) {
+        if (batchBusy.value.phase === 'upload') batchBusy.value = { ...batchBusy.value, stop: true };
+        return;
+      }
+      if (!batchItems.value.length) {
+        toast('Tick the labels to print first.', 'warning');
+        return;
+      }
+      const items = batchItems.value;
+      const options = {
+        format: batchFormat.value,
+        orientation: batchOrientation.value,
+        cut: batchCut.value,
+        copies: Math.max(1, Math.min(20, Math.round(Number(batchCopies.value) || 1))),
+        dryRun,
+      };
+      try {
+        let result = null;
+        for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+          const id = await ensureBatch();
+          batchBusy.value = { phase: dryRun ? 'preview' : 'print' };
+          try {
+            result = await printLabelBatch(id, options);
+          } catch (error) {
+            // Expired on the bridge (30 min) or the bridge restarted: upload once more.
+            if (attempt === 0 && error?.details?.bridgeCode === 'NOT_FOUND') {
+              builtBatch = null;
+              continue;
+            }
+            throw error;
+          }
+        }
+        const job = result.job || {};
+        if (dryRun) {
+          batchPreview.value = { src: result.preview || '', job };
+          return;
+        }
+        builtBatch = null;
+        batchPreview.value = null;
+        batchPrinted.value = items;
+        const verb = job.state === 'printed' ? 'Printed' : 'Sent';
+        toast(`${verb} ${job.labels || items.length} labels as one job on ${job.tapeLabel || 'the'} tape.`, 'success');
+        if (job.warnings?.length) toast(job.warnings[0], 'warning', 8000);
+      } catch (error) {
+        if (error?.message !== 'Stopped.') toast(error.message, 'danger', 9000);
+      } finally {
+        batchBusy.value = null;
+      }
+    };
+
+    const markPrintedLabeled = async () => {
+      const items = batchPrinted.value.filter((item) => !item.labeled);
+      batchPrinted.value = [];
+      if (!items.length) {
+        toast('They are all marked as labeled already.', 'info');
+        return;
+      }
+      for (const item of items) {
+        try {
+          await markLabeled(item.assetId, item.unitNo, true);
+        } catch {
+          return; /* the store raised a toast */
+        }
+      }
+      toast(`${items.length} label${items.length === 1 ? '' : 's'} marked as on the gear.`, 'success');
+    };
+
+    onBeforeUnmount(() => {
+      if (builtBatch) cancelLabelBatch(builtBatch.id);
+    });
 
     // --- Terms & conditions ---
     // Not part of the settings draft: every save publishes a VERSION, which
@@ -1076,7 +1244,10 @@ export default {
       loadAuthConfig, testAuthInclude, saveAuthConfig,
       CABLE_GAP, cableGapMm, cableGapBusy, saveCableGap,
       PRINTER_FORMATS, PRINTER_CUTS, PRINTER_TAPES, printerEnabled, printerDirty, showPrinterSecrets,
-      printerTest, printerTestStatus, testPrinter, batchFormat, labelPrint, printAllLabels,
+      printerTest, printerTestStatus, testPrinter,
+      batchFormat, batchOrientation, batchCut, batchCopies, batchItems, batchHidden, isPicked, togglePick,
+      pickAllShown, clearPicked, batchEstimate, batchBusy, batchPreview, batchPrinted, runBatch,
+      markPrintedLabeled,
       LABEL_FORMATS, LABEL_STATES, labelFormat, labelState, labelCounts, labelFileCount,
       labelZip, downloadAllLabels, labelPreviews, labelBusy, toggleLabeled,
       state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
@@ -1784,20 +1955,6 @@ export default {
                 <span class="input-group-text">mm</span>
               </div>
               <span class="flex-grow-1"></span>
-              <button v-if="printerEnabled" class="btn btn-sm"
-                      :class="labelPrint ? 'btn-outline-danger' : 'btn-primary'"
-                      :disabled="!labelPreviews.length"
-                      :title="labelPrint ? 'Stop after the current label'
-                        : 'One ' + batchFormat + ' label each, to the label printer'"
-                      @click="printAllLabels()">
-                <template v-if="labelPrint">
-                  <span class="spinner-border spinner-border-sm me-1"></span>
-                  {{ labelPrint.stop ? 'Stopping…' : 'Stop · ' + labelPrint.done + ' / ' + labelPrint.total }}
-                </template>
-                <template v-else>
-                  <i class="bi bi-send"></i> Send to printer ({{ labelPreviews.length }} {{ batchFormat }})
-                </template>
-              </button>
               <button class="btn btn-sm btn-outline-secondary"
                       :disabled="!!labelZip || !labelFileCount" @click="downloadAllLabels()">
                 <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
@@ -1807,10 +1964,128 @@ export default {
               </button>
             </div>
           </div>
+          <!-- Batch printing: tick tiles below, print them as one half-cut strip. -->
+          <div v-if="printerEnabled" class="trax-card-pad pt-0">
+            <div class="trax-batch">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="small fw-semibold"><i class="bi bi-printer"></i> Batch print</span>
+                <span class="small text-secondary">
+                  {{ batchItems.length }} selected<span v-if="batchHidden"> · {{ batchHidden }} hidden by the filter</span>
+                </span>
+                <button type="button" class="btn btn-sm btn-link px-1 py-0"
+                        :disabled="!labelPreviews.length || !!batchBusy" @click="pickAllShown()">
+                  Select all shown
+                </button>
+                <button type="button" class="btn btn-sm btn-link px-1 py-0"
+                        :disabled="!batchItems.length || !!batchBusy" @click="clearPicked()">
+                  Clear
+                </button>
+              </div>
+
+              <div class="row g-2 align-items-end mt-1">
+                <div class="col-12 col-sm-6 col-xl-auto">
+                  <label class="form-label small text-secondary mb-1" for="batch-format">Format</label>
+                  <select id="batch-format" class="form-select form-select-sm" v-model="batchFormat"
+                          :disabled="!!batchBusy">
+                    <option v-for="option in PRINTER_FORMATS" :key="option.id" :value="option.id">{{ option.label }}</option>
+                  </select>
+                </div>
+                <div class="col-12 col-sm-6 col-xl-auto">
+                  <div class="form-label small text-secondary mb-1">Orientation</div>
+                  <div class="btn-group btn-group-sm w-100" role="group" aria-label="Orientation on the tape">
+                    <button type="button" class="btn btn-outline-secondary text-nowrap" :disabled="!!batchBusy"
+                            :class="{ active: batchOrientation === 'along' }"
+                            :aria-pressed="batchOrientation === 'along' ? 'true' : 'false'"
+                            title="Long side along the tape: as large as the tape allows"
+                            @click="batchOrientation = 'along'">
+                      <i class="bi bi-arrows"></i> Along tape
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary text-nowrap" :disabled="!!batchBusy"
+                            :class="{ active: batchOrientation === 'across' }"
+                            :aria-pressed="batchOrientation === 'across' ? 'true' : 'false'"
+                            title="Turned 90°: long side across the tape – smaller label, shorter strip"
+                            @click="batchOrientation = 'across'">
+                      <i class="bi bi-arrow-clockwise"></i> Rotated 90° (smaller)
+                    </button>
+                  </div>
+                </div>
+                <div class="col-8 col-sm-6 col-xl-auto">
+                  <label class="form-label small text-secondary mb-1" for="batch-cut">Cutting</label>
+                  <select id="batch-cut" class="form-select form-select-sm" v-model="batchCut" :disabled="!!batchBusy">
+                    <option value="half">Half cut – one continuous strip</option>
+                    <option value="each">Cut every label</option>
+                    <option value="none">No cut between labels</option>
+                  </select>
+                </div>
+                <div class="col-4 col-sm-2 col-xl-auto">
+                  <label class="form-label small text-secondary mb-1" for="batch-copies">Copies</label>
+                  <input id="batch-copies" type="number" min="1" max="20" class="form-control form-control-sm"
+                         style="min-width:4.5rem" v-model.number="batchCopies" :disabled="!!batchBusy">
+                </div>
+                <div class="col-12 col-sm col-xl d-flex gap-2 justify-content-end">
+                  <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                          :disabled="!batchItems.length || (batchBusy && batchBusy.phase !== 'upload')"
+                          @click="runBatch(true)">
+                    <i class="bi bi-eye"></i> Preview
+                  </button>
+                  <button type="button" class="btn btn-sm text-nowrap"
+                          :class="batchBusy?.phase === 'upload' ? 'btn-outline-danger' : 'btn-primary'"
+                          :disabled="!batchItems.length || (batchBusy && batchBusy.phase !== 'upload')"
+                          @click="runBatch(false)">
+                    <template v-if="batchBusy?.phase === 'upload'">
+                      <span class="spinner-border spinner-border-sm me-1"></span>
+                      {{ batchBusy.stop ? 'Stopping…' : 'Stop · ' + batchBusy.done + ' / ' + batchBusy.total }}
+                    </template>
+                    <template v-else-if="batchBusy">
+                      <span class="spinner-border spinner-border-sm me-1"></span>
+                      {{ batchBusy.phase === 'preview' ? 'Rendering…' : 'Printing…' }}
+                    </template>
+                    <template v-else>
+                      <i class="bi bi-printer"></i> Print {{ batchItems.length }} label{{ batchItems.length === 1 ? '' : 's' }}
+                    </template>
+                  </button>
+                </div>
+              </div>
+
+              <div class="small text-secondary mt-2">
+                <template v-if="batchEstimate">
+                  On {{ batchEstimate.tape === 4 ? '3.5' : batchEstimate.tape }} mm tape: each label
+                  ≈ {{ batchEstimate.length }} × {{ batchEstimate.height }} mm
+                  <span :class="{ 'text-warning-emphasis': batchEstimate.pct < 100 }">({{ batchEstimate.pct }} %)</span>
+                  <span v-if="batchItems.length"> · strip ≈ {{ batchEstimate.strip }} cm</span>
+                  · one job, {{ batchCut === 'half' ? 'half-cut between labels, cut once at the end'
+                    : batchCut === 'each' ? 'every label cut' : 'cut once at the end' }}.
+                </template>
+                <template v-else>
+                  Tick the labels below. Tape unknown – set <em>Expected tape</em> under Settings → Printer
+                  for a size estimate.
+                </template>
+              </div>
+
+              <div v-if="batchPreview" class="trax-batch-preview mt-2">
+                <img :src="batchPreview.src" alt="Preview of the printed strip">
+                <div class="small text-secondary mt-1">
+                  {{ batchPreview.job.labels }} labels on {{ batchPreview.job.tapeLabel }} tape ·
+                  strip {{ (batchPreview.job.stripMm / 10).toFixed(1) }} cm ·
+                  dashed red = cut<span v-if="batchPreview.job.warnings?.length"> ·
+                  <span class="text-warning-emphasis">{{ batchPreview.job.warnings[0] }}</span></span>
+                </div>
+              </div>
+
+              <div v-if="batchPrinted.length" class="d-flex align-items-center gap-2 mt-2 small">
+                <i class="bi bi-check-circle text-success"></i>
+                <span>{{ batchPrinted.length }} labels sent.</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="markPrintedLabeled()">
+                  Mark them as labeled
+                </button>
+                <button type="button" class="btn btn-sm btn-link py-0 px-1" @click="batchPrinted = []">Dismiss</button>
+              </div>
+            </div>
+          </div>
           <div v-if="labelPreviews.length" class="trax-card-pad pt-0">
             <div class="trax-label-grid" :class="'trax-label-grid-' + labelFormat">
               <figure v-for="label in labelPreviews" :key="label.key" class="trax-label-tile"
-                      :class="{ 'trax-label-done': label.labeled }">
+                      :class="{ 'trax-label-done': label.labeled, 'trax-label-picked': printerEnabled && isPicked(label) }">
                 <div v-if="label.portrait || label.wide" class="trax-label-pair">
                   <a v-if="label.portrait" :href="label.portrait" target="_blank" rel="noopener"
                      :aria-label="'Portrait label ' + label.code">
@@ -1827,6 +2102,9 @@ export default {
                        :style="{ aspectRatio: (60 + cableGapMm) + ' / 14' }">
                 </a>
                 <figcaption class="d-flex align-items-center gap-2 small">
+                  <input v-if="printerEnabled" class="form-check-input mt-0 flex-shrink-0" type="checkbox"
+                         :checked="isPicked(label)" :disabled="!!batchBusy"
+                         :aria-label="'Select ' + label.code + ' for batch printing'" @change="togglePick(label)">
                   <span class="text-truncate flex-grow-1" :title="label.title">
                     <span class="font-monospace">{{ label.code }}</span>
                     <span class="text-secondary"> · {{ label.title }}</span>

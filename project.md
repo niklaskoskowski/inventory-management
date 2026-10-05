@@ -458,6 +458,26 @@ one request.
   `tapeMm`, `lengthMm`, `scalePct`, `warnings`, …). Closes the session before the call so the
   operator's other tabs are not held behind the printer.
 
+**Batch printing** (Settings → Labels): the ticked labels as ONE job — a page per label,
+half-cut between them, one full cut at the end. Four actions, none saving anything:
+
+- `printer.batchStart` → `{batchId}` (24 hex, from the bridge).
+- `printer.batchAdd` — multipart like `printer.print` plus `batchId` and `index` (the order; both
+  in the multipart allow-list). One label per request, so PHP's `max_file_uploads` /
+  `post_max_size` never limit a batch. The bridge keeps the PNGs in memory (30 min, ≤ 500 labels)
+  and renders them only at print time, for the tape loaded then.
+- `printer.batchPrint` `{batchId, format, orientation: along|across, cut: half|each|none, copies,
+  dryRun}` → `{job, preview?}`. `along` lays the long side along the tape (largest), `across`
+  rotates it 90° (long side across the tape: smaller, shorter strip). `dryRun` returns the strip as
+  a PNG data URL and keeps the batch; a real print uses it up. Chain printing is always off for a
+  batch. Allowed `TRAX_PRINTER_BATCH_TIMEOUT` (180 s).
+- `printer.batchCancel` `{batchId}` — best effort; the bridge expires batches anyway.
+
+`buildLabelBatch()` / `printLabelBatch()` / `cancelLabelBatch()` in `app/store.js`. The view keeps
+the last uploaded batch and its signature (format, `rev`, the ticked keys) and reuses it for the
+print after a preview; a `NOT_FOUND` from the bridge (expired, restarted) uploads once more. The
+size estimate mirrors the bridge's printable heights per tape (`TAPE_PRINTABLE_MM`).
+
 Bridge trouble is `PRINTER` / HTTP **502** with `details.bridgeCode` — deliberately not 401/403,
 which `app/api.js` would turn into a redirect to the login form. `trax_printer_request()` names the
 likely cause when the answer is not the bridge's JSON (Access login redirect, 401/403, Cloudflare
@@ -555,8 +575,8 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
 
 - **Reads** (GET): `bootstrap` (snapshot + `csrf` + a `meta` block of vocabularies, limits and mail
   templates), `auth.me`, `auth.config`.
-- **Label printer** (POST, nothing saved): `printer.status`, `printer.print` — see
-  [Label printer](#label-printer).
+- **Label printer** (POST, nothing saved): `printer.status`, `printer.print`,
+  `printer.batchStart|batchAdd|batchPrint|batchCancel` — see [Label printer](#label-printer).
 - **Writes** (POST): `asset.create|update|delete|bulkUpdate`, `asset.uploadPhoto`,
   `asset.deletePhoto`, `asset.uploadConditionPhotos|deleteConditionPhoto`,
   `asset.uploadDocuments|deleteDocument`, `set.create|update|delete`,

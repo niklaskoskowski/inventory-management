@@ -208,8 +208,15 @@ HTTPS — a Cloudflare Tunnel is the easy way — and then, under
    loaded and any printer error.
 
 The label drawer then has a **Send to printer** button on every format (with a
-copies box), plus "Send all unit labels to printer"; Settings → Labels sends
-every listed label — e.g. all *Unlabeled* ones — one after the other.
+copies box), plus "Send all unit labels to printer".
+
+**Batch printing** lives in Settings → Labels: tick the labels (e.g. filter
+*Unlabeled*, then **Select all shown**), pick the format and the orientation —
+*Along tape* for the largest label, *Rotated 90° (smaller)* to turn the long
+side across the tape — and **Print**. All of them go out as one job: one
+continuous strip, half-cut between the labels and cut once at the end, without
+a leader of wasted tape per label. **Preview** shows the strip first; afterwards
+*Mark them as labeled* ticks them off.
 
 Use **18 or 24 mm** TZe tape: the labels are 14 mm high and print at their true
 size there. On 12 mm tape they come out at about 70 %. *Expected tape* makes the

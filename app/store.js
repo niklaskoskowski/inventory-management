@@ -939,6 +939,60 @@ export async function sendLabelToPrinter({ assetId, unitNo = null, format, copie
   return body.data?.job || {};
 }
 
+/**
+ * Batch printing (Settings → Labels): the labels go to the bridge one request
+ * each – three at a time – and are printed later as ONE job. Resolves to the
+ * batch id. `isStopped()` is asked between labels; a stopped or failed upload
+ * cancels the batch on the bridge.
+ */
+export async function buildLabelBatch(items, format, onProgress = () => {}, isStopped = () => false) {
+  const start = await api.post('printer.batchStart', {});
+  const batchId = start.data?.batchId;
+  if (!batchId) throw new Error('The print bridge did not start a batch.');
+
+  let next = 0;
+  let done = 0;
+  onProgress(0, items.length);
+  const worker = async () => {
+    while (next < items.length) {
+      if (isStopped()) throw new Error('Stopped.');
+      const index = next;
+      next += 1;
+      const item = items[index];
+      const file = labelFiles(item.assetId, item.unitNo).find((entry) => entry.format === format);
+      const response = await fetch(`${file.url}&v=${state.rev}`, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error(`Label ${item.code} could not be rendered (HTTP ${response.status}).`);
+      const fields = { batchId, index, format, assetId: item.assetId };
+      if (item.unitNo) fields.unitNo = item.unitNo;
+      await api.upload('printer.batchAdd', await response.blob(), fields);
+      done += 1;
+      onProgress(done, items.length);
+    }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, items.length) }, worker));
+  } catch (error) {
+    cancelLabelBatch(batchId);
+    throw error;
+  }
+  return batchId;
+}
+
+/**
+ * Prints a batch built by buildLabelBatch() as one job – or previews it:
+ * {format, orientation: along|across, cut: half|each|none, copies, dryRun}.
+ * Resolves to {job, preview?}; a real print uses the batch up.
+ */
+export async function printLabelBatch(batchId, options) {
+  const body = await api.post('printer.batchPrint', { batchId, ...options });
+  return body.data || {};
+}
+
+/** Drops a batch on the bridge. Never throws: it expires there on its own anyway. */
+export function cancelLabelBatch(batchId) {
+  return api.post('printer.batchCancel', { batchId }).catch(() => {});
+}
+
 /** A one-line toast for a finished job: printed / sent, tape, and the first warning. */
 export function printerJobMessage(job, what) {
   const tape = job.tapeLabel ? ` on ${job.tapeLabel} tape` : '';

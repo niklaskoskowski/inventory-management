@@ -417,6 +417,8 @@ if (!defined('TRAX_CABLE_GAP_DEFAULT')) define('TRAX_CABLE_GAP_DEFAULT', 30);
  * once the printer has reported the label done, so it covers a few copies.
  */
 if (!defined('TRAX_PRINTER_TIMEOUT')) define('TRAX_PRINTER_TIMEOUT', 60);
+/** A batch is one job of many labels: the bridge answers once it is out. */
+if (!defined('TRAX_PRINTER_BATCH_TIMEOUT')) define('TRAX_PRINTER_BATCH_TIMEOUT', 180);
 if (!defined('TRAX_PRINTER_MAX_COPIES')) define('TRAX_PRINTER_MAX_COPIES', 20);
 if (!defined('TRAX_PRINTER_MAX_BYTES')) define('TRAX_PRINTER_MAX_BYTES', 8 * 1024 * 1024);
 /** Label formats the printer accepts, as label.php / label-w.php / label-c.php render them. */

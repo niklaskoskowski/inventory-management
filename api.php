@@ -206,6 +206,9 @@ if ($isPost) {
             'format'    => trax_str($_POST['format'] ?? '', 20),
             'unitNo'    => trax_int($_POST['unitNo'] ?? null),
             'copies'    => trax_int($_POST['copies'] ?? null),
+            // printer.batchAdd: which batch, and the label's place in it.
+            'batchId'   => trax_str($_POST['batchId'] ?? '', 64),
+            'index'     => trax_int($_POST['index'] ?? null),
         ];
         // Absent (every existing client) still means null, i.e. no rev check.
         $clientRev = trax_int($_POST['rev'] ?? null);
@@ -1034,6 +1037,92 @@ function trax_status_after_return(int $assetId, array $data, ?int $ignoreReserva
         }
     }
     return 'FREE';
+}
+
+// ---------------------------------------------------------------------------
+// Label printer — shared by printer.print and the printer.batch* actions
+// ---------------------------------------------------------------------------
+
+/** settings.printer when it is switched on; otherwise the request ends here. */
+function trax_printer_enabled_or_fail(array $data): array
+{
+    $printer = trax_printer_settings($data);
+    if (!$printer['enabled']) {
+        trax_fail('BAD_REQUEST', 'The label printer is switched off — Settings → Printer.');
+    }
+    return $printer;
+}
+
+/**
+ * The label of a multipart printer upload: [png, format]. The PNG is the one
+ * the browser already previews (label.php / label-w.php / label-c.php); the
+ * size in mm comes from the format, never from the client.
+ */
+function trax_printer_upload_png(array $payload): array
+{
+    $format = (string)($payload['format'] ?? '');
+    if (!in_array($format, TRAX_PRINTER_FORMATS, true)) {
+        trax_fail('BAD_REQUEST', 'Unknown label format "' . $format . '".');
+    }
+    $file = $_FILES['photo'] ?? null;
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
+        || !is_uploaded_file((string)$file['tmp_name'])) {
+        trax_fail('BAD_REQUEST', 'No label image received.');
+    }
+    if ((int)$file['size'] > TRAX_PRINTER_MAX_BYTES) {
+        trax_fail('TOO_LARGE', 'The label image is too large.', 413);
+    }
+    $png  = (string)file_get_contents((string)$file['tmp_name']);
+    $info = @getimagesizefromstring($png);
+    if ($info === false || ($info[2] ?? null) !== IMAGETYPE_PNG
+        || $info[0] < 1 || $info[1] < 1 || $info[0] > 20000 || $info[1] > 20000) {
+        trax_fail('UNSUPPORTED_MEDIA', 'The label must be a PNG.', 415);
+    }
+    return [$png, $format];
+}
+
+/**
+ * [assetId, unitNo] of a printer upload. They only name the job in the
+ * bridge's history — but a name that claims a unit the asset does not have
+ * would be a lie there.
+ */
+function trax_printer_upload_ref(array $payload, array $data): array
+{
+    $assetId = trax_int($payload['assetId'] ?? null);
+    $unitNo  = $assetId !== null ? trax_int($payload['unitNo'] ?? null) : null;
+    if ($assetId !== null) {
+        $asset = trax_find_asset($data['assets'], $assetId);
+        if ($asset === null) {
+            trax_fail('BAD_REQUEST', "Asset #{$assetId} not found.");
+        }
+        if ($unitNo !== null && !in_array($unitNo, array_column($asset['units'], 'no'), true)) {
+            trax_fail('BAD_REQUEST', 'Unit ' . trax_unit_code($assetId, $unitNo) . ' not found.');
+        }
+    }
+    return [$assetId, $unitNo];
+}
+
+/** The batch id the bridge handed out: 24 lower-case hex. */
+function trax_printer_batch_id(array $payload): string
+{
+    $id = (string)($payload['batchId'] ?? '');
+    if (preg_match('/^[0-9a-f]{24}$/', $id) !== 1) {
+        trax_fail('BAD_REQUEST', 'Missing or malformed batch id.');
+    }
+    return $id;
+}
+
+/**
+ * Before a call to the bridge: a job can outlast PHP's default time limit on
+ * a slow tunnel, and the session lock would hold every other tab of this
+ * operator behind the printer. Nothing after this writes to the session.
+ */
+function trax_printer_prepare_call(int $seconds = TRAX_PRINTER_TIMEOUT): void
+{
+    @set_time_limit($seconds + 30);
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
 }
 
 $actor = trax_actor();
@@ -3581,64 +3670,91 @@ try {
         }
 
         case 'printer.print': {
-            // Multipart: the label PNG the browser already rendered a preview
-            // of (label.php / label-w.php / label-c.php), plus which format it
-            // is. The size in mm comes from the format, never from the client.
-            $data    = trax_read_data();
-            $printer = trax_printer_settings($data);
-            if (!$printer['enabled']) {
-                trax_fail('BAD_REQUEST', 'The label printer is switched off — Settings → Printer.');
-            }
-
-            $format = (string)($payload['format'] ?? '');
-            if (!in_array($format, TRAX_PRINTER_FORMATS, true)) {
-                trax_fail('BAD_REQUEST', 'Unknown label format "' . $format . '".');
-            }
-
-            $file = $_FILES['photo'] ?? null;
-            if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
-                || !is_uploaded_file((string)$file['tmp_name'])) {
-                trax_fail('BAD_REQUEST', 'No label image received.');
-            }
-            if ((int)$file['size'] > TRAX_PRINTER_MAX_BYTES) {
-                trax_fail('TOO_LARGE', 'The label image is too large.', 413);
-            }
-            $png  = (string)file_get_contents((string)$file['tmp_name']);
-            $info = @getimagesizefromstring($png);
-            if ($info === false || ($info[2] ?? null) !== IMAGETYPE_PNG
-                || $info[0] < 1 || $info[1] < 1 || $info[0] > 20000 || $info[1] > 20000) {
-                trax_fail('UNSUPPORTED_MEDIA', 'The label must be a PNG.', 415);
-            }
-
-            // Only names the job in the bridge's history — but a name that
-            // claims a unit the asset does not have would be a lie there.
-            $assetId = trax_int($payload['assetId'] ?? null);
-            $unitNo  = $assetId !== null ? trax_int($payload['unitNo'] ?? null) : null;
-            if ($assetId !== null) {
-                $asset = trax_find_asset($data['assets'], $assetId);
-                if ($asset === null) {
-                    trax_fail('BAD_REQUEST', "Asset #{$assetId} not found.");
-                }
-                if ($unitNo !== null && !in_array($unitNo, array_column($asset['units'], 'no'), true)) {
-                    trax_fail('BAD_REQUEST', 'Unit ' . trax_unit_code($assetId, $unitNo) . ' not found.');
-                }
-            }
+            // Multipart: one label PNG, sent as a job of its own.
+            $data = trax_read_data();
+            $printer = trax_printer_enabled_or_fail($data);
+            [$png, $format]    = trax_printer_upload_png($payload);
+            [$assetId, $unitNo] = trax_printer_upload_ref($payload, $data);
             $copies = max(1, min(TRAX_PRINTER_MAX_COPIES, trax_int($payload['copies'] ?? null) ?? $printer['copies']));
 
-            // A label job can outlast PHP's default limit on a slow tunnel.
-            @set_time_limit(TRAX_PRINTER_TIMEOUT + 30);
-            // The session lock would hold every other tab of this operator
-            // behind the printer; nothing below writes to the session.
-            if (session_status() === PHP_SESSION_ACTIVE) {
-                session_write_close();
-            }
-
+            trax_printer_prepare_call();
             try {
                 $result = trax_printer_print_png($data, $png, $format, $assetId, $unitNo, $copies);
             } catch (TraxPrinterError $e) {
                 trax_fail('PRINTER', $e->getMessage(), 502, ['bridgeCode' => $e->bridgeCode]);
             }
             trax_ok($result);
+        }
+
+        // Batch printing (Settings → Labels): many labels as ONE job on the
+        // bridge — half-cut between them, one strip. The labels go up one
+        // request each (no PHP upload limit in the way) and the bridge keeps
+        // them until printer.batchPrint; it renders them for the tape loaded
+        // then. None of these save anything here.
+
+        case 'printer.batchStart': {
+            $printer = trax_printer_enabled_or_fail(trax_read_data());
+            trax_printer_prepare_call(20);
+            try {
+                trax_ok(['batchId' => trax_printer_batch_start($printer)]);
+            } catch (TraxPrinterError $e) {
+                trax_fail('PRINTER', $e->getMessage(), 502, ['bridgeCode' => $e->bridgeCode]);
+            }
+        }
+
+        case 'printer.batchAdd': {
+            // Multipart, like printer.print, plus batchId and index (the order).
+            $data = trax_read_data();
+            trax_printer_enabled_or_fail($data);
+            $batchId            = trax_printer_batch_id($payload);
+            [$png, $format]     = trax_printer_upload_png($payload);
+            [$assetId, $unitNo] = trax_printer_upload_ref($payload, $data);
+            $index = max(0, trax_int($payload['index'] ?? null) ?? 0);
+
+            trax_printer_prepare_call(30);
+            try {
+                $count = trax_printer_batch_add($data, $batchId, $index, $png, $format, $assetId, $unitNo);
+            } catch (TraxPrinterError $e) {
+                trax_fail('PRINTER', $e->getMessage(), 502, ['bridgeCode' => $e->bridgeCode]);
+            }
+            trax_ok(['count' => $count]);
+        }
+
+        case 'printer.batchPrint': {
+            // {batchId, format, orientation: along|across, cut: half|each|none,
+            //  copies, dryRun}. dryRun answers with the strip as a preview and
+            // keeps the batch; a real print uses it up.
+            $data    = trax_read_data();
+            trax_printer_enabled_or_fail($data);
+            $batchId = trax_printer_batch_id($payload);
+            $format  = (string)($payload['format'] ?? '');
+            if (!in_array($format, TRAX_PRINTER_FORMATS, true)) {
+                trax_fail('BAD_REQUEST', 'Unknown label format "' . $format . '".');
+            }
+            $orientation = ($payload['orientation'] ?? '') === 'across' ? 'across' : 'along';
+            $cut = in_array($payload['cut'] ?? '', ['each', 'half', 'none'], true) ? $payload['cut'] : 'half';
+            $copies = max(1, min(TRAX_PRINTER_MAX_COPIES, trax_int($payload['copies'] ?? null) ?? 1));
+            $dryRun = !empty($payload['dryRun']);
+
+            trax_printer_prepare_call(TRAX_PRINTER_BATCH_TIMEOUT);
+            try {
+                $result = trax_printer_batch_print($data, $batchId, $format, $orientation, $cut, $copies, $dryRun);
+            } catch (TraxPrinterError $e) {
+                trax_fail('PRINTER', $e->getMessage(), 502, ['bridgeCode' => $e->bridgeCode]);
+            }
+            trax_ok($result);
+        }
+
+        case 'printer.batchCancel': {
+            $printer = trax_printer_settings();
+            $batchId = trax_printer_batch_id($payload);
+            trax_printer_prepare_call(20);
+            try {
+                trax_printer_batch_cancel($printer, $batchId);
+            } catch (TraxPrinterError $e) {
+                // Gone already, or the bridge is down: it expires on its own.
+            }
+            trax_ok([]);
         }
 
         // --- Account -------------------------------------------------------

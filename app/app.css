@@ -1331,5 +1331,35 @@ kbd {
 /* Already on the gear: still listed, but stepped back. */
 .trax-label-tile.trax-label-done img { opacity: .55; }
 
+/* Ticked for batch printing. */
+.trax-label-tile.trax-label-picked {
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 1px var(--bs-primary) inset;
+}
+
+/* Settings → Labels → Batch print: the options row and the strip preview. */
+.trax-batch {
+  padding: .75rem;
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius);
+  background: var(--trax-surface-2);
+}
+.trax-batch-preview {
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: .5rem;
+  border-radius: var(--trax-radius);
+  background: repeating-conic-gradient(rgba(255, 255, 255, .04) 0 25%, transparent 0 50%) 0 0 / 12px 12px;
+}
+.trax-batch-preview img {
+  display: block;
+  height: 96px;
+  width: auto;
+  max-width: none;
+  image-rendering: pixelated;
+  border-radius: 2px;
+}
+
 .trax-cable-gap { width: auto; }
 .trax-cable-gap .form-control { width: 4.5rem; }
