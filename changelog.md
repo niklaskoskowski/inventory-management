@@ -6,6 +6,37 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-10-05
+
+### Added
+
+- **Label printer (Brother PT-P750W), off by default.** Settings → **Printer**: switch it on,
+  enter the URL and token of a `pt750w-print-trax` bridge (a small service on a Raspberry Pi
+  next to the printer, typically behind a Cloudflare Tunnel), optionally a Cloudflare Access
+  service token, and the print defaults — format for batch printing, copies (1–20), cutting
+  (each / half cut / none), chain printing, feed margin, *expected tape* (a different cassette
+  makes the job fail instead of printing it scaled) and true size vs. fill the tape. **Test
+  connection** shows the bridge version, the loaded tape and any printer error.
+  Once enabled, the label drawer has **Send to printer** on each of the three formats with a
+  copies box, and "Send all unit labels to printer" in a chosen format; Settings → Labels gets
+  **Send to printer (N format)**, which sends every listed label one after the other and can be
+  stopped between two labels.
+  The browser fetches the label PNG it already previews and uploads it to the new
+  `printer.print` action; `api.php` forwards it to the bridge with the label's size in mm (from
+  the format, never from the client) and the token, so the token never reaches the browser.
+  `printer.status` is the connection test. Both are POSTs that save nothing and return no
+  snapshot; bridge failures come back as `PRINTER` (HTTP 502) with a message naming the likely
+  cause (unreachable, Cloudflare Access login, tunnel down, wrong token, tape mismatch).
+  New: `lib/printer.php`, `settings.printer` (`trax_normalize_printer()`), `TRAX_PRINTER_*` in
+  `lib/config.php`.
+
+### Unverified
+
+- Only exercised against the bridge's mock printer (`python -m ptbridge mock`), which decodes the
+  raster stream back to PNG: the wide, portrait and cable labels came out at true size on 18 mm
+  tape and their QR codes still decode at 180 dpi. Not yet printed on a real PT-P750W.
+- The PHP-streams fallback in `lib/printer.php` (hosts without `curl`) has not been run.
+
 ## 2026-10-03
 
 ### Added

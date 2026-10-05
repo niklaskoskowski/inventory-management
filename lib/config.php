@@ -409,6 +409,20 @@ if (!defined('TRAX_MAX_TERMS')) define('TRAX_MAX_TERMS', 30000);
 if (!defined('TRAX_CABLE_GAP_MIN')) define('TRAX_CABLE_GAP_MIN', 2);
 if (!defined('TRAX_CABLE_GAP_MAX')) define('TRAX_CABLE_GAP_MAX', 60);
 if (!defined('TRAX_CABLE_GAP_DEFAULT')) define('TRAX_CABLE_GAP_DEFAULT', 30);
+/**
+ * The network label printer (Settings → Printer): a Brother PT-P750W behind the
+ * pt750w-print-trax bridge. Off until an operator switches it on.
+ *
+ * TRAX_PRINTER_TIMEOUT is how long api.php waits for the bridge — it answers
+ * once the printer has reported the label done, so it covers a few copies.
+ */
+if (!defined('TRAX_PRINTER_TIMEOUT')) define('TRAX_PRINTER_TIMEOUT', 60);
+if (!defined('TRAX_PRINTER_MAX_COPIES')) define('TRAX_PRINTER_MAX_COPIES', 20);
+if (!defined('TRAX_PRINTER_MAX_BYTES')) define('TRAX_PRINTER_MAX_BYTES', 8 * 1024 * 1024);
+/** Label formats the printer accepts, as label.php / label-w.php / label-c.php render them. */
+if (!defined('TRAX_PRINTER_FORMATS')) define('TRAX_PRINTER_FORMATS', ['portrait', 'wide', 'cable']);
+/** Expected tape, mm. 0 = whatever is loaded; 4 is how the printer reports 3.5 mm. */
+if (!defined('TRAX_PRINTER_TAPES')) define('TRAX_PRINTER_TAPES', [0, 4, 6, 9, 12, 18, 24]);
 if (!defined('TRAX_MAX_MEMBERS')) define('TRAX_MAX_MEMBERS', 100);    // distinct members per set
 if (!defined('TRAX_MAX_QUANTITY')) define('TRAX_MAX_QUANTITY', 9999);   // physical units one asset record may stand for
 if (!defined('TRAX_MAX_MEMBER_QTY')) define('TRAX_MAX_MEMBER_QTY', 999);    // units of a single member inside one set

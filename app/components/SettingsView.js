@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue';
 import {
   state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl, markLabeled,
+  printerEnabled, printerStatus, sendLabelToPrinter,
 } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney, formatDateTime } from '../lib/format.js';
@@ -32,6 +33,7 @@ const SECTIONS = [
   { id: 'email', label: 'Email', icon: 'bi-envelope' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
   { id: 'labels', label: 'Labels', icon: 'bi-qr-code' },
+  { id: 'printer', label: 'Printer', icon: 'bi-printer' },
   { id: 'terms', label: 'Terms', icon: 'bi-file-earmark-text' },
   { id: 'defaults', label: 'Defaults & automation', icon: 'bi-sliders' },
   { id: 'account', label: 'Account', icon: 'bi-person-lock' },
@@ -48,6 +50,27 @@ const LABEL_FORMATS = [
 
 /** The cable flag's blank middle, mm. Mirrors TRAX_CABLE_GAP_* in lib/config.php. */
 const CABLE_GAP = { min: 2, max: 60, default: 30 };
+
+/** Settings → Printer. Mirrors TRAX_PRINTER_* in lib/config.php. */
+const PRINTER_FORMATS = [
+  { id: 'wide', label: 'Wide · 30 × 14 mm' },
+  { id: 'portrait', label: 'Portrait · 14 × 30 mm' },
+  { id: 'cable', label: 'Cable flag · 14 mm high' },
+];
+const PRINTER_CUTS = [
+  { id: 'each', label: 'Cut every label' },
+  { id: 'half', label: 'Half cut between labels' },
+  { id: 'none', label: 'No cut between labels' },
+];
+const PRINTER_TAPES = [
+  { mm: 0, label: 'Whatever is loaded' },
+  { mm: 4, label: '3.5 mm' },
+  { mm: 6, label: '6 mm' },
+  { mm: 9, label: '9 mm' },
+  { mm: 12, label: '12 mm' },
+  { mm: 18, label: '18 mm' },
+  { mm: 24, label: '24 mm' },
+];
 
 /** Which labels Settings → Labels lists: all, or by whether they are on the gear. */
 const LABEL_STATES = [
@@ -194,6 +217,7 @@ export default {
         : clone(DEFAULT_STATUSES);
       next.events.defaultStatus = next.events.defaultStatus || next.events.statuses[0].id;
       next.events.enabled = next.events.enabled !== false;
+      next.printer = next.printer || {};
       next.inspection = next.inspection || {};
       next.inspection.categories = Array.isArray(next.inspection.categories)
         ? next.inspection.categories
@@ -760,6 +784,59 @@ export default {
       }
     };
 
+    // --- Label printer ---
+    // The connection lives in the settings draft (saved through the save bar);
+    // the test and the batch print use what is SAVED, never the draft.
+
+    /** The printer group differs from what is stored. */
+    const printerDirty = computed(() => Boolean(patch.value.printer));
+    const showPrinterSecrets = ref(false);
+    /** null | {busy} | {data} | {error} — the last "Test connection". */
+    const printerTest = ref(null);
+    const testPrinter = async () => {
+      printerTest.value = { busy: true };
+      try {
+        printerTest.value = { data: await printerStatus() };
+      } catch (error) {
+        printerTest.value = { error: error.message };
+      }
+    };
+    const printerTestStatus = computed(() => printerTest.value?.data?.printer?.status || null);
+
+    /**
+     * Settings → Labels → "Send to printer": the labels listed, one job each, in
+     * the chosen format — or the printer's default when the filter shows all.
+     * One at a time: the printer takes one job at a time anyway, and a stop
+     * button between two labels is worth more than a few seconds.
+     */
+    const batchFormat = computed(() => (labelFormat.value === 'all'
+      ? state.settings?.printer?.format || 'wide'
+      : labelFormat.value));
+    const labelPrint = ref(null);
+    const printAllLabels = async () => {
+      if (labelPrint.value) {
+        labelPrint.value.stop = true;
+        return;
+      }
+      const items = labelItems.value;
+      if (!items.length) return;
+      labelPrint.value = { done: 0, total: items.length, stop: false };
+      try {
+        for (const item of items) {
+          if (labelPrint.value.stop) break;
+          await sendLabelToPrinter({ assetId: item.assetId, unitNo: item.unitNo, format: batchFormat.value });
+          labelPrint.value.done += 1;
+        }
+        const { done, total, stop } = labelPrint.value;
+        toast(stop ? `Stopped after ${done} of ${total} labels.` : `Sent ${done} labels to the printer.`,
+          stop ? 'warning' : 'success');
+      } catch (error) {
+        toast(`Stopped after ${labelPrint.value.done} of ${items.length}: ${error.message}`, 'danger', 9000);
+      } finally {
+        labelPrint.value = null;
+      }
+    };
+
     // --- Terms & conditions ---
     // Not part of the settings draft: every save publishes a VERSION, which
     // signatures point at, so it has its own action (terms.update), its own
@@ -998,6 +1075,8 @@ export default {
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
       CABLE_GAP, cableGapMm, cableGapBusy, saveCableGap,
+      PRINTER_FORMATS, PRINTER_CUTS, PRINTER_TAPES, printerEnabled, printerDirty, showPrinterSecrets,
+      printerTest, printerTestStatus, testPrinter, batchFormat, labelPrint, printAllLabels,
       LABEL_FORMATS, LABEL_STATES, labelFormat, labelState, labelCounts, labelFileCount,
       labelZip, downloadAllLabels, labelPreviews, labelBusy, toggleLabeled,
       state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
@@ -1705,6 +1784,20 @@ export default {
                 <span class="input-group-text">mm</span>
               </div>
               <span class="flex-grow-1"></span>
+              <button v-if="printerEnabled" class="btn btn-sm"
+                      :class="labelPrint ? 'btn-outline-danger' : 'btn-primary'"
+                      :disabled="!labelPreviews.length"
+                      :title="labelPrint ? 'Stop after the current label'
+                        : 'One ' + batchFormat + ' label each, to the label printer'"
+                      @click="printAllLabels()">
+                <template v-if="labelPrint">
+                  <span class="spinner-border spinner-border-sm me-1"></span>
+                  {{ labelPrint.stop ? 'Stopping…' : 'Stop · ' + labelPrint.done + ' / ' + labelPrint.total }}
+                </template>
+                <template v-else>
+                  <i class="bi bi-send"></i> Send to printer ({{ labelPreviews.length }} {{ batchFormat }})
+                </template>
+              </button>
               <button class="btn btn-sm btn-outline-secondary"
                       :disabled="!!labelZip || !labelFileCount" @click="downloadAllLabels()">
                 <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
@@ -1752,6 +1845,195 @@ export default {
           </div>
           <div v-else class="trax-card-pad pt-0 small text-secondary">
             {{ state.assets.length ? 'No labels match this filter.' : 'No assets to label yet.' }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Label printer ------------------------------------------------------ -->
+    <!-- Part of the settings draft: saved through the save bar like Branding.
+         "Test connection" asks the bridge with the SAVED values. -->
+    <div v-else-if="section === 'printer'" class="row g-3">
+      <div class="col-12 col-xl-6">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Label printer</h2>
+            <p class="trax-page-sub">
+              Sends labels straight to a Brother PT-P750W. The printer sits in a local network
+              with a small bridge next to it (<code>pt750w-print-trax</code> on a Raspberry Pi), which
+              this server reaches over HTTPS — typically through a Cloudflare Tunnel. Labels go out
+              exactly as the previews show them.
+            </p>
+            <div class="form-check form-switch mt-3">
+              <input class="form-check-input" type="checkbox" role="switch" id="set-printer-enabled"
+                     v-model="draft.printer.enabled">
+              <label class="form-check-label small" for="set-printer-enabled">
+                Enable the label printer
+                <span class="d-block text-secondary" style="font-size:.72rem">
+                  Adds “Send to printer” to the label drawer and to Settings → Labels.
+                </span>
+              </label>
+            </div>
+          </div>
+          <div class="trax-card-pad pt-0">
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label small" for="set-printer-url">Bridge URL</label>
+                <input id="set-printer-url" class="form-control form-control-sm font-monospace"
+                       type="url" maxlength="300" placeholder="https://print.example.com"
+                       autocomplete="off" v-model.trim="draft.printer.bridgeUrl">
+              </div>
+              <div class="col-12">
+                <label class="form-label small" for="set-printer-token">Bridge token</label>
+                <div class="input-group input-group-sm">
+                  <input id="set-printer-token" class="form-control font-monospace"
+                         :type="showPrinterSecrets ? 'text' : 'password'" maxlength="300"
+                         autocomplete="new-password" spellcheck="false"
+                         placeholder="PTB_TOKEN from the bridge's .env"
+                         v-model.trim="draft.printer.token">
+                  <button class="btn btn-outline-secondary" type="button"
+                          :title="showPrinterSecrets ? 'Hide' : 'Show'"
+                          @click="showPrinterSecrets = !showPrinterSecrets">
+                    <i class="bi" :class="showPrinterSecrets ? 'bi-eye-slash' : 'bi-eye'"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="col-12 mt-3">
+                <div class="small fw-semibold">Cloudflare Access <span class="text-secondary fw-normal">(optional)</span></div>
+                <div class="form-text small mt-0 mb-1">
+                  When the bridge's hostname is behind Cloudflare Access, a service token lets this
+                  server through: an Access policy with the action <em>Service Auth</em>.
+                </div>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label small" for="set-printer-cfid">Client ID</label>
+                <input id="set-printer-cfid" class="form-control form-control-sm font-monospace"
+                       maxlength="300" autocomplete="off" spellcheck="false" placeholder="….access"
+                       v-model.trim="draft.printer.accessClientId">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label small" for="set-printer-cfsecret">Client secret</label>
+                <input id="set-printer-cfsecret" class="form-control form-control-sm font-monospace"
+                       :type="showPrinterSecrets ? 'text' : 'password'" maxlength="300"
+                       autocomplete="new-password" spellcheck="false"
+                       v-model.trim="draft.printer.accessClientSecret">
+              </div>
+            </div>
+          </div>
+          <div class="trax-card-pad pt-0">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <button class="btn btn-sm btn-outline-secondary"
+                      :disabled="printerDirty || !state.settings.printer.bridgeUrl || printerTest?.busy"
+                      @click="testPrinter()">
+                <span v-if="printerTest?.busy" class="spinner-border spinner-border-sm me-1"></span>
+                <i v-else class="bi bi-plug"></i> Test connection
+              </button>
+              <span v-if="printerDirty" class="small text-secondary">Save first — the test uses the saved settings.</span>
+              <span v-else-if="!state.settings.printer.bridgeUrl" class="small text-secondary">No bridge URL saved yet.</span>
+            </div>
+
+            <div v-if="printerTest?.error" class="alert alert-danger py-2 px-3 small mt-2 mb-0">
+              <i class="bi bi-x-circle"></i> {{ printerTest.error }}
+            </div>
+            <div v-else-if="printerTest?.data" class="mt-2">
+              <div v-if="printerTestStatus?.errors?.length" class="alert alert-warning py-2 px-3 small mb-2">
+                <i class="bi bi-exclamation-triangle"></i>
+                Printer reports: {{ printerTestStatus.errors.join(', ') }}
+              </div>
+              <div v-else class="alert alert-success py-2 px-3 small mb-2">
+                <i class="bi bi-check-circle"></i>
+                Bridge {{ printerTest.data.bridge?.version }} answers<span v-if="printerTestStatus">,
+                {{ printerTestStatus.model }} is ready</span><span v-else>, printer is reachable</span>.
+              </div>
+              <dl v-if="printerTestStatus" class="row small mb-0">
+                <dt class="col-4 text-secondary fw-normal">Tape</dt>
+                <dd class="col-8 mb-1">
+                  <strong>{{ printerTestStatus.tapeLabel }}</strong> · {{ printerTestStatus.mediaLabel }}
+                  <span v-if="draft.printer.tapeMm && printerTestStatus.tapeMm !== draft.printer.tapeMm"
+                        class="text-warning-emphasis d-block">
+                    <i class="bi bi-exclamation-triangle"></i> Not the expected tape — jobs will be refused.
+                  </span>
+                </dd>
+                <dt class="col-4 text-secondary fw-normal">Colours</dt>
+                <dd class="col-8 mb-1">{{ printerTestStatus.textColor }} on {{ printerTestStatus.tapeColor }}</dd>
+                <dt class="col-4 text-secondary fw-normal">Print height</dt>
+                <dd class="col-8 mb-0">
+                  {{ printerTestStatus.printablePins ? (printerTestStatus.printablePins * 25.4 / 180).toFixed(1) + ' mm' : '—' }}
+                  <span v-if="printerTestStatus.printablePins && printerTestStatus.printablePins < 99"
+                        class="text-secondary"> — 14 mm labels print scaled down</span>
+                </dd>
+              </dl>
+              <p v-else class="small text-secondary mb-0">
+                The printer does not report its status over the network, so the bridge prints for
+                its default tape (<code>PTB_DEFAULT_TAPE_MM</code>,
+                {{ printerTest.data.bridge?.defaults?.tapeMm }} mm).
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-6">
+        <div class="trax-card h-100">
+          <div class="trax-card-pad">
+            <h2 class="trax-page-title">Print defaults</h2>
+            <p class="trax-page-sub">
+              The labels are 14 mm high: on 18 or 24 mm tape they print at their true size, on
+              12 mm tape at about 70 %.
+            </p>
+          </div>
+          <div class="trax-card-pad pt-0">
+            <div class="row g-2">
+              <div class="col-12 col-md-6">
+                <label class="form-label small" for="set-printer-format">Format for batch printing</label>
+                <select id="set-printer-format" class="form-select form-select-sm" v-model="draft.printer.format">
+                  <option v-for="option in PRINTER_FORMATS" :key="option.id" :value="option.id">{{ option.label }}</option>
+                </select>
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small" for="set-printer-copies">Copies</label>
+                <input id="set-printer-copies" type="number" min="1" max="20"
+                       class="form-control form-control-sm" v-model.number="draft.printer.copies">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small" for="set-printer-margin">Margin (mm)</label>
+                <input id="set-printer-margin" type="number" min="0" max="30" step="0.5"
+                       class="form-control form-control-sm" v-model.number="draft.printer.marginMm">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label small" for="set-printer-cut">Cutting</label>
+                <select id="set-printer-cut" class="form-select form-select-sm" v-model="draft.printer.cut">
+                  <option v-for="option in PRINTER_CUTS" :key="option.id" :value="option.id">{{ option.label }}</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label small" for="set-printer-tape">Expected tape</label>
+                <select id="set-printer-tape" class="form-select form-select-sm" v-model.number="draft.printer.tapeMm">
+                  <option v-for="option in PRINTER_TAPES" :key="option.mm" :value="option.mm">{{ option.label }}</option>
+                </select>
+                <div class="form-text small">A different tape in the printer makes it refuse the job.</div>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label small" for="set-printer-fit">Size</label>
+                <select id="set-printer-fit" class="form-select form-select-sm" v-model="draft.printer.fit">
+                  <option value="exact">True size</option>
+                  <option value="fill">Fill the tape's height</option>
+                </select>
+                <div class="form-text small">True size is scaled down only when the tape is too narrow.</div>
+              </div>
+              <div class="col-12 col-md-6 d-flex align-items-end">
+                <div class="form-check form-switch mb-1">
+                  <input class="form-check-input" type="checkbox" role="switch" id="set-printer-chain"
+                         v-model="draft.printer.chain">
+                  <label class="form-check-label small" for="set-printer-chain">
+                    Chain printing
+                    <span class="d-block text-secondary" style="font-size:.72rem">
+                      No feed and cut after the last label — saves tape, the next job pushes it out.
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

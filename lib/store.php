@@ -1919,6 +1919,83 @@ function trax_image_url(mixed $value): string
 }
 
 /**
+ * The print bridge's base URL: http(s)://host[:port][/path], no credentials,
+ * no query, no trailing slash. '' for empty, null for something else — the
+ * settings patch is refused with a reason rather than normalised away
+ * (trax_printer_patch_error()).
+ *
+ * Unlike the logo URL this one IS requested server-side, by api.php, but only
+ * ever by an authenticated operator who also chose it, and only the two
+ * printer.* actions call it.
+ */
+function trax_printer_url(mixed $value): ?string
+{
+    $s = trax_str($value, 300);
+    if ($s === '') {
+        return '';
+    }
+    if (preg_match('~^https?://~i', $s) !== 1 || preg_match('/[\x00-\x20\x7f"\'<>\\\\]/', $s) === 1) {
+        return null;
+    }
+    $parts = parse_url($s);
+    if (!is_array($parts) || ($parts['host'] ?? '') === ''
+        || isset($parts['user']) || isset($parts['pass'])
+        || isset($parts['query']) || isset($parts['fragment'])) {
+        return null;
+    }
+    return rtrim($s, '/');
+}
+
+/**
+ * A bearer token or Cloudflare Access credential: it goes into an HTTP
+ * header, so visible ASCII only — anything else could split the header.
+ */
+function trax_printer_secret(mixed $value): string
+{
+    $s = trax_str($value, 300);
+    return preg_match('/^[\x21-\x7e]*$/', $s) === 1 ? $s : '';
+}
+
+/**
+ * settings.printer — the PT-P750W behind the pt750w-print-trax bridge.
+ *
+ * Off by default. The secrets ride in the admin snapshot like cron.secret
+ * does: the snapshot only ever goes to a signed-in operator.
+ */
+function trax_normalize_printer(mixed $raw): array
+{
+    $raw    = is_array($raw) ? $raw : [];
+    $format = (string)($raw['format'] ?? '');
+    $cut    = (string)($raw['cut'] ?? '');
+    $fit    = (string)($raw['fit'] ?? '');
+    $tape   = trax_int($raw['tapeMm'] ?? null) ?? 0;
+    $margin = trax_float($raw['marginMm'] ?? null);
+
+    return [
+        'enabled'            => trax_bool($raw['enabled'] ?? null, false),
+        'bridgeUrl'          => trax_printer_url($raw['bridgeUrl'] ?? '') ?? '',
+        'token'              => trax_printer_secret($raw['token'] ?? ''),
+        // Cloudflare Access service token, sent as CF-Access-Client-Id/-Secret.
+        // Both or neither; empty when the hostname is not behind Access.
+        'accessClientId'     => trax_printer_secret($raw['accessClientId'] ?? ''),
+        'accessClientSecret' => trax_printer_secret($raw['accessClientSecret'] ?? ''),
+        // What "Send to printer" prints when nothing says otherwise.
+        'format'             => in_array($format, TRAX_PRINTER_FORMATS, true) ? $format : 'wide',
+        'copies'             => trax_clamp_int($raw['copies'] ?? null, 1, TRAX_PRINTER_MAX_COPIES, 1),
+        // each = cut every label, half = half cut between them, none = no cut.
+        'cut'                => in_array($cut, ['each', 'half', 'none'], true) ? $cut : 'each',
+        // Chain printing: no feed and cut after the last label.
+        'chain'              => trax_bool($raw['chain'] ?? null, false),
+        'marginMm'           => $margin === null ? 2.0 : round(max(0.0, min(30.0, $margin)), 1),
+        // The tape the labels are meant for. A different one loaded makes the
+        // bridge refuse the job instead of printing it scaled.
+        'tapeMm'             => in_array($tape, TRAX_PRINTER_TAPES, true) ? $tape : 0,
+        // exact = the label's real size; fill = as high as the tape prints.
+        'fit'                => in_array($fit, ['exact', 'fill'], true) ? $fit : 'exact',
+    ];
+}
+
+/**
  * An image file referenced by the settings — the label logo, the favicon.
  *
  * It is read off disk by the label renderer and emitted into a <link href>, so
@@ -2107,6 +2184,8 @@ function trax_normalize_settings(mixed $raw): array
                 TRAX_CABLE_GAP_DEFAULT
             ),
         ],
+        // The network label printer. Off by default; see trax_normalize_printer().
+        'printer' => trax_normalize_printer($raw['printer'] ?? null),
         'cron' => [
             // Shared secret for triggering cron.php over HTTP. Empty means the
             // HTTP trigger is refused outright; CLI never needs it.

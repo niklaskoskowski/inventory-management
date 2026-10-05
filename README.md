@@ -187,6 +187,40 @@ certificate — turn it on.
 
 ---
 
+## Label printer (optional)
+
+Off by default. With a **Brother PT-P750W** on your network you can send labels
+straight to it instead of downloading and printing them by hand.
+
+The printer sits in your local network and this app usually sits on a web host,
+so a small bridge runs next to the printer:
+[`pt750w-print-trax`](https://github.com/niklaskoskowski/pt750w-print-trax), a
+Docker container for a Raspberry Pi in the same WLAN. Make it reachable over
+HTTPS — a Cloudflare Tunnel is the easy way — and then, under
+**Settings → Printer**:
+
+1. switch on **Enable the label printer**,
+2. enter the **Bridge URL** (`https://print.example.com`) and the **Bridge
+   token** (`PTB_TOKEN` from the bridge's `.env`),
+3. if the hostname is behind Cloudflare Access, add the Access **service
+   token** (client ID and secret),
+4. **Save settings**, then **Test connection** — it shows the tape that is
+   loaded and any printer error.
+
+The label drawer then has a **Send to printer** button on every format (with a
+copies box), plus "Send all unit labels to printer"; Settings → Labels sends
+every listed label — e.g. all *Unlabeled* ones — one after the other.
+
+Use **18 or 24 mm** TZe tape: the labels are 14 mm high and print at their true
+size there. On 12 mm tape they come out at about 70 %. *Expected tape* makes the
+printer refuse a job when a different cassette is loaded.
+
+Your web host has to be allowed to make outgoing HTTPS requests (it uses
+`curl`, or PHP streams without it). The browser never talks to the bridge: the
+token stays on the server.
+
+---
+
 ## Where your data lives
 
 Everything is a plain file in the application folder:
@@ -266,7 +300,8 @@ described above.
 ## Day-to-day
 
 - **Add an item**, print its label, stick it on. The QR code points at a public
-  page for that item.
+  page for that item. With the [label printer](#label-printer-optional)
+  switched on, one click sends it to a PT-P750W.
 - **Check out** to a person with a due date; they get an email with a link to
   their own booking page if you configured a sender address.
 - **Reserve** an item for a future date range; conflicts are shown before you

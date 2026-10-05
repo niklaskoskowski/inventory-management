@@ -55,6 +55,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `lib/documents.php` | Documents are stored as uploaded — hence the separate, web-denied directory. |
 | `lib/config-local.php` | The single writer of `lib/config.local.php` (installer + Settings → Authentication). |
 | `lib/demo-data.php` | Optional demo dataset the installer can seed. |
+| `lib/printer.php` | The label printer: HTTP client for the `pt750w-print-trax` bridge, label sizes in mm, the settings patch check. Only `api.php` loads it. See [Label printer](#label-printer). |
 | `app/` | The Vue app (see [Frontend architecture](#frontend-architecture)). |
 
 ## Data model
@@ -192,7 +193,8 @@ moment the gear came back.
 `faviconFile`, `labelHeading`, `whatsapp`), `defaults.*` (`loanDays`, `dueHour`,
 `reservationStartHour`, `warrantyMonths` — 0..120, default 24, months added to a purchase date to
 auto-fill the warranty date in the asset sheet, `0` off —, `currency`, `allowPartialDefault`,
-`overdueGraceDays`, `locale`, `dateFormat`), `rental.*` and `inspection.*` (see below) and `cron.*`
+`overdueGraceDays`, `locale`, `dateFormat`), `rental.*` and `inspection.*` (see below),
+`labels.cableGapMm`, `printer.*` (see [Label printer](#label-printer)) and `cron.*`
 (`secret`, `dueSoonHours`, `overdueRepeatDays`). Each key falls back to a `TRAX_*` constant.
 
 `branding.logoFile` is the one image setting that may also be an **absolute http(s) URL**
@@ -414,6 +416,53 @@ tested), `FAIL` (the last test failed, whatever the date), `OVERDUE`, `DUE` (ins
 the worst of them. The asset sheet's Tests tab, its banner, the dashboard card and
 `exportInspectionPdf()` all read those and nothing else.
 
+## Label printer
+
+Optional, **off by default**: labels go straight to a Brother PT-P750W. The printer is on a local
+network and this app on a web host, so a separate service sits next to the printer — the
+`pt750w-print-trax` bridge (Python, Docker, Raspberry Pi; own repository), reached over HTTPS,
+typically through a Cloudflare Tunnel. It speaks Brother's raster protocol on TCP 9100, reads the
+loaded tape and printer errors back, and sizes a label in mm for that tape.
+
+`settings.printer` (`trax_normalize_printer()` `lib/store.php`):
+
+| Field | Notes |
+|---|---|
+| `enabled` | bool, default `false`. Nothing printer-related is shown or callable while off |
+| `bridgeUrl` | `http(s)://host[:port][/path]`, no credentials/query/fragment, no trailing slash (`trax_printer_url()`); `''` when unset. Refused, not normalised away, by `trax_printer_patch_error()` |
+| `token` | the bridge's `PTB_TOKEN`, sent as `Authorization: Bearer`. Visible ASCII only (`trax_printer_secret()`), it goes into a header |
+| `accessClientId`, `accessClientSecret` | Cloudflare Access service token, sent as `CF-Access-Client-Id/-Secret`. Both or neither |
+| `format` | `portrait` \| `wide` \| `cable` (`TRAX_PRINTER_FORMATS`), what batch printing sends |
+| `copies` | 1..`TRAX_PRINTER_MAX_COPIES` (20) |
+| `cut` | `each` \| `half` \| `none`; `chain` bool (no feed/cut after the last label) |
+| `marginMm` | 0..30, feed margin per label |
+| `tapeMm` | 0 (whatever is loaded) or 4/6/9/12/18/24 — sent as the expected tape; the bridge refuses a job when another is loaded (`TAPE_MISMATCH`) |
+| `fit` | `exact` (true size, scaled down only when the tape is too narrow) \| `fill` |
+
+The secrets ride in the admin snapshot, like `cron.secret`: it only ever reaches a signed-in operator.
+
+**Flow.** The browser never calls the bridge. `sendLabelToPrinter()` (`app/store.js`) fetches the
+same label PNG the previews show (`label.php` / `label-w.php` / `label-c.php`, `&v=rev`) and uploads
+it to `printer.print` (multipart, field `photo`, plus `format`, `assetId`, `unitNo`, `copies` — all
+three listed in the multipart allow-list). `trax_printer_print_png()` sends it on as JSON with the
+size **from the format** (`trax_printer_label_mm()`: portrait 14 × 30, wide 30 × 14, cable
+(60 + `cableGapMm`) × 14) and the defaults above. Rendering stays in the browser round-trip because
+the three label scripts render and exit and declare global functions — they cannot be run twice in
+one request.
+
+**Actions** — POSTs that save nothing, take no `rev` and answer without a snapshot:
+
+- `printer.status` → `{bridge, printer: {reachable, status|null, statusSupported}}` — the
+  connection test. Uses the saved settings.
+- `printer.print` → `{job, printer?}`; `job` is the bridge's record (`state: printed|sent`,
+  `tapeMm`, `lengthMm`, `scalePct`, `warnings`, …). Closes the session before the call so the
+  operator's other tabs are not held behind the printer.
+
+Bridge trouble is `PRINTER` / HTTP **502** with `details.bridgeCode` — deliberately not 401/403,
+which `app/api.js` would turn into a redirect to the login form. `trax_printer_request()` names the
+likely cause when the answer is not the bridge's JSON (Access login redirect, 401/403, Cloudflare
+5xx).
+
 ## Derived availability & status rules
 
 Nothing about availability is stored. `trax_decorate_assets()` (`lib/store.php:2219-2277`) adds
@@ -506,6 +555,8 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
 
 - **Reads** (GET): `bootstrap` (snapshot + `csrf` + a `meta` block of vocabularies, limits and mail
   templates), `auth.me`, `auth.config`.
+- **Label printer** (POST, nothing saved): `printer.status`, `printer.print` — see
+  [Label printer](#label-printer).
 - **Writes** (POST): `asset.create|update|delete|bulkUpdate`, `asset.uploadPhoto`,
   `asset.deletePhoto`, `asset.uploadConditionPhotos|deleteConditionPhoto`,
   `asset.uploadDocuments|deleteDocument`, `set.create|update|delete`,

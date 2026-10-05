@@ -12,6 +12,7 @@
 import { reactive, computed } from 'vue';
 import * as api from './api.js';
 import { parseDate, isOverdue, setUiLocale, totalPriceOf } from './lib/format.js';
+import { labelFiles } from './lib/labels.js';
 
 const VIEW_STATE_KEY = 'traxAdminViewStateV2';
 
@@ -162,6 +163,22 @@ const DEFAULT_SETTINGS = {
   },
   labels: {
     cableGapMm: 30,
+  },
+  // The network label printer (PT-P750W behind the pt750w-print-trax bridge).
+  // Off until an operator switches it on. See lib/printer.php.
+  printer: {
+    enabled: false,
+    bridgeUrl: '',
+    token: '',
+    accessClientId: '',
+    accessClientSecret: '',
+    format: 'wide',
+    copies: 1,
+    cut: 'each',
+    chain: false,
+    marginMm: 2,
+    tapeMm: 0,
+    fit: 'exact',
   },
   cron: {
     secret: '',
@@ -888,6 +905,46 @@ export async function signBooking(bookingId, name, blob, termsVersion = null) {
 /** Marks the printed label of an asset — or of one unit — as on the gear, or not. */
 export async function markLabeled(assetId, unitNo, labeled) {
   return mutate('label.mark', { id: assetId, unitNo: unitNo ?? null, labeled: Boolean(labeled) });
+}
+
+// --- Label printer -----------------------------------------------------------
+// Settings → Printer. The browser renders nothing new: it fetches the label PNG
+// the server already draws for the preview and hands it to api.php, which
+// forwards it to the bridge with the token only the server knows.
+
+/** Whether "Send to printer" is offered at all. */
+export const printerEnabled = computed(() => Boolean(state.settings?.printer?.enabled));
+
+/** What the bridge and the printer say right now (saved settings). */
+export async function printerStatus() {
+  const body = await api.post('printer.status', {});
+  return body.data || {};
+}
+
+/**
+ * Sends one label to the printer: `format` is portrait | wide | cable.
+ * Resolves to the bridge's job record ({state, tapeMm, scalePct, warnings, …}).
+ */
+export async function sendLabelToPrinter({ assetId, unitNo = null, format, copies = null }) {
+  const file = labelFiles(assetId, unitNo).find((entry) => entry.format === format);
+  if (!file) throw new Error(`Unknown label format "${format}".`);
+  // `v` busts the browser cache the same way the previews do, so a label
+  // renamed a second ago does not go out with the old name on it.
+  const response = await fetch(`${file.url}&v=${state.rev}`, { credentials: 'same-origin' });
+  if (!response.ok) throw new Error(`The label could not be rendered (HTTP ${response.status}).`);
+  const fields = { format, assetId };
+  if (unitNo) fields.unitNo = unitNo;
+  if (copies) fields.copies = copies;
+  const body = await api.upload('printer.print', await response.blob(), fields);
+  return body.data?.job || {};
+}
+
+/** A one-line toast for a finished job: printed / sent, tape, and the first warning. */
+export function printerJobMessage(job, what) {
+  const tape = job.tapeLabel ? ` on ${job.tapeLabel} tape` : '';
+  const copies = job.copies > 1 ? ` ×${job.copies}` : '';
+  const verb = job.state === 'printed' ? 'Printed' : 'Sent to the printer:';
+  return `${verb} ${what}${copies}${tape}.`;
 }
 
 // --- Terms & conditions ----------------------------------------------------
