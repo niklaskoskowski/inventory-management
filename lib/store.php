@@ -1992,6 +1992,8 @@ function trax_normalize_printer(mixed $raw): array
         'tapeMm'             => in_array($tape, TRAX_PRINTER_TAPES, true) ? $tape : 0,
         // exact = the label's real size; fill = as high as the tape prints.
         'fit'                => in_array($fit, ['exact', 'fill'], true) ? $fit : 'exact',
+        // 180 x 360 dpi – twice the resolution along the tape. On unless switched off.
+        'highRes'            => trax_bool($raw['highRes'] ?? null, true),
     ];
 }
 

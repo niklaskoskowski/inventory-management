@@ -10,6 +10,10 @@ only record. There is no git history to mine.
 
 ### Added
 
+- **High-resolution label printing, on by default.** Settings → Printer → *High resolution
+  (180 × 360 dpi)* (`settings.printer.highRes`, default on): twice the dots along the tape for
+  crisper text and QR codes. Sent with single labels and batches.
+
 - **Batch printing on the label printer** — Settings → Labels, when the printer is switched on.
   Every tile gets a tick box (**Select all shown** / **Clear**; ticks survive the filters), and a
   *Batch print* panel picks the **format**, the **orientation** — *Along tape* (as large as the

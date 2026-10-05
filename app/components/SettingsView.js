@@ -2311,6 +2311,18 @@ export default {
                   </label>
                 </div>
               </div>
+              <div class="col-12 col-md-6">
+                <div class="form-check form-switch mb-1">
+                  <input class="form-check-input" type="checkbox" role="switch" id="set-printer-highres"
+                         v-model="draft.printer.highRes">
+                  <label class="form-check-label small" for="set-printer-highres">
+                    High resolution (180 × 360 dpi)
+                    <span class="d-block text-secondary" style="font-size:.72rem">
+                      Twice the dots along the tape: crisper text and QR codes, slightly slower.
+                    </span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>

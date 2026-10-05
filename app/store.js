@@ -179,6 +179,7 @@ const DEFAULT_SETTINGS = {
     marginMm: 2,
     tapeMm: 0,
     fit: 'exact',
+    highRes: true,
   },
   cron: {
     secret: '',
