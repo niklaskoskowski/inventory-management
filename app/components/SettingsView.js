@@ -2,6 +2,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import {
   state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl, markLabeled,
   printerEnabled, printerStatus, buildLabelBatch, printLabelBatch, cancelLabelBatch,
+  batchPrefs as loadBatchPrefs, saveBatchPrefs,
 } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney, formatDateTime } from '../lib/format.js';
@@ -57,11 +58,6 @@ const PRINTER_FORMATS = [
   { id: 'portrait', label: 'Portrait · 14 × 30 mm' },
   { id: 'cable', label: 'Cable flag · 14 mm high' },
 ];
-const PRINTER_CUTS = [
-  { id: 'each', label: 'Cut every label' },
-  { id: 'half', label: 'Half cut between labels' },
-  { id: 'none', label: 'No cut between labels' },
-];
 const PRINTER_TAPES = [
   { mm: 0, label: 'Whatever is loaded' },
   { mm: 4, label: '3.5 mm' },
@@ -74,16 +70,6 @@ const PRINTER_TAPES = [
 
 /** Printable height per tape width, mm (180 dpi head). Mirrors ptbridge/protocol.py. */
 const TAPE_PRINTABLE_MM = { 4: 3.39, 6: 4.52, 9: 7.06, 12: 9.88, 18: 15.8, 24: 18.06 };
-
-/** Batch printing options remembered in this browser. */
-const BATCH_PREFS_KEY = 'traxBatchPrintV1';
-const loadBatchPrefs = () => {
-  try {
-    return JSON.parse(localStorage.getItem(BATCH_PREFS_KEY) || '{}') || {};
-  } catch {
-    return {};
-  }
-};
 
 /** Which labels Settings → Labels lists: all, or by whether they are on the gear. */
 const LABEL_STATES = [
@@ -825,18 +811,14 @@ export default {
     const batchPrefs = loadBatchPrefs();
     /** Ticked labels, by `${assetId}.${unitNo}`. Replaced, never mutated, so Vue sees every change. */
     const picked = ref(new Set());
-    const batchFormat = ref(PRINTER_FORMATS.some((f) => f.id === batchPrefs.format)
-      ? batchPrefs.format
-      : (state.settings?.printer?.format || 'wide'));
-    const batchOrientation = ref(batchPrefs.orientation === 'across' ? 'across' : 'along');
-    const batchCut = ref(['half', 'each', 'none'].includes(batchPrefs.cut) ? batchPrefs.cut : 'half');
+    const batchFormat = ref(batchPrefs.format);
+    const batchOrientation = ref(batchPrefs.orientation);
+    const batchCut = ref(batchPrefs.cut);
     const batchCopies = ref(1);
+    // Remembered for this browser – the label drawer prints copies and unit
+    // labels as a strip with the same cutting and orientation.
     watch([batchFormat, batchOrientation, batchCut], () => {
-      try {
-        localStorage.setItem(BATCH_PREFS_KEY, JSON.stringify({
-          format: batchFormat.value, orientation: batchOrientation.value, cut: batchCut.value,
-        }));
-      } catch { /* private mode: just not remembered */ }
+      saveBatchPrefs({ format: batchFormat.value, orientation: batchOrientation.value, cut: batchCut.value });
     });
     // Looking at one format means printing that one.
     watch(labelFormat, (format) => { if (format !== 'all') batchFormat.value = format; });
@@ -1243,7 +1225,7 @@ export default {
       auth, authInfo, authError, authBusy, authTest,
       loadAuthConfig, testAuthInclude, saveAuthConfig,
       CABLE_GAP, cableGapMm, cableGapBusy, saveCableGap,
-      PRINTER_FORMATS, PRINTER_CUTS, PRINTER_TAPES, printerEnabled, printerDirty, showPrinterSecrets,
+      PRINTER_FORMATS, PRINTER_TAPES, printerEnabled, printerDirty, showPrinterSecrets,
       printerTest, printerTestStatus, testPrinter,
       batchFormat, batchOrientation, batchCut, batchCopies, batchItems, batchHidden, isPicked, togglePick,
       pickAllShown, clearPicked, batchEstimate, batchBusy, batchPreview, batchPrinted, runBatch,
@@ -2279,10 +2261,11 @@ export default {
                        class="form-control form-control-sm" v-model.number="draft.printer.marginMm">
               </div>
               <div class="col-12 col-md-6">
-                <label class="form-label small" for="set-printer-cut">Cutting</label>
-                <select id="set-printer-cut" class="form-select form-select-sm" v-model="draft.printer.cut">
-                  <option v-for="option in PRINTER_CUTS" :key="option.id" :value="option.id">{{ option.label }}</option>
-                </select>
+                <div class="form-label small mb-1">Cutting</div>
+                <div class="form-text small mt-0">
+                  Several labels or copies always print as one strip. How it is cut and turned is chosen
+                  under Settings → Labels → Batch print.
+                </div>
               </div>
               <div class="col-12 col-md-6">
                 <label class="form-label small" for="set-printer-tape">Expected tape</label>

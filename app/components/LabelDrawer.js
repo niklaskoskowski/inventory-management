@@ -1,6 +1,7 @@
 import { computed, ref, watch } from 'vue';
 import {
   state, getAsset, toast, markLabeled, printerEnabled, sendLabelToPrinter, printerJobMessage,
+  printLabelsAsStrip, batchPrefs,
 } from '../store.js';
 import { labelCode, labelFiles, downloadLabelZip } from '../lib/labels.js';
 import Drawer from './ui/Drawer.js';
@@ -164,14 +165,31 @@ export default {
       if (job.warnings?.length) toast(job.warnings[0], 'warning', 8000);
     };
 
+    /** How copies and unit labels come out: the batch preferences of Settings → Labels. */
+    const stripPrefs = ref(batchPrefs());
+    const stripText = computed(() => {
+      const cut = { half: 'half-cut', each: 'cut every label', none: 'no cut between labels' }[stripPrefs.value.cut];
+      return `${cut}, ${stripPrefs.value.orientation === 'across' ? 'rotated 90°' : 'along the tape'}`;
+    });
+
+    /**
+     * One label. Several copies go out as ONE job – a strip, like a batch –
+     * instead of one job per copy, each with its own leader.
+     */
     const sendToPrinter = async (format) => {
       if (sending.value) return;
       sending.value = format;
+      const n = clampCopies();
+      const what = `${code.value} (${FORMAT_NAMES[format]})`;
       try {
-        const job = await sendLabelToPrinter({
-          assetId: props.assetId, unitNo: unitNo.value, format, copies: clampCopies(),
-        });
-        reportJob(job, `${code.value} (${FORMAT_NAMES[format]})`);
+        if (n > 1) {
+          stripPrefs.value = batchPrefs();
+          const job = await printLabelsAsStrip([{ assetId: props.assetId, unitNo: unitNo.value, code: code.value }],
+            format, n);
+          reportJob({ ...job, copies: n }, what);
+        } else {
+          reportJob(await sendLabelToPrinter({ assetId: props.assetId, unitNo: unitNo.value, format, copies: 1 }), what);
+        }
       } catch (error) {
         toast(error.message, 'danger', 9000);
       } finally {
@@ -179,23 +197,24 @@ export default {
       }
     };
 
-    /** Every unit's label in one format, one job after the other. Stops at the first failure. */
+    /** Every unit's label in one format as ONE job: one strip, in unit order. */
     const sendAllUnits = async () => {
       if (sending.value || !hasUnits.value) return;
       sending.value = 'units';
-      const list = units.value.map((unit) => unit.no);
-      let done = 0;
+      stripPrefs.value = batchPrefs();
+      const items = units.value.map((unit) => ({
+        assetId: props.assetId, unitNo: unit.no, code: `${props.assetId}.${unit.no}`,
+      }));
       try {
-        for (const no of list) {
-          unitProgress.value = { done, total: list.length };
-          await sendLabelToPrinter({
-            assetId: props.assetId, unitNo: no, format: printerFormat.value, copies: clampCopies(),
-          });
-          done += 1;
-        }
-        toast(`Sent ${done} unit label${done === 1 ? '' : 's'} to the printer.`, 'success');
+        const job = await printLabelsAsStrip(items, printerFormat.value, clampCopies(), (done, total) => {
+          unitProgress.value = { done, total };
+        });
+        const verb = job.state === 'printed' ? 'Printed' : 'Sent';
+        toast(`${verb} ${items.length} unit labels as one strip${job.tapeLabel ? ` on ${job.tapeLabel} tape` : ''}.`,
+          'success');
+        if (job.warnings?.length) toast(job.warnings[0], 'warning', 8000);
       } catch (error) {
-        toast(`Stopped after ${done} of ${list.length}: ${error.message}`, 'danger', 9000);
+        toast(error.message, 'danger', 9000);
       } finally {
         sending.value = '';
         unitProgress.value = null;
@@ -203,7 +222,7 @@ export default {
     };
 
     return {
-      printerEnabled, copies, printerFormat, sending, unitProgress, sendToPrinter, sendAllUnits,
+      printerEnabled, copies, printerFormat, sending, unitProgress, sendToPrinter, sendAllUnits, stripText,
       asset, appName, units, hasUnits, selected, code, unitOption,
       portrait, wide, cable, portraitName, wideName, cableName, printLabel,
       labeled, labeledBusy, toggleLabeled, cableGapMm, printAllUnits, downloadingAll,
@@ -230,13 +249,17 @@ export default {
         </p>
       </template>
 
-      <div v-if="printerEnabled" class="d-flex align-items-center gap-2 mb-3 small">
+      <div v-if="printerEnabled" class="d-flex align-items-center gap-2 mb-1 small">
         <i class="bi bi-printer text-secondary"></i>
         <span class="text-secondary flex-grow-1">Label printer</span>
         <label class="text-secondary" for="label-copies">Copies</label>
         <input id="label-copies" type="number" min="1" max="20" class="form-control form-control-sm"
                style="width:4.5rem" v-model.number="copies">
       </div>
+      <p v-if="printerEnabled" class="small text-secondary mb-3">
+        Copies and "all unit labels" print as one strip – {{ stripText }}
+        (Settings → Labels → Batch print).
+      </p>
 
       <div class="row g-3">
         <div class="col-6">
@@ -335,8 +358,9 @@ export default {
           <button class="btn btn-primary" :disabled="!!sending" @click="sendAllUnits">
             <span v-if="sending === 'units'" class="spinner-border spinner-border-sm me-1"></span>
             <i v-else class="bi bi-send"></i>
-            {{ unitProgress ? 'Printing ' + (unitProgress.done + 1) + ' / ' + unitProgress.total
-              : 'Send all ' + units.length + ' unit labels to printer' }}
+            {{ unitProgress
+              ? (unitProgress.done < unitProgress.total ? 'Uploading ' + unitProgress.done + ' / ' + unitProgress.total : 'Printing…')
+              : 'Print all ' + units.length + ' unit labels as one strip' }}
           </button>
         </div>
       </div>

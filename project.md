@@ -474,7 +474,9 @@ half-cut between them, one full cut at the end. Four actions, none saving anythi
   batch. Allowed `TRAX_PRINTER_BATCH_TIMEOUT` (180 s).
 - `printer.batchCancel` `{batchId}` — best effort; the bridge expires batches anyway.
 
-`buildLabelBatch()` / `printLabelBatch()` / `cancelLabelBatch()` in `app/store.js`. The view keeps
+`buildLabelBatch()` / `printLabelBatch()` / `cancelLabelBatch()` in `app/store.js`; the label
+drawer's copies (> 1) and "all unit labels" use `printLabelsAsStrip()`, the same path, with the
+batch preferences (`batchPrefs()` / `saveBatchPrefs()`, localStorage `traxBatchPrintV1`). The view keeps
 the last uploaded batch and its signature (format, `rev`, the ticked keys) and reuses it for the
 print after a preview; a `NOT_FOUND` from the bridge (expired, restarted) uploads once more. The
 size estimate mirrors the bridge's printable heights per tape (`TAPE_PRINTABLE_MM`).

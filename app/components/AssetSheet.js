@@ -72,7 +72,7 @@ export default {
   props: {
     assetId: { type: Number, default: null },
   },
-  emits: ['close', 'label', 'open'],
+  emits: ['close', 'label', 'open', 'edit-kit'],
   setup(props, { emit }) {
     const form = ref({ ...BLANK });
     const saving = ref(false);
@@ -1603,9 +1603,16 @@ export default {
 
       <!-- Kit contents -->
       <div v-show="tab === 'members'">
-        <p class="small text-secondary">
-          A kit's status is derived from its contents. Deleting the kit never deletes these items.
-        </p>
+        <div class="d-flex align-items-start gap-2 mb-2">
+          <p class="small text-secondary mb-0 flex-grow-1">
+            A kit's status is derived from its contents. Deleting the kit never deletes these items.
+          </p>
+          <!-- The kit editor is where items are added, removed and counted. -->
+          <button type="button" class="btn btn-sm btn-outline-primary text-nowrap"
+                  @click="emit('edit-kit', assetId)">
+            <i class="bi bi-pencil-square"></i> Edit contents
+          </button>
+        </div>
         <ul class="list-group list-group-flush">
           <li v-for="(member, mi) in members" :key="mi + '-' + member.id"
               class="list-group-item bg-transparent d-flex align-items-center gap-2 px-0">
@@ -1790,6 +1797,10 @@ export default {
         <button v-if="!isNew" type="button" class="btn btn-sm btn-outline-secondary"
                 @click="emit('label', asset.id)">
           <i class="bi bi-printer"></i> Label
+        </button>
+        <button v-if="isSet && !isNew" type="button" class="btn btn-sm btn-outline-secondary"
+                @click="emit('edit-kit', assetId)">
+          <i class="bi bi-box-seam"></i> Edit contents
         </button>
         <span class="flex-grow-1"></span>
         <button type="button" class="btn btn-sm btn-outline-secondary" @click="emit('close')">Cancel</button>

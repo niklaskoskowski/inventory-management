@@ -208,7 +208,8 @@ HTTPS — a Cloudflare Tunnel is the easy way — and then, under
    loaded and any printer error.
 
 The label drawer then has a **Send to printer** button on every format (with a
-copies box), plus "Send all unit labels to printer".
+copies box), plus "Print all unit labels as one strip". Several copies, and all
+unit labels, go out as one strip — cut and turned like the batch settings below.
 
 **Batch printing** lives in Settings → Labels: tick the labels (e.g. filter
 *Unlabeled*, then **Select all shown**), pick the format and the orientation —

@@ -116,6 +116,12 @@ export default {
       showSetEditor.value = true;
     };
 
+    /** From a kit's sheet: its contents are edited in the kit editor, not in the sheet. */
+    const editKit = (id) => {
+      closeSheet();
+      openSetEditor(id);
+    };
+
     const openEvent = (id = null) => {
       eventSheetId.value = id;
       showEventSheet.value = true;
@@ -225,7 +231,7 @@ export default {
       sheetId, sheetOpen, labelId, showBasket, showScanner, showBulk,
       showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName,
       selectedItemIds, selectedUnitCount, account, loadAccount, csrf: api.csrf,
-      openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, openLabel, labelTarget,
+      openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, editKit, openLabel, labelTarget,
       showEventSheet, eventSheetId, openEvent,
       // Not used by the template — exposed so the shortcut table can be driven
       // with synthetic events instead of a browser.
@@ -425,7 +431,8 @@ export default {
 
     <!-- Drawers -->
     <AssetSheet v-if="sheetOpen" :asset-id="sheetId"
-                @close="closeSheet" @open="openAsset" @label="labelId = $event" />
+                @close="closeSheet" @open="openAsset" @label="labelId = $event"
+                @edit-kit="editKit" />
 
     <SetEditor v-if="showSetEditor" :set-id="editingSetId"
                @close="showSetEditor = false" @open="openAsset" />

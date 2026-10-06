@@ -6,6 +6,23 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-10-06
+
+### Fixed
+
+- **Kits can be edited again — contents included.** A kit's sheet only showed its contents; there
+  was no way to add or remove items or change how many of each a kit holds, because the kit
+  editor (`SetEditor`, which has always handled an existing kit) was only ever opened empty, to
+  create one. The Contents tab and the sheet's footer now have **Edit contents**, which opens the
+  kit editor on that kit; saving goes back to the kit's sheet.
+- **Label printer: copies and unit labels come out as one strip.** In the label drawer, several
+  copies of a label and *Print all unit labels as one strip* went out as one job per label — each
+  fully cut, each with its own leader of wasted tape. They now go through the batch path: one
+  job, cut and oriented like Settings → Labels → Batch print (half-cut strip by default). A single
+  copy is still one plain job. The batch preferences (format, orientation, cutting) are shared
+  between the two places (`batchPrefs()` in `app/store.js`), and Settings → Printer no longer
+  offers a separate "Cutting" for single labels — it decided nothing a single label shows.
+
 ## 2026-10-05
 
 ### Added

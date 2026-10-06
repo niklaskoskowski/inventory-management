@@ -149,6 +149,8 @@ export default {
           });
           toast('Kit saved.', 'success');
           emit('close');
+          // Back to the kit's sheet, where the editor was opened from.
+          emit('open', props.setId);
         }
       } catch { /* toast already raised */ } finally {
         busy.value = false;

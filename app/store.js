@@ -989,6 +989,41 @@ export async function printLabelBatch(batchId, options) {
   return body.data || {};
 }
 
+/** How batches print – chosen in Settings → Labels, remembered in this browser, used everywhere. */
+const BATCH_PREFS_KEY = 'traxBatchPrintV1';
+const PRINTER_FORMAT_IDS = ['portrait', 'wide', 'cable'];
+
+export function batchPrefs() {
+  let raw = {};
+  try {
+    raw = JSON.parse(localStorage.getItem(BATCH_PREFS_KEY) || '{}') || {};
+  } catch { /* private mode: defaults */ }
+  return {
+    format: PRINTER_FORMAT_IDS.includes(raw.format) ? raw.format : (state.settings?.printer?.format || 'wide'),
+    orientation: raw.orientation === 'across' ? 'across' : 'along',
+    cut: ['half', 'each', 'none'].includes(raw.cut) ? raw.cut : 'half',
+  };
+}
+
+export function saveBatchPrefs(prefs) {
+  try {
+    localStorage.setItem(BATCH_PREFS_KEY, JSON.stringify({ ...batchPrefs(), ...prefs }));
+  } catch { /* private mode: just not remembered */ }
+}
+
+/**
+ * Several labels – or several copies of one – as ONE job: one strip, cut and
+ * oriented as the batch preferences say. `items` are {assetId, unitNo, code}.
+ */
+export async function printLabelsAsStrip(items, format, copies = 1, onProgress = () => {}) {
+  const prefs = batchPrefs();
+  const batchId = await buildLabelBatch(items, format, onProgress);
+  const result = await printLabelBatch(batchId, {
+    format, orientation: prefs.orientation, cut: prefs.cut, copies, dryRun: false,
+  });
+  return result.job || {};
+}
+
 /** Drops a batch on the bridge. Never throws: it expires there on its own anyway. */
 export function cancelLabelBatch(batchId) {
   return api.post('printer.batchCancel', { batchId }).catch(() => {});
