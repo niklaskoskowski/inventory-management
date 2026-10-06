@@ -181,6 +181,7 @@ const DEFAULT_SETTINGS = {
     fit: 'exact',
     highRes: true,
     batchMode: '',
+    shiftMm: 0,
   },
   cron: {
     secret: '',

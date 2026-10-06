@@ -10,11 +10,16 @@ only record. There is no git history to mine.
 
 ### Added
 
+- **Settings → Printer → Strip offset (mm)** (`settings.printer.shiftMm`, −5…5, default 0):
+  centres the print between the (half) cuts. On a real PT-P750W the labels of a half-cut strip sat
+  a few tenths of a millimetre towards the later cut — the cutter is a little off where the
+  printer takes it to be. The bridge moves the print by that much; sent with every job.
+
 - **Settings → Printer → Strip mode** (`settings.printer.batchMode`, `''` = the bridge's
   `PTB_BATCH_MODE`): how a batch or several copies carry their cut settings page by page, sent
-  with every batch. The bridge now defaults to *chain until the last label* (`perpage`), because
-  the PT-P750W feeds and cuts at the end of every page that "no chain printing" is in force for.
-  The select lets the modes be tried from the browser, without a shell on the Pi.
+  with every batch. The select lets the modes be tried from the browser, without a shell on the
+  Pi. On the real PT-P750W *Half cuts only, no auto cut* (`noautocut`) is the one that gives one
+  half-cut strip with a single full cut at the end; the bridge now defaults to it.
 
 ### Fixed
 

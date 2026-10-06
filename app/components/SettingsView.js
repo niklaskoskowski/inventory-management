@@ -2276,6 +2276,16 @@ export default {
                 </div>
               </div>
               <div class="col-12 col-md-6">
+                <label class="form-label small" for="set-printer-shift">Strip offset (mm)</label>
+                <input id="set-printer-shift" type="number" min="-5" max="5" step="0.1"
+                       class="form-control form-control-sm" v-model.number="draft.printer.shiftMm">
+                <div class="form-text small">
+                  Centres the print between the cuts. Negative moves it towards the end of the strip
+                  that comes out first, positive towards the end that comes out last — e.g. −0.5 when
+                  every label sits a little towards the later cut.
+                </div>
+              </div>
+              <div class="col-12 col-md-6">
                 <label class="form-label small" for="set-printer-tape">Expected tape</label>
                 <select id="set-printer-tape" class="form-select form-select-sm" v-model.number="draft.printer.tapeMm">
                   <option v-for="option in PRINTER_TAPES" :key="option.mm" :value="option.mm">{{ option.label }}</option>

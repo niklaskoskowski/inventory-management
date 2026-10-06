@@ -439,6 +439,7 @@ loaded tape and printer errors back, and sizes a label in mm for that tape.
 | `tapeMm` | 0 (whatever is loaded) or 4/6/9/12/18/24 — sent as the expected tape; the bridge refuses a job when another is loaded (`TAPE_MISMATCH`) |
 | `fit` | `exact` (true size, scaled down only when the tape is too narrow) \| `fill` |
 | `batchMode` | `''` (the bridge's `PTB_BATCH_MODE`) \| `perpage` \| `chain` \| `once` \| `noautocut` \| `legacy` (`TRAX_PRINTER_BATCH_MODES`) — how a strip carries its cut settings page by page; sent with batches only when set |
+| `shiftMm` | −5…5, 1 decimal, default 0 — calibration: the print moved along the tape against the cuts (negative = towards the end that comes out first). Sent with every job |
 | `highRes` | bool, default **true**: 180 × 360 dpi (twice the dots along the tape). Sent with every job, single and batch; the bridge only honours it with a command set that sends `ESC i K` |
 
 The secrets ride in the admin snapshot, like `cron.secret`: it only ever reaches a signed-in operator.

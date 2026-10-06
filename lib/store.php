@@ -1970,6 +1970,7 @@ function trax_normalize_printer(mixed $raw): array
     $fit    = (string)($raw['fit'] ?? '');
     $tape   = trax_int($raw['tapeMm'] ?? null) ?? 0;
     $margin = trax_float($raw['marginMm'] ?? null);
+    $shift  = trax_float($raw['shiftMm'] ?? null);
 
     return [
         'enabled'            => trax_bool($raw['enabled'] ?? null, false),
@@ -1996,6 +1997,9 @@ function trax_normalize_printer(mixed $raw): array
         'highRes'            => trax_bool($raw['highRes'] ?? null, true),
         // How a strip (batch, copies) carries its cut settings, page by page.
         // '' = whatever the bridge defaults to (PTB_BATCH_MODE).
+        // Calibration: the print moved along the tape against the (half) cuts,
+        // mm. Negative = towards the end of the strip that comes out first.
+        'shiftMm'            => $shift === null ? 0.0 : round(max(-5.0, min(5.0, $shift)), 1),
         'batchMode'          => in_array((string)($raw['batchMode'] ?? ''), TRAX_PRINTER_BATCH_MODES, true)
             ? (string)($raw['batchMode'] ?? '')
             : '',
