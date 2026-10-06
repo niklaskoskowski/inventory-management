@@ -905,9 +905,65 @@ export async function signBooking(bookingId, name, blob, termsVersion = null) {
 
 // --- Labels ------------------------------------------------------------------
 
-/** Marks the printed label of an asset — or of one unit — as on the gear, or not. */
-export async function markLabeled(assetId, unitNo, labeled) {
-  return mutate('label.mark', { id: assetId, unitNo: unitNo ?? null, labeled: Boolean(labeled) });
+// Labeled ticks go out one request at a time. Sent in parallel they all carry
+// the same rev, so all but the first come back STALE and each costs a reload
+// and a retry. Ticks made while a request is out are collected and sent
+// together, one request per direction, the last tick per label winning.
+const labelMarks = new Map();
+let labelDrain = null;
+
+function isLabeled(assetId, unitNo) {
+  const asset = assetById.value.get(assetId);
+  if (!asset) return null;
+  if (!unitNo) return Boolean(asset.labeled);
+  return Boolean((asset.units || []).find((unit) => unit.no === unitNo)?.labeled);
+}
+
+function drainLabelMarks() {
+  if (labelDrain) return labelDrain;
+  labelDrain = (async () => {
+    let failure = null;
+    try {
+      while (labelMarks.size) {
+        const marks = [...labelMarks.values()];
+        labelMarks.clear();
+        for (const labeled of [true, false]) {
+          // Already that way (ticked on and off again, or another tab did it): nothing to send.
+          const items = marks
+            .filter((mark) => mark.labeled === labeled && isLabeled(mark.id, mark.unitNo) === !labeled)
+            .map(({ id, unitNo }) => ({ id, unitNo }));
+          if (!items.length) continue;
+          try {
+            await mutate('label.mark', { items, labeled });
+          } catch (error) {
+            failure = error; // mutate() raised the toast
+          }
+        }
+      }
+    } finally {
+      labelDrain = null;
+    }
+    if (failure) throw failure;
+  })();
+  return labelDrain;
+}
+
+/**
+ * Marks the printed label of an asset — or of one unit — as on the gear, or not.
+ * Resolves once everything ticked so far is saved.
+ */
+export function markLabeled(assetId, unitNo, labeled) {
+  return markLabeledMany([{ assetId, unitNo }], labeled);
+}
+
+/** The same for many labels ([{assetId, unitNo}]), sent as one request. */
+export function markLabeledMany(items, labeled) {
+  for (const { assetId, unitNo } of items) {
+    const id = Number(assetId);
+    const no = unitNo ? Number(unitNo) : null;
+    labelMarks.set(`${id}.${no ?? ''}`, { id, unitNo: no, labeled: Boolean(labeled) });
+  }
+  return drainLabelMarks();
 }
 
 // --- Label printer -----------------------------------------------------------

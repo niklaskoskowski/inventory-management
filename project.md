@@ -481,7 +481,7 @@ drawer prints everything — one label, copies, "all unit labels" — through `p
 the same path, with the batch preferences (`batchPrefs()` / `saveBatchPrefs()`, localStorage
 `traxBatchPrintV1`). `printer.print` (one PNG, one job) is no longer called by the client; it stays
 as an API action. The view keeps
-the last uploaded batch and its signature (format, `rev`, the ticked keys) and reuses it for the
+the last uploaded batch and its signature (format, the ticked keys with their `labelVersion()`) and reuses it for the
 print after a preview; a `NOT_FOUND` from the bridge (expired, restarted) uploads once more. The
 size estimate mirrors the bridge's printable heights per tape (`TAPE_PRINTABLE_MM`).
 
@@ -589,7 +589,16 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
   `asset.uploadDocuments|deleteDocument`, `set.create|update|delete`,
   `checkout.create|extend|checkin`, `reservation.create|convert|cancel`,
   `booking.resend|uploadPhotos|deletePhoto`, `settings.update`,
-  `auth.changePassword|testInclude|configUpdate`, `taxonomy.rename|merge|delete`.
+  `auth.changePassword|testInclude|configUpdate`, `taxonomy.rename|merge|delete`, `label.mark`.
+- **`label.mark`**: `{id, unitNo, labeled}` for one label or `{items: [{id, unitNo}], labeled}`
+  for many (up to `TRAX_MAX_LABEL_MARKS` = 2000) — all checked before any is changed, one write,
+  one rev. The client never sends two at once: `markLabeled()` / `markLabeledMany()`
+  (`app/store.js`) queue the ticks, send one request at a time, collect what is ticked meanwhile
+  into one request per direction (last tick per label wins) and drop labels already in that state.
+  Parallel writes would all carry the same rev and all but the first come back `STALE`.
+  The label previews in Settings → Labels carry `&v=labelVersion()` (`app/lib/labels.js`: name,
+  notes, unit label, branding, cable gap) instead of the rev, so a tick does not re-render every
+  tile on the page — each one is a GD render on the server.
 - **Concurrency**: `trax_mutate($expectedRev, $mutator)` (`lib/store.php:1946`) holds `LOCK_EX` on
   `.trax.lock` across the read-modify-write of *both* `data.json` and `checkout.json`, so cross-file
   operations commit together. Writes go through `trax_write_atomic()` (`lib/store.php:1880`): temp

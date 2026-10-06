@@ -61,7 +61,7 @@ export default {
       return Boolean(units.value.find((unit) => unit.no === unitNo.value)?.labeled);
     });
     const labeledBusy = ref(false);
-    const toggleLabeled = async () => {
+    const toggleLabeled = async (event) => {
       labeledBusy.value = true;
       try {
         await markLabeled(props.assetId, unitNo.value, !labeled.value);
@@ -69,6 +69,8 @@ export default {
         /* toast already raised by the store */
       } finally {
         labeledBusy.value = false;
+        // Not saved: the switch goes back to what is stored.
+        event.target.checked = labeled.value;
       }
     };
 

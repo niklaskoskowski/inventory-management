@@ -1309,32 +1309,54 @@ try {
             // Whether a printed label is on the asset — or on one unit of it.
             // Its own action, like the photos: not a field an asset patch can
             // carry, so the asset sheet's save can never reset it.
-            $id      = req_int($payload, 'id');
-            $unitNo  = trax_int($payload['unitNo'] ?? null);
+            //
+            // One label: {id, unitNo, labeled}. Many: {items: [{id, unitNo}],
+            // labeled} — one write and one rev for all of them, so ticking off
+            // a printed strip is one request, not one per label.
             $labeled = !empty($payload['labeled']);
-
-            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($id, $unitNo, $labeled): array {
-                $asset = trax_find_asset($data['assets'], $id);
-                if ($asset === null) {
-                    throw new TraxInvalid("Asset #{$id} not found.");
-                }
-                if ($unitNo !== null && !in_array($unitNo, array_column($asset['units'], 'no'), true)) {
-                    throw new TraxInvalid('Unit ' . trax_unit_code($id, $unitNo) . ' not found.');
-                }
-
-                trax_update_asset($data, $id, static function (array $asset) use ($unitNo, $labeled): array {
-                    if ($unitNo === null) {
-                        $asset['labeled'] = $labeled;
-                        return $asset;
+            $targets = [];
+            if (is_array($payload['items'] ?? null)) {
+                foreach (array_slice($payload['items'], 0, TRAX_MAX_LABEL_MARKS) as $item) {
+                    $itemId = is_array($item) ? trax_int($item['id'] ?? null) : null;
+                    if ($itemId === null) {
+                        trax_fail('BAD_REQUEST', 'Every item needs an asset id.');
                     }
-                    foreach ($asset['units'] as &$unit) {
-                        if ($unit['no'] === $unitNo) {
-                            $unit['labeled'] = $labeled;
+                    $targets[] = [$itemId, trax_int($item['unitNo'] ?? null)];
+                }
+                if ($targets === []) {
+                    trax_fail('BAD_REQUEST', 'No labels given.');
+                }
+            } else {
+                $targets[] = [req_int($payload, 'id'), trax_int($payload['unitNo'] ?? null)];
+            }
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($targets, $labeled): array {
+                // All or nothing: every label is checked before any is changed.
+                foreach ($targets as [$id, $unitNo]) {
+                    $asset = trax_find_asset($data['assets'], $id);
+                    if ($asset === null) {
+                        throw new TraxInvalid("Asset #{$id} not found.");
+                    }
+                    if ($unitNo !== null && !in_array($unitNo, array_column($asset['units'], 'no'), true)) {
+                        throw new TraxInvalid('Unit ' . trax_unit_code($id, $unitNo) . ' not found.');
+                    }
+                }
+
+                foreach ($targets as [$id, $unitNo]) {
+                    trax_update_asset($data, $id, static function (array $asset) use ($unitNo, $labeled): array {
+                        if ($unitNo === null) {
+                            $asset['labeled'] = $labeled;
+                            return $asset;
                         }
-                    }
-                    unset($unit);
-                    return $asset;
-                });
+                        foreach ($asset['units'] as &$unit) {
+                            if ($unit['no'] === $unitNo) {
+                                $unit['labeled'] = $labeled;
+                            }
+                        }
+                        unset($unit);
+                        return $asset;
+                    });
+                }
 
                 return [];
             });

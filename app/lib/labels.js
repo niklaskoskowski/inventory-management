@@ -43,6 +43,30 @@ export function assetLabelItems(asset) {
   }));
 }
 
+/**
+ * A short key that changes only when what is printed on a label can: the
+ * asset's name and notes, the unit's label, the branding and the cable gap.
+ * The label endpoints ignore it (`&v=`); it is there so a preview <img> is
+ * fetched again after such a change, and not after every other save — a
+ * Labeled tick would otherwise re-render every tile on the page.
+ */
+export function labelVersion(asset, unitNo = null, settings = {}) {
+  const unit = unitNo ? (asset?.units || []).find((entry) => entry.no === unitNo) : null;
+  const branding = settings?.branding || {};
+  const text = JSON.stringify([
+    asset?.name, asset?.notes, unit?.label,
+    branding.labelHeading, branding.orgName, branding.appName, branding.logoFile, branding.publicPath,
+    settings?.labels?.cableGapMm, settings?.label?.renderScale,
+  ]);
+  // FNV-1a: short, stable, good enough to tell two versions apart.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 // Same-origin, so the session cookie rides along and the PNG comes back
 // rendered for this asset. The bytes go into the archive as they are.
 async function labelBytes(url) {

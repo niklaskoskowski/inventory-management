@@ -1,12 +1,14 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import {
   state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl, markLabeled,
-  printerEnabled, printerStatus, buildLabelBatch, printLabelBatch, cancelLabelBatch,
+  markLabeledMany, assetById, printerEnabled, printerStatus, buildLabelBatch, printLabelBatch, cancelLabelBatch,
   batchPrefs as loadBatchPrefs, saveBatchPrefs,
 } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney, formatDateTime } from '../lib/format.js';
-import { assetLabelItems, downloadLabelZip, labelFiles } from '../lib/labels.js';
+import {
+  assetLabelItems, downloadLabelZip, labelFiles, labelVersion,
+} from '../lib/labels.js';
 import {
   BLANK_RULE, daysLabel, formatPercent, serviceFactorOf, tierFor,
 } from '../lib/rental.js';
@@ -701,16 +703,20 @@ export default {
 
     const labelFileCount = computed(() => chosenLabelFiles.value.length);
 
+    /** labelVersion() of one label, from the current inventory and settings. */
+    const versionOf = (item) => labelVersion(assetById.value.get(item.assetId), item.unitNo, state.settings);
+
     /**
      * The live preview: the chosen labels, as the server renders them now.
-     * `v` is ignored by the label endpoints; it changes with every write
-     * (state.rev), so a saved branding change, a renamed asset or a new unit
-     * re-renders the tiles instead of showing the browser's cached PNG. The
-     * images load lazily, so a long inventory costs only what is scrolled to.
+     * `v` is ignored by the label endpoints; it changes only when something
+     * printed on that label does (a rename, the branding, the cable gap), so
+     * those re-render the tile, and a Labeled tick or any other save does not
+     * re-render the whole page. The images load lazily, so a long inventory
+     * costs only what is scrolled to.
      */
     const labelPreviews = computed(() => labelItems.value.map((item) => {
       const [portrait, wide, cable] = labelFiles(item.assetId, item.unitNo);
-      const v = `&v=${state.rev}`;
+      const v = `&v=${versionOf(item)}`;
       return {
         ...item,
         key: `${item.assetId}.${item.unitNo ?? ''}`,
@@ -743,16 +749,22 @@ export default {
       }
     };
 
-    /** Ticks a label as on the gear, or takes the tick off again. */
-    const labelBusy = ref('');
-    const toggleLabeled = async (item) => {
-      labelBusy.value = item.code;
+    /**
+     * Ticks a label as on the gear, or takes the tick off again. The switch's
+     * own state is the wish, so quick clicks on one or many tiles queue up in
+     * the store instead of racing each other.
+     */
+    const toggleLabeled = async (item, event) => {
+      const input = event.target;
       try {
-        await markLabeled(item.assetId, item.unitNo, !item.labeled);
+        await markLabeled(item.assetId, item.unitNo, input.checked);
       } catch {
         /* toast already raised by the store */
       } finally {
-        labelBusy.value = '';
+        // Not saved, or ticked back: show what is stored, not the click.
+        const stored = assetLabelItems(assetById.value.get(item.assetId) || { units: [] })
+          .find((entry) => entry.unitNo === item.unitNo);
+        if (stored) input.checked = stored.labeled;
       }
     };
 
@@ -894,13 +906,14 @@ export default {
     const batchPrinted = ref([]);
     let builtBatch = null;
 
-    watch([batchItems, batchFormat, batchOrientation, batchCut, batchCopies], () => {
+    // What the uploaded PNGs depend on: a Labeled tick in between is no reason to upload again.
+    const batchSignature = () => JSON.stringify([
+      batchFormat.value, batchItems.value.map((item) => `${labelKey(item)}:${versionOf(item)}`),
+    ]);
+
+    watch(() => [batchSignature(), batchOrientation.value, batchCut.value, batchCopies.value].join('|'), () => {
       batchPreview.value = null;
     });
-
-    const batchSignature = () => JSON.stringify([
-      batchFormat.value, state.rev, batchItems.value.map(labelKey),
-    ]);
 
     const ensureBatch = async () => {
       const signature = batchSignature();
@@ -973,12 +986,10 @@ export default {
         toast('They are all marked as labeled already.', 'info');
         return;
       }
-      for (const item of items) {
-        try {
-          await markLabeled(item.assetId, item.unitNo, true);
-        } catch {
-          return; /* the store raised a toast */
-        }
+      try {
+        await markLabeledMany(items, true);
+      } catch {
+        return; /* the store raised a toast */
       }
       toast(`${items.length} label${items.length === 1 ? '' : 's'} marked as on the gear.`, 'success');
     };
@@ -1231,7 +1242,7 @@ export default {
       pickAllShown, clearPicked, batchEstimate, batchBusy, batchPreview, batchPrinted, runBatch,
       markPrintedLabeled,
       LABEL_FORMATS, LABEL_STATES, labelFormat, labelState, labelCounts, labelFileCount,
-      labelZip, downloadAllLabels, labelPreviews, labelBusy, toggleLabeled,
+      labelZip, downloadAllLabels, labelPreviews, toggleLabeled,
       state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
       saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
@@ -2094,7 +2105,7 @@ export default {
                   <span class="form-check form-switch mb-0" :title="'Label ' + label.code + ' is on the gear'">
                     <input class="form-check-input" type="checkbox" role="switch"
                            :id="'labeled-' + label.key" :checked="label.labeled"
-                           :disabled="labelBusy === label.code" @change="toggleLabeled(label)">
+                           @change="toggleLabeled(label, $event)">
                     <label class="form-check-label text-secondary" :for="'labeled-' + label.key">
                       Labeled
                     </label>

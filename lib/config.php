@@ -409,6 +409,8 @@ if (!defined('TRAX_MAX_TERMS')) define('TRAX_MAX_TERMS', 30000);
 if (!defined('TRAX_CABLE_GAP_MIN')) define('TRAX_CABLE_GAP_MIN', 2);
 if (!defined('TRAX_CABLE_GAP_MAX')) define('TRAX_CABLE_GAP_MAX', 60);
 if (!defined('TRAX_CABLE_GAP_DEFAULT')) define('TRAX_CABLE_GAP_DEFAULT', 30);
+/** Labels one label.mark request may tick on or off at once. */
+if (!defined('TRAX_MAX_LABEL_MARKS')) define('TRAX_MAX_LABEL_MARKS', 2000);
 /**
  * The network label printer (Settings → Printer): a Brother PT-P750W behind the
  * pt750w-print-trax bridge. Off until an operator switches it on.

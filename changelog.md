@@ -8,6 +8,19 @@ only record. There is no git history to mine.
 
 ## 2026-10-06
 
+### Fixed
+
+- **Quick Labeled ticks no longer race each other.** Each tick was its own `label.mark` request,
+  sent at once: several in flight carried the same rev, all but the first came back `STALE` (a
+  reload, a retry and a "changed in another tab" toast each), and every saved tick changed the
+  `&v=rev` of every label preview in Settings → Labels — a GD render per visible tile on the
+  server, for one checkbox. Now the store queues the ticks (one request at a time, everything
+  ticked meanwhile in one request per direction, the last tick per label wins), `label.mark` also
+  takes `{items: [{id, unitNo}], labeled}` (all or nothing, one write; *Mark them as labeled* is
+  one request instead of one per label), and the previews and the batch signature are keyed by
+  what is printed on the label (`labelVersion()`), not by the rev. A switch that could not be saved
+  goes back to the stored state.
+
 ### Changed
 
 - **The label drawer prints exactly like Settings → Labels → Batch print** — every label, any
