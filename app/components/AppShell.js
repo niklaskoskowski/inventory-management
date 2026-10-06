@@ -116,7 +116,11 @@ export default {
       showSetEditor.value = true;
     };
 
-    /** From a kit's sheet: its contents are edited in the kit editor, not in the sheet. */
+    /**
+     * The kit editor on an existing kit, from its sheet's Contents tab. The
+     * sheet closes first — two drawers over each other, both editing the same
+     * kit, is one too many — and the editor reopens it after saving.
+     */
     const editKit = (id) => {
       closeSheet();
       openSetEditor(id);

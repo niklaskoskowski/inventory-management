@@ -1607,8 +1607,9 @@ export default {
           <p class="small text-secondary mb-0 flex-grow-1">
             A kit's status is derived from its contents. Deleting the kit never deletes these items.
           </p>
-          <!-- The kit editor is where items are added, removed and counted. -->
-          <button type="button" class="btn btn-sm btn-outline-primary text-nowrap"
+          <!-- Add or take out items, change quantities: the kit editor, opened
+               on this kit instead of a new one. -->
+          <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
                   @click="emit('edit-kit', assetId)">
             <i class="bi bi-pencil-square"></i> Edit contents
           </button>
