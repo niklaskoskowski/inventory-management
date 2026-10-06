@@ -1994,6 +1994,11 @@ function trax_normalize_printer(mixed $raw): array
         'fit'                => in_array($fit, ['exact', 'fill'], true) ? $fit : 'exact',
         // 180 x 360 dpi – twice the resolution along the tape. On unless switched off.
         'highRes'            => trax_bool($raw['highRes'] ?? null, true),
+        // How a strip (batch, copies) carries its cut settings, page by page.
+        // '' = whatever the bridge defaults to (PTB_BATCH_MODE).
+        'batchMode'          => in_array((string)($raw['batchMode'] ?? ''), TRAX_PRINTER_BATCH_MODES, true)
+            ? (string)($raw['batchMode'] ?? '')
+            : '',
     ];
 }
 

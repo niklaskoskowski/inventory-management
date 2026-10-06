@@ -286,6 +286,7 @@ function trax_printer_batch_print(array $data, string $batchId, string $format, 
         'marginMm'    => $printer['marginMm'],
         'highRes'     => $printer['highRes'],
         'copies'      => $copies,
+        'batchMode'   => $printer['batchMode'] !== '' ? $printer['batchMode'] : null,
         'dryRun'      => $dryRun,
         'jobName'     => trax_str('Batch (' . $format . ($orientation === 'across' ? ', rotated' : '') . ')', 120),
         'source'      => trax_str($settings['branding']['appName'] ?? 'inventory', 60),
@@ -293,6 +294,7 @@ function trax_printer_batch_print(array $data, string $batchId, string $format, 
     if ($printer['tapeMm'] > 0) {
         $payload['tapeMm'] = $printer['tapeMm'];
     }
+    $payload = array_filter($payload, static fn($v) => $v !== null);
 
     $answer = trax_printer_request($printer, 'POST', '/api/batches/' . $batchId . '/print', $payload,
         TRAX_PRINTER_BATCH_TIMEOUT);

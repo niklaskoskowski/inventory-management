@@ -180,6 +180,7 @@ const DEFAULT_SETTINGS = {
     tapeMm: 0,
     fit: 'exact',
     highRes: true,
+    batchMode: '',
   },
   cron: {
     secret: '',

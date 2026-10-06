@@ -425,6 +425,8 @@ if (!defined('TRAX_PRINTER_MAX_BYTES')) define('TRAX_PRINTER_MAX_BYTES', 8 * 102
 if (!defined('TRAX_PRINTER_FORMATS')) define('TRAX_PRINTER_FORMATS', ['portrait', 'wide', 'cable']);
 /** Expected tape, mm. 0 = whatever is loaded; 4 is how the printer reports 3.5 mm. */
 if (!defined('TRAX_PRINTER_TAPES')) define('TRAX_PRINTER_TAPES', [0, 4, 6, 9, 12, 18, 24]);
+/** Strip modes the bridge knows (PTB_BATCH_MODE); '' leaves it to the bridge. */
+if (!defined('TRAX_PRINTER_BATCH_MODES')) define('TRAX_PRINTER_BATCH_MODES', ['', 'perpage', 'chain', 'once', 'noautocut', 'legacy']);
 if (!defined('TRAX_MAX_MEMBERS')) define('TRAX_MAX_MEMBERS', 100);    // distinct members per set
 if (!defined('TRAX_MAX_QUANTITY')) define('TRAX_MAX_QUANTITY', 9999);   // physical units one asset record may stand for
 if (!defined('TRAX_MAX_MEMBER_QTY')) define('TRAX_MAX_MEMBER_QTY', 999);    // units of a single member inside one set

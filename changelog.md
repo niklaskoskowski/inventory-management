@@ -8,6 +8,14 @@ only record. There is no git history to mine.
 
 ## 2026-10-06
 
+### Added
+
+- **Settings → Printer → Strip mode** (`settings.printer.batchMode`, `''` = the bridge's
+  `PTB_BATCH_MODE`): how a batch or several copies carry their cut settings page by page, sent
+  with every batch. The bridge now defaults to *chain until the last label* (`perpage`), because
+  the PT-P750W feeds and cuts at the end of every page that "no chain printing" is in force for.
+  The select lets the modes be tried from the browser, without a shell on the Pi.
+
 ### Fixed
 
 - **Kits can be edited again — contents included.** A kit's sheet only showed its contents; there

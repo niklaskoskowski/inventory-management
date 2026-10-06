@@ -2261,10 +2261,18 @@ export default {
                        class="form-control form-control-sm" v-model.number="draft.printer.marginMm">
               </div>
               <div class="col-12 col-md-6">
-                <div class="form-label small mb-1">Cutting</div>
-                <div class="form-text small mt-0">
-                  Several labels or copies always print as one strip. How it is cut and turned is chosen
-                  under Settings → Labels → Batch print.
+                <label class="form-label small" for="set-printer-batchmode">Strip mode</label>
+                <select id="set-printer-batchmode" class="form-select form-select-sm" v-model="draft.printer.batchMode">
+                  <option value="">Bridge default (PTB_BATCH_MODE)</option>
+                  <option value="perpage">Chain until the last label (recommended)</option>
+                  <option value="chain">Chain all, cut by the job end</option>
+                  <option value="once">Settings once at the start</option>
+                  <option value="noautocut">Half cuts only, no auto cut</option>
+                  <option value="legacy">Every label on its own (old)</option>
+                </select>
+                <div class="form-text small">
+                  How several labels or copies become one strip. If they come out one by one, try
+                  the next mode. Cutting and orientation: Settings → Labels → Batch print.
                 </div>
               </div>
               <div class="col-12 col-md-6">
