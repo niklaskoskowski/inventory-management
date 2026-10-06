@@ -72,7 +72,7 @@ export default {
   props: {
     assetId: { type: Number, default: null },
   },
-  emits: ['close', 'label', 'open'],
+  emits: ['close', 'label', 'open', 'edit-kit'],
   setup(props, { emit }) {
     const form = ref({ ...BLANK });
     const saving = ref(false);
@@ -1603,9 +1603,17 @@ export default {
 
       <!-- Kit contents -->
       <div v-show="tab === 'members'">
-        <p class="small text-secondary">
-          A kit's status is derived from its contents. Deleting the kit never deletes these items.
-        </p>
+        <div class="d-flex align-items-start gap-2 mb-2">
+          <p class="small text-secondary mb-0 flex-grow-1">
+            A kit's status is derived from its contents. Deleting the kit never deletes these items.
+          </p>
+          <!-- Add or take out items, change quantities: the kit editor, opened
+               on this kit instead of a new one. -->
+          <button class="btn btn-sm btn-outline-secondary text-nowrap"
+                  @click="emit('edit-kit', assetId)">
+            <i class="bi bi-pencil-square"></i> Edit contents
+          </button>
+        </div>
         <ul class="list-group list-group-flush">
           <li v-for="(member, mi) in members" :key="mi + '-' + member.id"
               class="list-group-item bg-transparent d-flex align-items-center gap-2 px-0">

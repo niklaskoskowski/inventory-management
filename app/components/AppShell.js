@@ -116,6 +116,16 @@ export default {
       showSetEditor.value = true;
     };
 
+    /**
+     * The kit editor on an existing kit, from its sheet's Contents tab. The
+     * sheet closes first — two drawers over each other, both editing the same
+     * kit, is one too many — and the editor reopens it after saving.
+     */
+    const editKit = (id) => {
+      closeSheet();
+      openSetEditor(id);
+    };
+
     const openEvent = (id = null) => {
       eventSheetId.value = id;
       showEventSheet.value = true;
@@ -225,7 +235,7 @@ export default {
       sheetId, sheetOpen, labelId, showBasket, showScanner, showBulk,
       showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName,
       selectedItemIds, selectedUnitCount, account, loadAccount, csrf: api.csrf,
-      openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, openLabel, labelTarget,
+      openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, editKit, openLabel, labelTarget,
       showEventSheet, eventSheetId, openEvent,
       // Not used by the template — exposed so the shortcut table can be driven
       // with synthetic events instead of a browser.
@@ -425,7 +435,8 @@ export default {
 
     <!-- Drawers -->
     <AssetSheet v-if="sheetOpen" :asset-id="sheetId"
-                @close="closeSheet" @open="openAsset" @label="labelId = $event" />
+                @close="closeSheet" @open="openAsset" @label="labelId = $event"
+                @edit-kit="editKit" />
 
     <SetEditor v-if="showSetEditor" :set-id="editingSetId"
                @close="showSetEditor = false" @open="openAsset" />

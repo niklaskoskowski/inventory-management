@@ -6,6 +6,15 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-10-06
+
+### Fixed
+
+- **Kits can be edited after they were made.** The kit editor always supported an existing kit
+  (`set.update`), but nothing opened it on one — only "New kit" did. A kit's **Contents** tab now
+  has **Edit contents**: add items, take them out, change quantities. The sheet closes while the
+  editor is open and comes back after saving.
+
 ## 2026-10-03
 
 ### Added
