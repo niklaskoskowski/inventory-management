@@ -444,11 +444,11 @@ loaded tape and printer errors back, and sizes a label in mm for that tape.
 
 The secrets ride in the admin snapshot, like `cron.secret`: it only ever reaches a signed-in operator.
 
-**Flow.** The browser never calls the bridge. `sendLabelToPrinter()` (`app/store.js`) fetches the
-same label PNG the previews show (`label.php` / `label-w.php` / `label-c.php`, `&v=rev`) and uploads
-it to `printer.print` (multipart, field `photo`, plus `format`, `assetId`, `unitNo`, `copies` — all
-three listed in the multipart allow-list). `trax_printer_print_png()` sends it on as JSON with the
-size **from the format** (`trax_printer_label_mm()`: portrait 14 × 30, wide 30 × 14, cable
+**Flow.** The browser never calls the bridge. The client fetches the same label PNG the previews
+show (`label.php` / `label-w.php` / `label-c.php`, `&v=rev`) and uploads it — in the UI always to
+`printer.batchAdd` (see batch printing below); the single-job action `printer.print` takes the same
+multipart (field `photo`, plus `format`, `assetId`, `unitNo`, `copies` — all listed in the
+multipart allow-list). Either way the server sends it on as JSON with the size **from the format** (`trax_printer_label_mm()`: portrait 14 × 30, wide 30 × 14, cable
 (60 + `cableGapMm`) × 14) and the defaults above. Rendering stays in the browser round-trip because
 the three label scripts render and exit and declare global functions — they cannot be run twice in
 one request.
@@ -476,9 +476,11 @@ half-cut between them, one full cut at the end. Four actions, none saving anythi
   batch. Allowed `TRAX_PRINTER_BATCH_TIMEOUT` (180 s).
 - `printer.batchCancel` `{batchId}` — best effort; the bridge expires batches anyway.
 
-`buildLabelBatch()` / `printLabelBatch()` / `cancelLabelBatch()` in `app/store.js`; the label
-drawer's copies (> 1) and "all unit labels" use `printLabelsAsStrip()`, the same path, with the
-batch preferences (`batchPrefs()` / `saveBatchPrefs()`, localStorage `traxBatchPrintV1`). The view keeps
+`buildLabelBatch()` / `printLabelBatch()` / `cancelLabelBatch()` in `app/store.js`. The label
+drawer prints everything — one label, copies, "all unit labels" — through `printLabelsAsStrip()`,
+the same path, with the batch preferences (`batchPrefs()` / `saveBatchPrefs()`, localStorage
+`traxBatchPrintV1`). `printer.print` (one PNG, one job) is no longer called by the client; it stays
+as an API action. The view keeps
 the last uploaded batch and its signature (format, `rev`, the ticked keys) and reuses it for the
 print after a preview; a `NOT_FOUND` from the bridge (expired, restarted) uploads once more. The
 size estimate mirrors the bridge's printable heights per tape (`TAPE_PRINTABLE_MM`).

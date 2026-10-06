@@ -8,6 +8,15 @@ only record. There is no git history to mine.
 
 ## 2026-10-06
 
+### Changed
+
+- **The label drawer prints exactly like Settings → Labels → Batch print** — every label, any
+  number of copies, through the same batch path (`printLabelsAsStrip()`: `printer.batchStart` →
+  `printer.batchAdd` → `printer.batchPrint`), with the same cutting and orientation. One copy is a
+  batch of one. Printing a cable flag from an asset's Label button failed while the batch panel
+  printed it fine; the drawer's own single-label path (`printer.print` from the browser,
+  `sendLabelToPrinter()`) is gone from the client. `printer.print` stays as an API action.
+
 ### Added
 
 - **Settings → Printer → Strip offset (mm)** (`settings.printer.shiftMm`, −5…5, default 0):

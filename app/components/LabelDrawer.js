@@ -1,6 +1,6 @@
 import { computed, ref, watch } from 'vue';
 import {
-  state, getAsset, toast, markLabeled, printerEnabled, sendLabelToPrinter, printerJobMessage,
+  state, getAsset, toast, markLabeled, printerEnabled, printerJobMessage,
   printLabelsAsStrip, batchPrefs,
 } from '../store.js';
 import { labelCode, labelFiles, downloadLabelZip } from '../lib/labels.js';
@@ -173,8 +173,9 @@ export default {
     });
 
     /**
-     * One label. Several copies go out as ONE job – a strip, like a batch –
-     * instead of one job per copy, each with its own leader.
+     * One label, any number of copies – through exactly the path Settings →
+     * Labels → Batch print takes (printLabelsAsStrip): same upload, same job
+     * on the bridge, same cutting and orientation. One copy is a batch of one.
      */
     const sendToPrinter = async (format) => {
       if (sending.value) return;
@@ -182,14 +183,10 @@ export default {
       const n = clampCopies();
       const what = `${code.value} (${FORMAT_NAMES[format]})`;
       try {
-        if (n > 1) {
-          stripPrefs.value = batchPrefs();
-          const job = await printLabelsAsStrip([{ assetId: props.assetId, unitNo: unitNo.value, code: code.value }],
-            format, n);
-          reportJob({ ...job, copies: n }, what);
-        } else {
-          reportJob(await sendLabelToPrinter({ assetId: props.assetId, unitNo: unitNo.value, format, copies: 1 }), what);
-        }
+        stripPrefs.value = batchPrefs();
+        const job = await printLabelsAsStrip([{ assetId: props.assetId, unitNo: unitNo.value, code: code.value }],
+          format, n);
+        reportJob({ ...job, copies: n }, what);
       } catch (error) {
         toast(error.message, 'danger', 9000);
       } finally {
@@ -257,8 +254,8 @@ export default {
                style="width:4.5rem" v-model.number="copies">
       </div>
       <p v-if="printerEnabled" class="small text-secondary mb-3">
-        Copies and "all unit labels" print as one strip – {{ stripText }}
-        (Settings → Labels → Batch print).
+        Prints like Settings → Labels → Batch print – {{ stripText }}; copies and "all unit labels"
+        as one strip.
       </p>
 
       <div class="row g-3">

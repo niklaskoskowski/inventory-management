@@ -925,24 +925,6 @@ export async function printerStatus() {
 }
 
 /**
- * Sends one label to the printer: `format` is portrait | wide | cable.
- * Resolves to the bridge's job record ({state, tapeMm, scalePct, warnings, …}).
- */
-export async function sendLabelToPrinter({ assetId, unitNo = null, format, copies = null }) {
-  const file = labelFiles(assetId, unitNo).find((entry) => entry.format === format);
-  if (!file) throw new Error(`Unknown label format "${format}".`);
-  // `v` busts the browser cache the same way the previews do, so a label
-  // renamed a second ago does not go out with the old name on it.
-  const response = await fetch(`${file.url}&v=${state.rev}`, { credentials: 'same-origin' });
-  if (!response.ok) throw new Error(`The label could not be rendered (HTTP ${response.status}).`);
-  const fields = { format, assetId };
-  if (unitNo) fields.unitNo = unitNo;
-  if (copies) fields.copies = copies;
-  const body = await api.upload('printer.print', await response.blob(), fields);
-  return body.data?.job || {};
-}
-
-/**
  * Batch printing (Settings → Labels): the labels go to the bridge one request
  * each – three at a time – and are printed later as ONE job. Resolves to the
  * batch id. `isStopped()` is asked between labels; a stopped or failed upload
