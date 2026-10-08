@@ -1072,6 +1072,60 @@ function trax_update_booking(array &$data, int $id, callable $fn): bool
 }
 
 /**
+ * A booking moved onto a new due date. The reminders cron.php has sent were
+ * about the old date, so they start over; the link lives at least as long as
+ * it would for a booking due on the new date, and is never shortened. The same
+ * instant in another spelling changes nothing.
+ */
+function trax_booking_with_due(array $booking, string $dueAt): array
+{
+    $old = $booking['dueAt'] === null ? null : trax_parse_datetime((string)$booking['dueAt']);
+    $new = trax_parse_datetime($dueAt);
+    if ($new === null || $old === $new) {
+        return $booking;
+    }
+    $booking['dueAt']    = $dueAt;
+    $booking['notified'] = trax_normalize_notified(null);
+    $expiry              = trax_booking_expiry($dueAt);
+    if ((trax_parse_datetime((string)($booking['expiresAt'] ?? '')) ?? 0) < (trax_parse_datetime($expiry) ?? 0)) {
+        $booking['expiresAt'] = $expiry;
+    }
+    return $booking;
+}
+
+/**
+ * Puts each named OPEN booking's `dueAt` on its open lines: the earliest due
+ * date among them, the first one the customer can miss.
+ *
+ * The booking's date is what the customer's page shows and what cron.php
+ * reminds against, but extending or partly returning changes the LINES — so
+ * after an extension the customer was told the gear was overdue on the old
+ * date. A booking with no open lines left is not touched (a return closes it).
+ *
+ * @param array $checkouts  the open lines, after the change
+ */
+function trax_sync_booking_due(array &$data, array $checkouts, array $bookingIds): void
+{
+    $earliest = [];
+    foreach ($checkouts as $line) {
+        $bookingId = trax_int($line['bookingId'] ?? null);
+        if ($bookingId === null || !in_array($bookingId, $bookingIds, true) || ($line['dueAt'] ?? null) === null) {
+            continue;
+        }
+        $ts = trax_parse_datetime((string)$line['dueAt']);
+        if ($ts !== null && (!isset($earliest[$bookingId]) || $ts < $earliest[$bookingId][0])) {
+            $earliest[$bookingId] = [$ts, (string)$line['dueAt']];
+        }
+    }
+
+    foreach ($earliest as $bookingId => [, $dueAt]) {
+        trax_update_booking($data, $bookingId, static function (array $booking) use ($dueAt): array {
+            return $booking['status'] === 'OPEN' ? trax_booking_with_due($booking, $dueAt) : $booking;
+        });
+    }
+}
+
+/**
  * Closes the bookings whose last checkout line has just gone.
  *
  * Called from checkout.checkin with the lines it removed, so only bookings that

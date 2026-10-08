@@ -8,6 +8,16 @@ only record. There is no git history to mine.
 
 ## 2026-10-08
 
+### Fixed
+
+- **Extending a loan now moves the customer's booking date too.** `checkout.extend` changed the
+  lines only; the booking — what the customer's page shows and what `cron.php` reminds against —
+  kept the old date, so after an extension the customer could get an "overdue" mail for a date
+  that no longer applied. The booking's `dueAt` now follows its open lines (the earliest of them)
+  after an extension and after a partial return, its reminders start over for the new date, and
+  its link never expires earlier than 30 days after it. Converting a reservation with a new
+  return date does the same.
+
 ### Added
 
 - **Hire type *Free*** (`hire: FREE`, beside Dry hire and Full service in the Selection): gear lent

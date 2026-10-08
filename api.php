@@ -2347,6 +2347,7 @@ try {
                 $dueTs      = trax_parse_datetime($dueAt) ?? time();
                 $returnDate = trax_format_de($dueTs);
                 $touched    = [];
+                $bookingIds = [];
 
                 foreach ($checkouts as $index => $record) {
                     $selected = in_array((int)$record['lineId'], $lineIds, true)
@@ -2357,6 +2358,10 @@ try {
                     $checkouts[$index]['returnDate'] = $returnDate;
                     $checkouts[$index]['dueAt']      = $dueAt;
                     $touched[] = $checkouts[$index];
+                    $bookingId = trax_int($record['bookingId'] ?? null);
+                    if ($bookingId !== null && !in_array($bookingId, $bookingIds, true)) {
+                        $bookingIds[] = $bookingId;
+                    }
 
                     trax_append_history($data, 'extend', [
                         'assetId'       => (int)$record['assetId'],
@@ -2372,6 +2377,10 @@ try {
                 if ($touched === []) {
                     throw new TraxInvalid('No open checkout found for the selected items.');
                 }
+
+                // The customer's page and the reminder cron read the booking's
+                // date, not the lines'.
+                trax_sync_booking_due($data, $checkouts, $bookingIds);
 
                 return ['touched' => $touched, 'returnDate' => $returnDate];
             });
@@ -2630,6 +2639,17 @@ try {
                 // is done once the last of ITS lines is back. Only the bookings
                 // this return touched are considered.
                 $closed = trax_close_returned_bookings($data, $returned, $checkouts);
+
+                // A booking still out may now be due later: its earliest line
+                // can be the one that just came back.
+                $touchedBookings = [];
+                foreach ($returned as $line) {
+                    $bookingId = trax_int($line['bookingId'] ?? null);
+                    if ($bookingId !== null) {
+                        $touchedBookings[] = $bookingId;
+                    }
+                }
+                trax_sync_booking_due($data, $checkouts, array_values(array_unique($touchedBookings)));
 
                 return ['returned' => $returned, 'closedBookings' => $closed, 'notOut' => $notOut];
             });
@@ -3171,8 +3191,7 @@ try {
                 // it. Move the booking onto the date the gear is actually due.
                 if ($booking !== null && $dueAt !== $booking['dueAt']) {
                     trax_update_booking($data, (int)$booking['id'], static function (array $b) use ($dueAt): array {
-                        $b['dueAt'] = $dueAt;
-                        return $b;
+                        return trax_booking_with_due($b, $dueAt);
                     });
                     $booking['dueAt'] = $dueAt;
                 }
@@ -3462,13 +3481,7 @@ try {
                     trax_update_booking($data, (int)$booking['id'], static function (array $b) use (
                         $customerName, $customerEmail, $startAt, $endAt, $bookingItems, $hire, $eventId, $notes
                     ): array {
-                        if ($b['dueAt'] !== $endAt) {
-                            $b['notified'] = trax_normalize_notified(null);
-                            $expiry        = trax_booking_expiry($endAt);
-                            if ((trax_parse_datetime((string)$b['expiresAt']) ?? 0) < (trax_parse_datetime($expiry) ?? 0)) {
-                                $b['expiresAt'] = $expiry;
-                            }
-                        }
+                        $b                  = trax_booking_with_due($b, $endAt);
                         $b['customerName']  = $customerName;
                         $b['customerEmail'] = $customerEmail;
                         $b['startAt']       = $startAt;

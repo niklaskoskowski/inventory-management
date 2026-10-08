@@ -195,11 +195,11 @@ moment the gear came back.
 | `id`, `token` | token is 64 lower-case hex, the only public key |
 | `kind` | `checkout` \| `reservation` — lower case, it is not a status (`lib/config.php:370`) |
 | `reservationId`, `customerName`, `customerEmail`, `notes` | `reservationId` nullable |
-| `createdAt`, `startAt`, `dueAt` | ISO |
-| `expiresAt` | `TRAX_BOOKING_LINK_DAYS` (30) after due; a stored value is kept |
+| `createdAt`, `startAt`, `dueAt` | ISO. `dueAt` follows the gear: `trax_sync_booking_due()` sets it to the earliest due date of the booking's open lines after `checkout.extend` and after a partial `checkout.checkin`; `reservation.update` and `reservation.convert` move it too. Every move goes through `trax_booking_with_due()` |
+| `expiresAt` | `TRAX_BOOKING_LINK_DAYS` (30) after due; a stored value is kept, a moved `dueAt` only ever lengthens it |
 | `status` | `OPEN` \| `RETURNED` \| `CANCELLED` |
 | `items`, `photos` | snapshot lines; hand-over / check-in photos |
-| `notified` | what the reminder cron has already sent |
+| `notified` | what the reminder cron has already sent; reset when `dueAt` moves, so the new date is reminded of |
 
 ### Settings
 
