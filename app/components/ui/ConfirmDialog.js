@@ -7,6 +7,7 @@ export default {
     title: { type: String, default: 'Are you sure?' },
     message: { type: String, default: '' },
     confirmLabel: { type: String, default: 'Confirm' },
+    cancelLabel: { type: String, default: 'Cancel' },
     danger: { type: Boolean, default: false },
   },
   emits: ['confirm', 'cancel'],
@@ -40,7 +41,7 @@ export default {
         <slot></slot>
       </div>
       <div class="trax-drawer-footer justify-content-end">
-        <button type="button" class="btn btn-sm btn-outline-secondary" @click="$emit('cancel')">Cancel</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" @click="$emit('cancel')">{{ cancelLabel }}</button>
         <button type="button" data-autofocus
                 class="btn btn-sm" :class="danger ? 'btn-danger' : 'btn-primary'"
                 @click="$emit('confirm')">{{ confirmLabel }}</button>

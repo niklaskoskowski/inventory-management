@@ -198,7 +198,7 @@ export default {
         // nav are its only other routes.
         event.preventDefault();
         showScanner.value = true;
-      } else if (key === 'b' && !typing && selectedItemIds.value.length) {
+      } else if (key === 'b' && !typing && (selectedItemIds.value.length || state.reservationEdit)) {
         event.preventDefault();
         showBasket.value = true;
       } else if (key === 'l' && !typing) {
@@ -323,11 +323,15 @@ export default {
             <i class="bi bi-gear"></i>
           </button>
 
+          <!-- While a reservation is being edited the tray is that reservation,
+               and it must stay reachable even with nothing in it. -->
           <button class="btn btn-sm btn-primary position-relative" @click="showBasket = true"
-                  :disabled="!selectedItemIds.length"
-                  :title="selectedUnitCount + ' unit(s) selected'"
-                  aria-label="Open selection">
-            <i class="bi bi-cart2"></i>
+                  :disabled="!selectedItemIds.length && !state.reservationEdit"
+                  :title="state.reservationEdit
+                    ? 'Editing reservation #' + state.reservationEdit.id
+                    : selectedUnitCount + ' unit(s) selected'"
+                  :aria-label="state.reservationEdit ? 'Open the reservation being edited' : 'Open selection'">
+            <i class="bi" :class="state.reservationEdit ? 'bi-pencil-square' : 'bi-cart2'"></i>
             <span class="ms-1">{{ selectedUnitCount }}</span>
           </button>
 
@@ -400,14 +404,18 @@ export default {
                   <i class="bi bi-box-seam"></i> Make kit
                 </button>
                 <button class="btn btn-sm btn-primary" @click="showBasket = true">
-                  <i class="bi bi-cart2"></i> Check out
+                  <template v-if="state.reservationEdit">
+                    <i class="bi bi-pencil-square"></i> Reservation #{{ state.reservationEdit.id }}
+                  </template>
+                  <template v-else><i class="bi bi-cart2"></i> Check out</template>
                 </button>
                 <button class="btn btn-sm btn-outline-secondary" @click="clearSelection()">Clear</button>
               </div>
             </template>
 
             <CheckoutsView v-else-if="state.view === 'checkouts'" @open="openAsset" />
-            <ReservationsView v-else-if="state.view === 'reservations'" @open="openAsset" />
+            <ReservationsView v-else-if="state.view === 'reservations'" @open="openAsset"
+                              @basket="showBasket = true" />
 
             <EventsView v-else-if="state.view === 'events'"
                         @open="openAsset" @edit="openEvent" />

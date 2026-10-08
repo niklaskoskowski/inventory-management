@@ -165,7 +165,23 @@ Keyed by `lineId`, not by asset: one asset can be out on several lines at once.
 | `customerName`, `customerEmail`, `notes` | |
 | `startAt`, `endAt` | ISO |
 | `status` | `ACTIVE` \| `CONVERTED` \| `COMPLETED` \| `CANCELLED` (`lib/config.php:367`) |
-| `createdAt`, `convertedAt`, `completedAt`, `cancelledAt` | timestamps per transition |
+| `createdAt`, `convertedAt`, `completedAt`, `cancelledAt` | timestamps per transition; `reservation.restore` clears `cancelledAt` again |
+
+**Editing and restoring.** `reservation.update` takes everything `reservation.create` does plus
+`id`, for an `ACTIVE` reservation only. Availability is checked like a new one with the reservation
+itself left out (`trax_reservation_conflicts(…, $ignoreReservationId)`, `force` as on create).
+Its open booking gets the new customer, window, items, hire, event and notes — same token, same
+link; a moved end date resets `notified` and never shortens `expiresAt`. Assets that joined go
+`FREE` → `RSVD`, assets that left are released the way `reservation.cancel` releases them; one
+`reservation_updated` history entry per asset. Nothing is mailed. In the UI an edit runs through
+the Selection: `startReservationEdit()` (`app/store.js`) stashes the current selection, loads the
+reservation's items (kits back as kits, as many whole copies as the items hold, the rest loose)
+and `state.reservationEdit` turns the tray into "Reservation #n" — reserve mode only, fields
+filled in, kept while the tray is closed so items can be added from the inventory, saved with
+*Save changes*. `stopReservationEdit()` (saved or *Discard changes*) puts the stashed selection
+back. `reservation.restore` makes a `CANCELLED` reservation `ACTIVE` again only when nothing on it
+is booked elsewhere in its window (`TraxBlocked`, no override), reopens the booking it was
+cancelled with (or makes one) and reserves its assets again (`reservation_restored`).
 
 ### Booking — `trax_normalize_booking()` (`lib/store.php:812-874`)
 
@@ -247,12 +263,17 @@ charges the same either way. The factor lives on the rule beside the discount la
 asset or a unit: it is a commercial decision about a class of gear.
 
 Which kind a booking is **is stored** — it is a fact about the job, like the customer's name, not a
-price. `hire` (`DRY` | `SERVICE`, `TRAX_HIRE_MODES`) rides on the **checkout line**, the
+price. `hire` (`DRY` | `SERVICE` | `FREE`, `TRAX_HIRE_MODES`) rides on the **checkout line**, the
 **reservation** and the **booking**: the line because that is what gets priced and what survives a
 partial return, the reservation so a conversion inherits it, the booking because it outlives its
 lines. Everything written before this reads back as `DRY`. `rentalOfLines()` takes
 `{hire}` for the whole set, and a line naming its own wins — which is what keeps a checkout list
 holding both kinds correct.
+
+`FREE` is gear lent for nothing — a friend borrowing something. `rentalOfUnit()` returns 0 for it
+before looking at any rate, and flags nothing as unrated or unpriced; the tray says what dry hire
+would have cost. It is the third button of *Hire type*, shows as a "Free of charge" chip on the
+reservation card and in the "Hire" row of the rental PDF and the booking sheet.
 
 All the arithmetic is client-side in `app/lib/rental.js` — `rentalDays()` (whole calendar days,
 minimum 1), `resolveRate()`, `rateForDays()`, `rentalOfUnit()` and `rentalOfLines()` (the basket,
@@ -264,7 +285,7 @@ figure is always worked out from the rules in force at that moment, which is why
 re-prices what is still out.
 
 The **rental PDF prints money only** — the price for one unit over the period, the line total and a
-"Hire" row naming dry hire or full service. No purchase value, no rate and no factor: a percentage
+"Hire" row naming dry hire, full service or free of charge. No purchase value, no rate and no factor: a percentage
 is a fraction of what the gear cost to buy, so printing it beside the price would hand that value
 over by division, and the factor is the same kind of internal number. `formatPercent()` and the
 resolved rate belong to the operator's screens (settings, the asset sheet), never to a customer
@@ -587,7 +608,7 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
 - **Writes** (POST): `asset.create|update|delete|bulkUpdate`, `asset.uploadPhoto`,
   `asset.deletePhoto`, `asset.uploadConditionPhotos|deleteConditionPhoto`,
   `asset.uploadDocuments|deleteDocument`, `set.create|update|delete`,
-  `checkout.create|extend|checkin`, `reservation.create|convert|cancel`,
+  `checkout.create|extend|checkin`, `reservation.create|update|convert|cancel|restore`,
   `booking.resend|uploadPhotos|deletePhoto`, `settings.update`,
   `auth.changePassword|testInclude|configUpdate`, `taxonomy.rename|merge|delete`, `label.mark`.
 - **`label.mark`**: `{id, unitNo, labeled}` for one label or `{items: [{id, unitNo}], labeled}`

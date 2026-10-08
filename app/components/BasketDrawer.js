@@ -1,13 +1,13 @@
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import {
   state, assetById, selectedItemIds, selectedItems, selectedExpanded, selectedUnitCount,
   mutate, toast, toggleSelected, clearSelection, getAsset,
-  getQuantity, setQuantity, getUnitChoice, toggleUnitChoice,
+  getQuantity, setQuantity, getUnitChoice, toggleUnitChoice, stopReservationEdit,
 } from '../store.js';
 import { findConflicts } from '../lib/schedule.js';
 import { valueOfLines } from '../lib/insights.js';
 import {
-  rentalDays as hireDays, rentalOfLines, daysLabel, HIRE_LABEL, serviceFactorOf,
+  rentalDays as hireDays, rentalOfLines, daysLabel, HIRE_LABEL, serviceFactorOf, hireOf,
 } from '../lib/rental.js';
 import { byStart, eventSettings, isClosed } from '../lib/events.js';
 import { exportBasketPdf, exportRentalPdf } from '../lib/pdf.js';
@@ -20,6 +20,10 @@ import StatusBadge from './ui/StatusBadge.js';
  *
  * A kit in the selection is shown as a group whose members are listed and
  * individually removable, so what is actually being handed over is explicit.
+ *
+ * While a reservation is being edited (state.reservationEdit) the tray is that
+ * reservation: reserve mode only, its fields filled in, and saving writes
+ * reservation.update instead of making a new one.
  */
 export default {
   name: 'BasketDrawer',
@@ -119,6 +123,48 @@ export default {
 
     const eventsEnabled = computed(() => eventSettings(state.settings).enabled);
 
+    // --- Editing a reservation ------------------------------------------
+
+    const editing = computed(() => state.reservationEdit);
+    const editedReservation = computed(() => (editing.value
+      ? state.reservations.find((r) => Number(r.id) === Number(editing.value.id)) || null
+      : null));
+    /** Converted, cancelled or deleted elsewhere since the edit began. */
+    const editGone = computed(() => Boolean(editing.value)
+      && editedReservation.value?.status !== 'ACTIVE');
+
+    const formFields = { customerName, customerEmail, notes, startAt, endAt, hire, eventId, force };
+    if (editing.value) {
+      mode.value = 'reserve';
+      const r = editedReservation.value;
+      const saved = editing.value.form || (r ? {
+        customerName: r.customerName || '',
+        customerEmail: r.customerEmail || '',
+        notes: r.notes || '',
+        startAt: toLocalInput(r.startAt),
+        endAt: toLocalInput(r.endAt),
+        hire: hireOf(r),
+        eventId: r.eventId ? String(r.eventId) : '',
+        force: false,
+      } : {});
+      for (const [key, field] of Object.entries(formFields)) {
+        if (key in saved) field.value = saved[key];
+      }
+    }
+    // The tray closes while items are added from the inventory; what was
+    // typed meanwhile is kept with the edit, not in this component.
+    watch(Object.values(formFields), () => {
+      if (!editing.value) return;
+      editing.value.form = Object.fromEntries(
+        Object.entries(formFields).map(([key, field]) => [key, field.value]),
+      );
+    });
+
+    const discardEdit = () => {
+      stopReservationEdit();
+      emit('close');
+    };
+
     /**
      * The jobs worth picking: the open ones, soonest first.
      *
@@ -177,7 +223,10 @@ export default {
       return selectedExpanded.value
         .map((row) => ({
           asset: assetById.value.get(row.id),
-          hits: findConflicts(row.id, from, to, state, { wanted: row.qty }),
+          // An edited reservation does not collide with itself.
+          hits: findConflicts(row.id, from, to, state, {
+            wanted: row.qty, reservationId: editing.value?.id,
+          }),
         }))
         .filter((row) => row.hits.length);
     });
@@ -209,6 +258,24 @@ export default {
             + (data.mailed ? ' Confirmation sent.' : ' Confirmation email could not be sent.'),
             data.mailed ? 'success' : 'warning',
           );
+        } else if (editing.value) {
+          const id = editing.value.id;
+          await mutate('reservation.update', {
+            id,
+            items: selectedItems.value,
+            customerName: customerName.value,
+            customerEmail: customerEmail.value,
+            startAt: startAt.value,
+            endAt: endAt.value,
+            notes: notes.value,
+            force: force.value,
+            hire: hire.value,
+            eventId: eventId.value ? Number(eventId.value) : null,
+          });
+          toast(`Reservation #${id} saved.`, 'success');
+          stopReservationEdit();
+          emit('close');
+          return;
         } else {
           const data = await mutate('reservation.create', {
             items: selectedItems.value,
@@ -333,7 +400,7 @@ export default {
       busy, blocked, allowPartial, force, groups, unavailable, windowConflicts,
       selectionValue, formatTotals, exportingPdf, selectionPdf,
       hireLength, rentalQuote, daysLabel, exportingQuote, rentalPdf,
-      hire, dryQuote, serviceFactors, HIRE_LABEL,
+      hire, dryQuote, serviceFactors, HIRE_LABEL, editing, editGone, discardEdit,
       eventId, eventsEnabled, eventOptions,
       selectedItemIds, selectedUnitCount, toggleSelected, clearSelection,
       getAsset, getQuantity, setQuantity, submit, emit,
@@ -342,14 +409,32 @@ export default {
     };
   },
   template: `
-    <Drawer title="Selection" icon="bi-cart2" @close="emit('close')">
+    <Drawer :title="editing ? 'Reservation #' + editing.id : 'Selection'"
+            :icon="editing ? 'bi-pencil-square' : 'bi-cart2'" @close="emit('close')">
       <template #header-actions>
         <span class="text-secondary small">
           {{ selectedItemIds.length }} items · {{ selectedUnitCount }} units
         </span>
       </template>
 
-      <ul class="nav nav-pills nav-fill mb-3">
+      <!-- Editing: the tray IS the reservation. Items are added from the
+           inventory as for a new one, and the tray can be closed meanwhile. -->
+      <div v-if="editing" class="alert py-2 px-3 small mb-3"
+           :class="editGone ? 'alert-danger' : 'alert-info'">
+        <template v-if="editGone">
+          <i class="bi bi-exclamation-triangle"></i>
+          Reservation #{{ editing.id }} is no longer active, so it cannot be saved.
+          Discard to get your previous selection back.
+        </template>
+        <template v-else>
+          <i class="bi bi-pencil-square"></i>
+          Editing reservation #{{ editing.id }}. Add or remove items, change the
+          window or the customer, then save. Close this tray to add more items
+          from the inventory — the edit waits here.
+        </template>
+      </div>
+
+      <ul v-else class="nav nav-pills nav-fill mb-3">
         <li class="nav-item">
           <button class="nav-link" :class="{ active: mode === 'checkout' }" @click="mode = 'checkout'">
             <i class="bi bi-box-arrow-right"></i> Check out now
@@ -455,9 +540,9 @@ export default {
         <!-- Dry hire or a serviced job. The rates ARE the dry-hire rates; full
              service multiplies them by the category's factor, because the
              crew's time is invoiced separately. -->
-        <div class="d-flex align-items-center gap-2 small mt-2">
+        <div class="d-flex flex-wrap align-items-center gap-2 small mt-2">
           <span class="text-secondary flex-grow-1">Hire type</span>
-          <div class="btn-group btn-group-sm" role="group" aria-label="Dry hire or full service">
+          <div class="btn-group btn-group-sm" role="group" aria-label="Dry hire, full service or free of charge">
             <button type="button" class="btn"
                     :class="hire === 'DRY' ? 'btn-secondary active' : 'btn-outline-secondary'"
                     :aria-pressed="hire === 'DRY' ? 'true' : 'false'"
@@ -469,6 +554,13 @@ export default {
                     :aria-pressed="hire === 'SERVICE' ? 'true' : 'false'"
                     @click="hire = 'SERVICE'">
               <i class="bi bi-person-gear"></i> {{ HIRE_LABEL.SERVICE }}
+            </button>
+            <button type="button" class="btn"
+                    :class="hire === 'FREE' ? 'btn-secondary active' : 'btn-outline-secondary'"
+                    :aria-pressed="hire === 'FREE' ? 'true' : 'false'"
+                    :title="HIRE_LABEL.FREE"
+                    @click="hire = 'FREE'">
+              <i class="bi bi-gift"></i> Free
             </button>
           </div>
         </div>
@@ -498,6 +590,9 @@ export default {
             {{ Math.round(factor * 1000) / 10 }} %<span v-if="fi < serviceFactors.length - 1">, </span>
           </span>
           of dry hire ({{ formatTotals(dryQuote.totals) }}). The crew is invoiced separately.
+        </div>
+        <div v-else-if="hire === 'FREE'" class="small text-secondary">
+          Lent free of charge — dry hire would be {{ formatTotals(dryQuote.totals) }}.
         </div>
       </div>
 
@@ -579,7 +674,7 @@ export default {
         </ul>
         <div class="form-check">
           <input class="form-check-input" type="checkbox" id="force-res" v-model="force">
-          <label class="form-check-label" for="force-res">Reserve anyway</label>
+          <label class="form-check-label" for="force-res">{{ editing ? 'Save anyway' : 'Reserve anyway' }}</label>
         </div>
       </div>
 
@@ -604,7 +699,10 @@ export default {
       </div>
 
       <template #footer>
-        <button class="btn btn-sm btn-outline-secondary" @click="clearSelection(); emit('close')">
+        <button v-if="editing" class="btn btn-sm btn-outline-danger" @click="discardEdit">
+          Discard changes
+        </button>
+        <button v-else class="btn btn-sm btn-outline-secondary" @click="clearSelection(); emit('close')">
           Clear selection
         </button>
         <!-- What the tray is worth, as a page. Internal figure, same helper as
@@ -628,12 +726,18 @@ export default {
           Rental PDF
         </button>
         <span class="flex-grow-1"></span>
-        <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">Cancel</button>
-        <button class="btn btn-sm btn-primary" :disabled="busy || !selectedItemIds.length" @click="submit">
+        <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">
+          {{ editing ? 'Close' : 'Cancel' }}
+        </button>
+        <button class="btn btn-sm btn-primary" :disabled="busy || !selectedItemIds.length || editGone"
+                @click="submit">
           <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
-          {{ mode === 'checkout'
-              ? (allowPartial ? 'Check out available' : 'Check out')
-              : (force ? 'Reserve anyway' : 'Reserve') }}
+          <template v-if="editing">{{ force ? 'Save anyway' : 'Save changes' }}</template>
+          <template v-else>
+            {{ mode === 'checkout'
+                ? (allowPartial ? 'Check out available' : 'Check out')
+                : (force ? 'Reserve anyway' : 'Reserve') }}
+          </template>
         </button>
       </template>
     </Drawer>

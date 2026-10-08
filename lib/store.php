@@ -1533,9 +1533,11 @@ function trax_normalize_inspection_entry(mixed $raw): ?array
  * nothing had to say so before this existed and every record written until now
  * reads back as DRY. SERVICE is the same gear as part of a serviced job, where
  * the operator's own time is charged separately; the gear side of it is the
- * dry-hire price times the category's `serviceFactor`.
+ * dry-hire price times the category's `serviceFactor`. FREE is gear lent
+ * without charge — a friend borrowing something — and prices at 0 whatever
+ * the rates say.
  */
-const TRAX_HIRE_MODES = ['DRY', 'SERVICE'];
+const TRAX_HIRE_MODES = ['DRY', 'SERVICE', 'FREE'];
 
 /** How a rate is worked out. A category rule is one of these two. */
 const TRAX_RENTAL_MODES = ['PERCENT', 'FIXED'];

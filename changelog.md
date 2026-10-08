@@ -6,6 +6,31 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-10-08
+
+### Added
+
+- **Hire type *Free*** (`hire: FREE`, beside Dry hire and Full service in the Selection): gear lent
+  for nothing, e.g. to a friend. Priced at 0 whatever the rates say, nothing flagged as unrated;
+  the tray says what dry hire would have cost. Stored on the reservation, checkout line and
+  booking like the other two, carried over on check-out; "Free of charge" on the reservation card,
+  the rental PDF and the booking sheet.
+- **Edit a reservation** (`reservation.update`, *Edit* on an active reservation): its items,
+  window, customer, event, hire type and notes. The reservation opens in the Selection
+  ("Reservation #n"), where items are added and removed as for a new one — the tray can be closed
+  to pick more from the inventory, the edit waits. Availability is checked without the
+  reservation colliding with itself; the customer's booking link stays the same and shows the new
+  contents; nothing is mailed. *Discard changes* or saving puts the previous selection back.
+- **Restore a cancelled reservation** (`reservation.restore`, *Restore* under Cancelled): back to
+  active, its booking link reopened — refused, naming the items, when something on it has been
+  booked elsewhere in its window meanwhile.
+
+### Changed
+
+- **"Cancel" on a reservation reads "Cancel reservation"**, and its dialog says what happens (items
+  released, no mail to the customer, restorable) with *Keep it* as the way out instead of a second
+  "Cancel". `ConfirmDialog` takes a `cancelLabel`.
+
 ## 2026-10-06
 
 ### Fixed

@@ -216,6 +216,11 @@ export const state = reactive({
   // assetId => [no, …]. Empty or missing means "the server assigns them",
   // which is what every pre-units call site keeps doing.
   unitChoice: {},
+  // A reservation being edited through the Selection, or null:
+  // {id, form, stash}. `form` is the drawer's fields while it is closed (null
+  // until it first opens), `stash` the selection that was there before, put
+  // back when the edit is saved or dropped.
+  reservationEdit: null,
   view: 'inventory',
   filters: loadViewState(),
   expandedSets: {},
@@ -570,6 +575,75 @@ export function selectAll(ids) {
   }
 }
 
+// --- Editing a reservation --------------------------------------------------
+// The reservation's items go into the Selection, so they are changed the way a
+// new one is put together: browse, tick, set quantities, open the tray, save.
+
+/**
+ * A reservation's stored items as a selection: its kits back as kits (as many
+ * whole copies as its items still hold), whatever is left over as loose items.
+ */
+function selectionOfReservation(reservation) {
+  const remaining = new Map();
+  const items = reservation.items || (reservation.assetIds || []).map((id) => ({ assetId: id, qty: 1 }));
+  for (const item of items) {
+    const id = Number(item.assetId);
+    remaining.set(id, (remaining.get(id) || 0) + Math.max(1, Number(item.qty) || 1));
+  }
+
+  const selected = [];
+  const quantities = {};
+  for (const setId of reservation.setIds || []) {
+    const set = assetById.value.get(Number(setId));
+    if (!set || set.kind !== 'SET' || selected.includes(set.id)) continue;
+    const members = (set.members || [])
+      .map((member) => ({ id: Number(member?.assetId ?? member), need: Math.max(1, Number(member?.qty ?? 1)) }))
+      .filter((member) => assetById.value.get(member.id) && assetById.value.get(member.id).kind !== 'SET');
+    if (!members.length) continue;
+    const copies = Math.min(...members.map((member) => Math.floor((remaining.get(member.id) || 0) / member.need)));
+    if (copies < 1) continue;
+    for (const member of members) remaining.set(member.id, remaining.get(member.id) - copies * member.need);
+    selected.push(set.id);
+    quantities[set.id] = copies;
+  }
+  for (const [id, qty] of remaining) {
+    if (qty > 0 && assetById.value.has(id)) {
+      selected.push(id);
+      quantities[id] = qty;
+    }
+  }
+  return { selected, quantities };
+}
+
+function replaceSelection(selected, quantities = {}, unitChoice = {}) {
+  clearSelection();
+  state.selected.push(...selected);
+  // Straight in, not through setQuantity(): that caps at what is free right
+  // now, and a reservation is for later.
+  Object.assign(state.quantities, quantities);
+  Object.assign(state.unitChoice, unitChoice);
+}
+
+/** Puts an ACTIVE reservation into the Selection for editing. */
+export function startReservationEdit(reservation) {
+  const stash = state.reservationEdit?.stash || {
+    selected: [...state.selected],
+    quantities: { ...state.quantities },
+    unitChoice: JSON.parse(JSON.stringify(state.unitChoice)),
+  };
+  const { selected, quantities } = selectionOfReservation(reservation);
+  replaceSelection(selected, quantities);
+  state.reservationEdit = { id: reservation.id, form: null, stash };
+}
+
+/** Ends the edit, saved or not, and puts back the selection from before it. */
+export function stopReservationEdit() {
+  const edit = state.reservationEdit;
+  if (!edit) return;
+  state.reservationEdit = null;
+  replaceSelection(edit.stash.selected, edit.stash.quantities, edit.stash.unitChoice);
+}
+
 /** How many units of `id` are wanted. Always at least 1. */
 export function getQuantity(id) {
   const value = state.quantities[Number(id)];
@@ -604,8 +678,10 @@ export function maxQuantity(id) {
 export function setQuantity(id, qty) {
   const key = Number(id);
   const wanted = Math.floor(Number(qty));
+  // Never below what is already asked for: a reservation being edited may
+  // hold more than is free today, and "+" must not take some away.
   const clamped = Math.min(
-    maxQuantity(key),
+    Math.max(maxQuantity(key), state.quantities[key] ?? 1),
     Math.max(1, Number.isFinite(wanted) ? wanted : 1),
   );
   state.quantities[key] = clamped;

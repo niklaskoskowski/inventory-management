@@ -1229,7 +1229,7 @@ export async function exportBasketPdf(lines = [], assets = []) {
  *
  * `options`: { days, from, to, customerName, customerEmail, reference, notes,
  *              kind: 'selection' | 'checkout' | 'reservation', unitChoice,
- *              hire: 'DRY' | 'SERVICE' }
+ *              hire: 'DRY' | 'SERVICE' | 'FREE' }
  *
  * A line that names its own `hire` is priced as that, so a quote covering
  * several bookings stays right; `options.hire` is what the rest fall back to.
@@ -1713,9 +1713,10 @@ export function buildBookingDocument(booking = {}) {
     ['Reference', booking.reference == null ? '' : String(booking.reference)],
     [reservation ? 'Starts' : 'Checked out', formatDateTime(booking.startAt)],
     [reservation ? 'Ends' : 'Due back', formatDateTime(booking.endAt)],
-    // Only when it is a serviced job: "Dry hire" on every sheet would be noise
-    // on the overwhelming majority of them, and the empty row is dropped below.
-    ['Hire', hireOf(booking) === 'SERVICE' ? HIRE_LABEL.SERVICE : ''],
+    // Only when it is not plain dry hire: "Dry hire" on every sheet would be
+    // noise on the overwhelming majority of them, and the empty row is dropped
+    // below. "Free of charge" is worth saying to the customer.
+    ['Hire', hireOf(booking) === 'DRY' ? '' : HIRE_LABEL[hireOf(booking)]],
     ['Status', String(booking.status || '').trim()],
     ['Notes', String(booking.notes || '').trim()],
   ].filter(([, value]) => value !== '');

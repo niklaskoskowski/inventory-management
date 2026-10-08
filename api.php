@@ -1020,6 +1020,43 @@ function trax_conflicts_for(int $assetId, int $wantedQty, int $startTs, int $end
 }
 
 /**
+ * What stands in the way of reserving `$wanted` ([{assetId, qty}], expanded)
+ * for the window: one entry per item that falls short, in the shape a
+ * TraxBlocked carries. `$ignoreReservationId` leaves a reservation out of the
+ * count — the one being edited, which must not collide with itself.
+ */
+function trax_reservation_conflicts(array $wanted, int $startTs, int $endTs, array $data, array $checkouts, array $byId, ?int $ignoreReservationId = null): array
+{
+    $conflicts = [];
+    foreach ($wanted as $want) {
+        $itemId = (int)$want['assetId'];
+        $report = trax_conflicts_for($itemId, max(1, (int)$want['qty']), $startTs, $endTs, $data, $checkouts, $ignoreReservationId);
+        if ($report['shortfall'] > 0) {
+            $conflicts[] = [
+                'assetId'   => $itemId,
+                'name'      => $byId[$itemId]['name'] ?? "#{$itemId}",
+                'wanted'    => $report['wanted'],
+                'available' => max(0, $report['quantity'] - $report['reservedQty'] - $report['outQty']),
+                'shortfall' => $report['shortfall'],
+                'hits'      => $report['hits'],
+            ];
+        }
+    }
+    return $conflicts;
+}
+
+/** Where reservation `$id` sits in `$reservations`, or null. */
+function trax_reservation_index(array $reservations, int $id): ?int
+{
+    foreach ($reservations as $index => $reservation) {
+        if ((int)$reservation['id'] === $id) {
+            return $index;
+        }
+    }
+    return null;
+}
+
+/**
  * After a return, an asset goes back to FREE unless an ACTIVE reservation
  * still covers it. Ported from admin.php:1577.
  */
@@ -2947,22 +2984,7 @@ try {
                     throw new TraxInvalid('Nothing to reserve — the selection resolves to no items.');
                 }
 
-                $conflicts = [];
-                foreach ($wanted as $want) {
-                    $itemId = $want['assetId'];
-                    $report = trax_conflicts_for($itemId, $want['qty'], $startTs, $endTs, $data, $checkouts);
-                    if ($report['shortfall'] > 0) {
-                        $conflicts[] = [
-                            'assetId'   => $itemId,
-                            'name'      => $byId[$itemId]['name'] ?? "#{$itemId}",
-                            'wanted'    => $report['wanted'],
-                            'available' => max(0, $report['quantity'] - $report['reservedQty'] - $report['outQty']),
-                            'shortfall' => $report['shortfall'],
-                            'hits'      => $report['hits'],
-                        ];
-                    }
-                }
-
+                $conflicts = trax_reservation_conflicts($wanted, $startTs, $endTs, $data, $checkouts, $byId);
                 if ($conflicts !== [] && !$force) {
                     throw new TraxBlocked($conflicts);
                 }
@@ -3343,6 +3365,250 @@ try {
                         'reservationId' => $id,
                         'customerName'  => $reservation['customerName'],
                         'customerEmail' => $reservation['customerEmail'],
+                        'actor'         => $actor,
+                    ]);
+                }
+
+                return [];
+            });
+
+            trax_ok(trax_snapshot($result['data'], $result['checkouts']), $result['rev']);
+        }
+
+        case 'reservation.update': {
+            // Everything reservation.create takes, for a reservation that is
+            // still ACTIVE: its items, window, customer, event, hire and notes.
+            // Availability is checked as for a new one, leaving this
+            // reservation itself out of the count. The customer's booking link
+            // stays the same and shows the new contents; nothing is mailed.
+            $id            = req_int($payload, 'id');
+            $items         = req_items($payload, 'items');
+            $customerName  = req_str($payload, 'customerName', TRAX_MAX_NAME);
+            $customerEmail = req_email($payload, 'customerEmail');
+            $startAt       = req_iso($payload, 'startAt');
+            $endAt         = req_iso($payload, 'endAt');
+            $notes         = trax_str($payload['notes'] ?? '');
+            $force         = !empty($payload['force']);
+            $hire          = trax_enum($payload['hire'] ?? null, TRAX_HIRE_MODES, 'DRY');
+            $eventId       = trax_int($payload['eventId'] ?? null);
+
+            $startTs = trax_parse_datetime($startAt);
+            $endTs   = trax_parse_datetime($endAt);
+            if ($startTs === null || $endTs === null || $startTs >= $endTs) {
+                trax_fail('BAD_REQUEST', 'The end of the window must be after its start.');
+            }
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
+                $id, $items, $customerName, $customerEmail, $startAt, $endAt, $startTs, $endTs, $notes, $force,
+                $hire, $eventId, $actor
+            ): array {
+                $index = trax_reservation_index($data['reservations'], $id);
+                if ($index === null) {
+                    throw new TraxInvalid("Reservation #{$id} not found.");
+                }
+                $old = $data['reservations'][$index];
+                if ($old['status'] !== 'ACTIVE') {
+                    throw new TraxInvalid('Only active reservations can be edited.');
+                }
+                if ($eventId !== null && trax_find_event($data['events'], $eventId) === null) {
+                    throw new TraxInvalid("Event #{$eventId} not found.");
+                }
+
+                $byId       = trax_index_assets($data['assets']);
+                [$setIds, ] = trax_partition_ids($items, $byId);
+                $wanted     = trax_expand_items($items, $byId);
+                if ($wanted === []) {
+                    throw new TraxInvalid('Nothing to reserve — the selection resolves to no items.');
+                }
+
+                $conflicts = trax_reservation_conflicts($wanted, $startTs, $endTs, $data, $checkouts, $byId, $id);
+                if ($conflicts !== [] && !$force) {
+                    throw new TraxBlocked($conflicts);
+                }
+
+                $reservation = trax_normalize_reservation(array_merge($old, [
+                    'items'         => $wanted,
+                    'setIds'        => $setIds,
+                    'customerName'  => $customerName,
+                    'customerEmail' => $customerEmail,
+                    'startAt'       => $startAt,
+                    'endAt'         => $endAt,
+                    'hire'          => $hire,
+                    'eventId'       => $eventId,
+                    'notes'         => $notes,
+                ]));
+                $data['reservations'][$index] = $reservation;
+
+                // The customer's page shows what is booked now. A new end date
+                // is a new date to be reminded of, and the link lives at least
+                // as long as it would have for a reservation made this way.
+                $bookingItems = trax_booking_items($reservation['items'], $byId, $setIds);
+                $booking      = trax_booking_for_reservation($data['bookings'], $id);
+                if ($booking === null) {
+                    trax_add_booking($data, [
+                        'kind'          => 'reservation',
+                        'reservationId' => $id,
+                        'customerName'  => $customerName,
+                        'customerEmail' => $customerEmail,
+                        'createdAt'     => $reservation['createdAt'],
+                        'startAt'       => $startAt,
+                        'dueAt'         => $endAt,
+                        'items'         => $bookingItems,
+                        'hire'          => $hire,
+                        'eventId'       => $eventId,
+                        'notes'         => $notes,
+                    ]);
+                } else {
+                    trax_update_booking($data, (int)$booking['id'], static function (array $b) use (
+                        $customerName, $customerEmail, $startAt, $endAt, $bookingItems, $hire, $eventId, $notes
+                    ): array {
+                        if ($b['dueAt'] !== $endAt) {
+                            $b['notified'] = trax_normalize_notified(null);
+                            $expiry        = trax_booking_expiry($endAt);
+                            if ((trax_parse_datetime((string)$b['expiresAt']) ?? 0) < (trax_parse_datetime($expiry) ?? 0)) {
+                                $b['expiresAt'] = $expiry;
+                            }
+                        }
+                        $b['customerName']  = $customerName;
+                        $b['customerEmail'] = $customerEmail;
+                        $b['startAt']       = $startAt;
+                        $b['dueAt']         = $endAt;
+                        $b['items']         = $bookingItems;
+                        $b['hire']          = $hire;
+                        $b['eventId']       = $eventId;
+                        $b['notes']         = $notes;
+                        return $b;
+                    });
+                }
+
+                // Statuses: what joined the reservation is reserved, what left
+                // it is released the way reservation.cancel releases it.
+                $newIds       = array_map('intval', array_column($reservation['items'], 'assetId'));
+                $linesByAsset = trax_group_checkouts_by_asset($checkouts);
+                foreach ($reservation['items'] as $item) {
+                    $itemId = (int)$item['assetId'];
+                    trax_update_asset($data, $itemId, static function (array $a): array {
+                        if ($a['status'] === 'FREE') {
+                            $a['status'] = 'RSVD';
+                        }
+                        return $a;
+                    });
+                    trax_append_history($data, 'reservation_updated', [
+                        'assetId'       => $itemId,
+                        'qty'           => max(1, (int)$item['qty']),
+                        'reservationId' => $id,
+                        'customerName'  => $customerName,
+                        'customerEmail' => $customerEmail,
+                        'dueAt'         => $endAt,
+                        'note'          => $notes,
+                        'actor'         => $actor,
+                    ]);
+                }
+                foreach ($old['items'] as $item) {
+                    $itemId = (int)$item['assetId'];
+                    if (in_array($itemId, $newIds, true)) {
+                        continue;
+                    }
+                    $quantity = max(1, (int)($byId[$itemId]['quantity'] ?? 1));
+                    if ($quantity - trax_lines_qty($linesByAsset[$itemId] ?? []) > 0) {
+                        trax_update_asset($data, $itemId, static function (array $a) use ($itemId, $data, $id): array {
+                            if ($a['status'] === 'RSVD') {
+                                $a['status'] = trax_status_after_return($itemId, $data, $id);
+                            }
+                            return $a;
+                        });
+                    }
+                    trax_append_history($data, 'reservation_updated', [
+                        'assetId'       => $itemId,
+                        'qty'           => max(1, (int)$item['qty']),
+                        'reservationId' => $id,
+                        'customerName'  => $customerName,
+                        'customerEmail' => $customerEmail,
+                        'note'          => 'Removed from the reservation',
+                        'actor'         => $actor,
+                    ]);
+                }
+
+                return ['conflicts' => $conflicts];
+            });
+
+            trax_ok(array_merge(trax_snapshot($result['data'], $result['checkouts']), [
+                'reservationId' => $id,
+                'conflicts'     => $result['result']['conflicts'],
+            ]), $result['rev']);
+        }
+
+        case 'reservation.restore': {
+            // Undoes reservation.cancel — only while everything on it is still
+            // free for its window. No "anyway": a restore that double-books
+            // is a new reservation, made on purpose in the Selection.
+            $id = req_int($payload, 'id');
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($id, $actor): array {
+                $index = trax_reservation_index($data['reservations'], $id);
+                if ($index === null) {
+                    throw new TraxInvalid("Reservation #{$id} not found.");
+                }
+                $reservation = $data['reservations'][$index];
+                if ($reservation['status'] !== 'CANCELLED') {
+                    throw new TraxInvalid('Only cancelled reservations can be restored.');
+                }
+                $startTs = trax_parse_datetime($reservation['startAt']);
+                $endTs   = trax_parse_datetime($reservation['endAt']);
+                if ($startTs === null || $endTs === null || $startTs >= $endTs) {
+                    throw new TraxInvalid('The reservation has no usable window.');
+                }
+
+                $byId      = trax_index_assets($data['assets']);
+                $conflicts = trax_reservation_conflicts($reservation['items'], $startTs, $endTs, $data, $checkouts, $byId, $id);
+                if ($conflicts !== []) {
+                    throw new TraxBlocked($conflicts);
+                }
+
+                $data['reservations'][$index]['status']      = 'ACTIVE';
+                $data['reservations'][$index]['cancelledAt'] = null;
+
+                // The link it was cancelled with comes back with it — the
+                // newest one, should there be several.
+                $bookingIndex = null;
+                foreach ($data['bookings'] as $bIndex => $booking) {
+                    if ((int)($booking['reservationId'] ?? 0) === $id && $booking['status'] === 'CANCELLED') {
+                        $bookingIndex = $bIndex;
+                    }
+                }
+                if ($bookingIndex !== null) {
+                    $data['bookings'][$bookingIndex]['status'] = 'OPEN';
+                } elseif (trax_booking_for_reservation($data['bookings'], $id) === null) {
+                    trax_add_booking($data, [
+                        'kind'          => 'reservation',
+                        'reservationId' => $id,
+                        'customerName'  => $reservation['customerName'],
+                        'customerEmail' => $reservation['customerEmail'],
+                        'createdAt'     => $reservation['createdAt'],
+                        'startAt'       => $reservation['startAt'],
+                        'dueAt'         => $reservation['endAt'],
+                        'items'         => trax_booking_items($reservation['items'], $byId, $reservation['setIds']),
+                        'hire'          => $reservation['hire'],
+                        'eventId'       => $reservation['eventId'],
+                        'notes'         => $reservation['notes'],
+                    ]);
+                }
+
+                foreach ($reservation['items'] as $item) {
+                    $itemId = (int)$item['assetId'];
+                    trax_update_asset($data, $itemId, static function (array $a): array {
+                        if ($a['status'] === 'FREE') {
+                            $a['status'] = 'RSVD';
+                        }
+                        return $a;
+                    });
+                    trax_append_history($data, 'reservation_restored', [
+                        'assetId'       => $itemId,
+                        'qty'           => max(1, (int)$item['qty']),
+                        'reservationId' => $id,
+                        'customerName'  => $reservation['customerName'],
+                        'customerEmail' => $reservation['customerEmail'],
+                        'dueAt'         => $reservation['endAt'],
                         'actor'         => $actor,
                     ]);
                 }

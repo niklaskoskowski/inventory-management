@@ -43,10 +43,13 @@ export const OVERRIDE_MODES = ['INHERIT', 'PERCENT', 'FIXED'];
 /** A fixed amount is charged once for the hire, or once per day of it. */
 export const FIXED_PER = ['RENTAL', 'DAY'];
 
-/** Dry hire, or the gear as part of a serviced job. Mirrors TRAX_HIRE_MODES. */
-export const HIRE_MODES = ['DRY', 'SERVICE'];
+/**
+ * Dry hire, the gear as part of a serviced job, or lent for nothing (a friend
+ * borrowing something). Mirrors TRAX_HIRE_MODES.
+ */
+export const HIRE_MODES = ['DRY', 'SERVICE', 'FREE'];
 
-export const HIRE_LABEL = { DRY: 'Dry hire', SERVICE: 'Full service' };
+export const HIRE_LABEL = { DRY: 'Dry hire', SERVICE: 'Full service', FREE: 'Free of charge' };
 
 /** What a record says it is, defaulted. Everything older than this is dry hire. */
 export function hireOf(record) {
@@ -270,6 +273,13 @@ export function isRated(resolved) {
  */
 export function rentalOfUnit(asset, unit, settings, days, hire = 'DRY') {
   const resolved = resolveRate(asset, unit, settings);
+  // Lent for nothing: 0 whatever the rate, and nothing to flag as unrated or
+  // unpriced — the price is known, it is zero.
+  if (hireOf({ hire }) === 'FREE') {
+    return {
+      amount: 0, dry: null, factor: 0, rate: null, basis: null, resolved, rated: true, unpriced: false,
+    };
+  }
   const rated = isRated(resolved);
   // The factor multiplies the finished amount, whichever way it was worked
   // out: "full service is 0.7 x dry hire" holds for a percentage of value and
@@ -369,7 +379,7 @@ function unitsForLine(asset, qty, chosen) {
  * `options`:
  *   - `unitChoice` — the basket's assetId => [no] map, used when a line does
  *     not carry `unitNos` itself.
- *   - `hire` — DRY or SERVICE for the whole set. A line that names its OWN
+ *   - `hire` — DRY, SERVICE or FREE for the whole set. A line that names its OWN
  *     `hire` wins over it, which is what makes a checkout list of several
  *     bookings price each of them as what it actually is.
  */

@@ -1,5 +1,7 @@
 import { ref, computed } from 'vue';
-import { state, mutate, toast, getAsset, eventById } from '../store.js';
+import {
+  state, mutate, toast, getAsset, eventById, startReservationEdit,
+} from '../store.js';
 import { formatDateTime, parseDate, toLocalInput, formatTotals } from '../lib/format.js';
 import { valueOfLines } from '../lib/insights.js';
 import { HIRE_LABEL, hireOf } from '../lib/rental.js';
@@ -16,7 +18,7 @@ const STATUS_CLASS = {
 export default {
   name: 'ReservationsView',
   components: { ConfirmDialog },
-  emits: ['open'],
+  emits: ['open', 'basket'],
   setup(props, { emit }) {
     const filter = ref('ACTIVE');
     const converting = ref(null);
@@ -122,8 +124,33 @@ export default {
       cancelling.value = null;
       try {
         await mutate('reservation.cancel', { id });
-        toast('Reservation cancelled.', 'success');
+        toast('Reservation cancelled. It can be restored from Cancelled.', 'success');
       } catch { /* toast already raised */ }
+    };
+
+    /** Into the Selection with it: changed there like a new one, saved back. */
+    const edit = (reservation) => {
+      startReservationEdit(reservation);
+      emit('basket');
+    };
+
+    /** Back to ACTIVE — refused by the server if anything on it is taken meanwhile. */
+    const restoring = ref(null);
+    const restore = async (reservation) => {
+      restoring.value = reservation.id;
+      try {
+        await mutate('reservation.restore', { id: reservation.id });
+        toast(`Reservation #${reservation.id} restored.`, 'success');
+      } catch (error) {
+        if (error.isBlocked) {
+          const taken = (error.details?.blocked || [])
+            .map((b) => `${b.name} (${b.wanted} wanted, ${b.available} free)`)
+            .join(', ');
+          toast(`Cannot restore — booked elsewhere in that window: ${taken}.`, 'warning', 10000);
+        }
+      } finally {
+        restoring.value = null;
+      }
     };
 
     /**
@@ -138,7 +165,7 @@ export default {
     return {
       state, rows, filter, nameOf, STATUS_CLASS, blockedUnitCodes,
       converting, cancelling, convertDue, allowPartial, blocked,
-      startConvert, doConvert, doCancel, formatDateTime, formatTotals, emit,
+      startConvert, doConvert, doCancel, edit, restore, restoring, formatDateTime, formatTotals, emit,
       exporting, bookingPdf, HIRE_LABEL, hireOf, eventById,
     };
   },
@@ -163,10 +190,11 @@ export default {
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <strong>{{ r.customerName }}</strong>
               <span class="trax-badge" :class="STATUS_CLASS[r.status]">{{ r.status }}</span>
-              <!-- Only a serviced job says so: dry hire is what almost every
-                   reservation is, and a chip on all of them says nothing. -->
-              <span v-if="hireOf(r) === 'SERVICE'" class="trax-kind-chip">
-                <i class="bi bi-person-gear"></i> {{ HIRE_LABEL.SERVICE }}
+              <!-- Only what is not dry hire says so: dry hire is what almost
+                   every reservation is, and a chip on all of them says nothing. -->
+              <span v-if="hireOf(r) !== 'DRY'" class="trax-kind-chip">
+                <i class="bi" :class="hireOf(r) === 'FREE' ? 'bi-gift' : 'bi-person-gear'"></i>
+                {{ HIRE_LABEL[hireOf(r)] }}
               </span>
               <span v-if="eventById.get(Number(r.eventId))" class="trax-kind-chip">
                 <i class="bi bi-calendar-event"></i> {{ eventById.get(Number(r.eventId)).name }}
@@ -198,7 +226,7 @@ export default {
             </div>
           </div>
 
-          <div class="d-flex gap-1">
+          <div class="d-flex flex-wrap gap-1">
             <!-- Outside the ACTIVE guard: a converted booking still needs its sheet. -->
             <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
                     @click="bookingPdf(r)"
@@ -206,13 +234,22 @@ export default {
               <i class="bi bi-filetype-pdf"></i> PDF
             </button>
             <template v-if="r.status === 'ACTIVE'">
+              <button class="btn btn-sm btn-outline-secondary" @click="edit(r)"
+                      :aria-label="'Edit the reservation of ' + r.customerName">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
               <button class="btn btn-sm btn-primary" @click="startConvert(r)">
                 <i class="bi bi-box-arrow-right"></i> Check out
               </button>
               <button class="btn btn-sm btn-outline-danger" @click="cancelling = r">
-                Cancel
+                Cancel reservation
               </button>
             </template>
+            <button v-else-if="r.status === 'CANCELLED'" class="btn btn-sm btn-outline-secondary"
+                    :disabled="restoring === r.id" @click="restore(r)">
+              <span v-if="restoring === r.id" class="spinner-border spinner-border-sm me-1"></span>
+              <i v-else class="bi bi-arrow-counterclockwise"></i> Restore
+            </button>
           </div>
         </div>
       </article>
@@ -253,8 +290,8 @@ export default {
 
     <ConfirmDialog v-if="cancelling"
                    title="Cancel this reservation?"
-                   message="Reserved items are released unless they are physically out."
-                   confirm-label="Cancel reservation" danger
+                   message="Reserved items are released unless they are physically out. The customer is not emailed. It stays under Cancelled and can be restored there while its items are still free."
+                   confirm-label="Cancel reservation" cancel-label="Keep it" danger
                    @confirm="doCancel" @cancel="cancelling = null" />
   `,
 };
