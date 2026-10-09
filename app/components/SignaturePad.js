@@ -172,12 +172,13 @@ export default {
               @pointerdown="down" @pointermove="move"
               @pointerup="up" @pointercancel="up" @pointerleave="up"></canvas>
 
+      <div v-if="drawn && locked" class="small text-warning mt-2">
+        <i class="bi bi-exclamation-circle"></i> {{ locked }}
+      </div>
       <div class="d-flex align-items-center gap-2 mt-2">
         <button type="button" class="btn btn-sm btn-outline-secondary"
                 :disabled="busy || !drawn" @click="reset">Clear</button>
-        <span class="small text-secondary flex-grow-1">
-          {{ !drawn ? 'Sign in the box above.' : locked || 'Ready to save.' }}
-        </span>
+        <span class="small text-secondary flex-grow-1">{{ drawn ? '' : 'Sign above' }}</span>
         <button type="button" class="btn btn-sm btn-outline-secondary"
                 :disabled="busy" @click="emit('cancel')">Cancel</button>
         <button type="button" class="btn btn-sm btn-primary" :disabled="busy || !drawn || !!locked"

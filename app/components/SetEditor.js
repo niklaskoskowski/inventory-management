@@ -2,6 +2,7 @@ import { ref, computed, watch } from 'vue';
 import {
   state, items, getAsset, mutate, toast, clearSelection, openAssetPhoto,
 } from '../store.js';
+import { statusLabel } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
 import StatusBadge from './ui/StatusBadge.js';
 
@@ -160,7 +161,7 @@ export default {
     return {
       name, notes, category, location, members, search, busy,
       isNew, candidates, chosen, derivedStatus, add, setMemberQty, remove, save, emit,
-      openAssetPhoto,
+      openAssetPhoto, statusLabel,
     };
   },
   template: `
@@ -169,96 +170,111 @@ export default {
         <StatusBadge :status="derivedStatus" title="Derived from contents" />
       </template>
 
-      <div class="row g-2 mb-3">
-        <div class="col-12 col-md-6">
-          <label class="form-label small" for="k-name">Kit name</label>
-          <input id="k-name" class="form-control form-control-sm" v-model="name"
-                 placeholder="e.g. Camera Kit A" data-autofocus>
-        </div>
-        <div class="col-6 col-md-3">
-          <label class="form-label small" for="k-category">Category</label>
-          <input id="k-category" class="form-control form-control-sm" v-model="category">
-        </div>
-        <div class="col-6 col-md-3">
-          <label class="form-label small" for="k-location">Location</label>
-          <input id="k-location" class="form-control form-control-sm" v-model="location">
-        </div>
-        <div class="col-12">
-          <label class="form-label small" for="k-notes">Notes</label>
-          <input id="k-notes" class="form-control form-control-sm" v-model="notes">
+      <div class="trax-form">
+        <div class="trax-group">
+          <div class="row g-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label" for="k-name">Name</label>
+              <input id="k-name" class="form-control" v-model="name"
+                     placeholder="e.g. Camera kit A" data-autofocus="desktop">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label" for="k-category">Category</label>
+              <input id="k-category" class="form-control" v-model="category">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label" for="k-location">Location</label>
+              <input id="k-location" class="form-control" v-model="location">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="k-notes">Notes</label>
+              <input id="k-notes" class="form-control" v-model="notes">
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="row g-3">
+      <div class="row g-3 mt-1">
         <!-- Contents -->
         <div class="col-12 col-md-6">
-          <h3 class="trax-page-title mb-2">
-            Contents <span class="text-secondary small">({{ chosen.length }})</span>
-          </h3>
+          <div class="trax-list-header">
+            <span title="A kit's status follows its contents. Deleting a kit keeps the items.">
+              Contents · {{ chosen.length }}
+            </span>
+          </div>
 
-          <ul class="list-group list-group-flush">
-            <li v-for="row in chosen" :key="'m' + row.asset.id"
-                class="list-group-item bg-transparent d-flex align-items-center gap-2 py-1">
+          <div v-if="chosen.length" class="trax-list">
+            <div v-for="row in chosen" :key="'m' + row.asset.id" class="trax-row">
               <button v-if="row.asset.photo" type="button" class="trax-thumb-btn"
                       :aria-label="'Show the photo of ' + row.asset.name"
                       @click.stop="openAssetPhoto(row.asset)">
                 <img class="trax-thumb" :src="'uploads/thumb/' + row.asset.photo" alt="">
               </button>
               <span v-else class="trax-thumb trax-thumb-placeholder"><i class="bi bi-camera"></i></span>
-              <span class="flex-grow-1 text-truncate">{{ row.asset.name }}</span>
-              <input class="form-control form-control-sm text-center" type="number" min="1"
-                     style="width:4.5rem" :value="row.qty"
+              <div class="trax-row-main">
+                <div class="trax-row-title"><span>{{ row.asset.name }}</span></div>
+                <div class="trax-row-meta">
+                  <span class="trax-status-dot" :class="'status-' + row.asset.effectiveStatus">
+                    {{ statusLabel(row.asset.effectiveStatus, row.asset.kind) }}
+                  </span>
+                </div>
+              </div>
+              <span class="text-secondary small" aria-hidden="true">×</span>
+              <input class="form-control form-control-sm text-center px-1" type="number" min="1"
+                     style="width:3.5rem; flex:0 0 auto" :value="row.qty"
                      @input="setMemberQty(row.asset.id, $event.target.value)"
                      :aria-label="'Units of ' + row.asset.name + ' in this kit'">
-              <StatusBadge :status="row.asset.effectiveStatus" :kind="row.asset.kind" />
-              <button class="btn btn-sm btn-outline-danger py-0 px-1"
+              <button class="btn btn-sm btn-outline-danger"
                       @click="remove(row.asset.id)" :aria-label="'Remove ' + row.asset.name">
-                <i class="bi bi-x"></i>
+                <i class="bi bi-dash-lg"></i>
               </button>
-            </li>
-            <li v-if="!chosen.length" class="text-secondary small py-3">
-              Add items from the right. A kit with no items is always available.
-            </li>
-          </ul>
+            </div>
+          </div>
+          <div v-else class="trax-empty py-4">
+            <i class="bi bi-box-seam"></i>No items yet
+          </div>
         </div>
 
-        <!-- Picker -->
+        <!-- Picker. Adding an item already in the kit raises its quantity. -->
         <div class="col-12 col-md-6">
-          <h3 class="trax-page-title mb-2">Add items</h3>
-          <input class="form-control form-control-sm mb-2" v-model="search"
-                 placeholder="Search items…" aria-label="Search items to add">
+          <div class="trax-list-header">Add items</div>
+          <div class="trax-search mb-2">
+            <i class="bi bi-search"></i>
+            <input type="search" class="form-control form-control-sm" v-model="search"
+                   placeholder="Search" aria-label="Search items to add" autocomplete="off">
+          </div>
 
-          <ul class="list-group list-group-flush" style="max-height:420px; overflow-y:auto">
-            <li v-for="asset in candidates" :key="'c' + asset.id"
-                class="list-group-item bg-transparent d-flex align-items-center gap-2 py-1">
-              <span class="flex-grow-1 text-truncate">
-                {{ asset.name }}
-                <span class="text-secondary font-monospace small">#{{ asset.id }}</span>
-              </span>
-              <StatusBadge :status="asset.effectiveStatus" :kind="asset.kind"
-                           :detail="asset.quantity > 1 ? (asset.availableQty + ' of ' + asset.quantity + ' free') : ''" />
-              <button class="btn btn-sm btn-outline-primary py-0 px-1"
-                      @click="add(asset.id)" :aria-label="'Add ' + asset.name">
-                <i class="bi bi-plus"></i>
+          <div v-if="candidates.length" class="trax-list" style="max-height:420px; overflow-y:auto">
+            <div v-for="asset in candidates" :key="'c' + asset.id" class="trax-row is-tappable"
+                 @click="add(asset.id)">
+              <div class="trax-row-main">
+                <div class="trax-row-title">
+                  <span>{{ asset.name }}</span>
+                  <span class="text-secondary font-monospace small fw-normal">#{{ asset.id }}</span>
+                </div>
+                <div class="trax-row-meta">
+                  <span class="trax-status-dot" :class="'status-' + asset.effectiveStatus">
+                    {{ statusLabel(asset.effectiveStatus, asset.kind) }}<span
+                      v-if="asset.quantity > 1"> · {{ asset.availableQty }} of {{ asset.quantity }} free</span>
+                  </span>
+                </div>
+              </div>
+              <button class="btn btn-sm btn-outline-primary"
+                      @click.stop="add(asset.id)" :aria-label="'Add ' + asset.name">
+                <i class="bi bi-plus-lg"></i>
               </button>
-            </li>
-            <li v-if="!candidates.length" class="text-secondary small py-3">No matching items.</li>
-          </ul>
+            </div>
+          </div>
+          <div v-else class="trax-empty py-4"><i class="bi bi-search"></i>No matching items</div>
         </div>
       </div>
 
-      <p class="small text-secondary mt-3 mb-0">
-        <i class="bi bi-info-circle"></i>
-        Kits cannot contain other kits. A kit's status is always derived from its contents,
-        and deleting a kit never deletes the gear inside it.
-      </p>
-
       <template #footer>
         <span class="flex-grow-1"></span>
-        <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">Cancel</button>
-        <button class="btn btn-sm btn-primary" :disabled="busy" @click="save">
+        <button class="btn btn-outline-secondary" @click="emit('close')">Cancel</button>
+        <button class="btn btn-primary" :disabled="busy" @click="save">
           <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
-          {{ isNew ? 'Create kit' : 'Save kit' }}
+          {{ isNew ? 'Create kit' : 'Save' }}
         </button>
       </template>
     </Drawer>

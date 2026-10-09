@@ -4,6 +4,7 @@ import { toLocalInput } from '../lib/format.js';
 import { eventSettings } from '../lib/events.js';
 import Drawer from './ui/Drawer.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
+import Menu from './ui/Menu.js';
 
 /**
  * Create or edit one event.
@@ -20,7 +21,7 @@ const BLANK = {
 
 export default {
   name: 'EventSheet',
-  components: { Drawer, ConfirmDialog },
+  components: { Drawer, ConfirmDialog, Menu },
   props: {
     // null (or 0) means "new event".
     eventId: { type: Number, default: null },
@@ -126,90 +127,97 @@ export default {
     <Drawer :title="isNew ? 'New event' : (event?.name || 'Event')" icon="bi-calendar-event"
             @close="emit('close')">
       <template #header-actions>
-        <span v-if="!isNew" class="text-secondary small">#{{ eventId }}</span>
+        <span v-if="!isNew" class="text-secondary small font-monospace">#{{ eventId }}</span>
       </template>
 
-      <form @submit.prevent="save">
-        <div class="row g-3">
-          <div class="col-12">
-            <label class="form-label small" for="f-ev-name">Name</label>
-            <input id="f-ev-name" class="form-control form-control-sm" data-autofocus
-                   v-model="form.name" required maxlength="200"
-                   placeholder="e.g. Sommerfestival 2026">
-          </div>
-
-          <div class="col-12 col-md-6">
-            <label class="form-label small" for="f-ev-client">Client</label>
-            <input id="f-ev-client" class="form-control form-control-sm"
-                   v-model="form.client" maxlength="200">
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label small" for="f-ev-status">Status</label>
-            <select id="f-ev-status" class="form-select form-select-sm" v-model="form.status">
-              <option v-for="status in workflow.statuses" :key="status.id" :value="status.id">
-                {{ status.label }}
-              </option>
-            </select>
-            <div class="form-text small">
-              Where the job is. Edit the workflow under Settings → Events.
-            </div>
-          </div>
-
-          <div class="col-12 col-md-6">
-            <label class="form-label small" for="f-ev-start">Starts</label>
-            <input id="f-ev-start" type="datetime-local" class="form-control form-control-sm"
-                   v-model="form.startAt">
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label small" for="f-ev-end">Ends</label>
-            <input id="f-ev-end" type="datetime-local" class="form-control form-control-sm"
-                   v-model="form.endAt">
-          </div>
-
-          <div class="col-12 col-md-6">
-            <label class="form-label small" for="f-ev-location">Location</label>
-            <input id="f-ev-location" class="form-control form-control-sm"
-                   v-model="form.location" maxlength="200">
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label small" for="f-ev-contact">On-site contact</label>
-            <input id="f-ev-contact" class="form-control form-control-sm"
-                   v-model="form.contact" maxlength="200"
-                   placeholder="Name, phone, whatever gets you through">
-          </div>
-
-          <div class="col-12">
-            <label class="form-label small" for="f-ev-notes">Notes</label>
-            <textarea id="f-ev-notes" class="form-control form-control-sm" rows="3"
-                      v-model="form.notes"></textarea>
-          </div>
-        </div>
-      </form>
-
-      <!-- What is on the job. Read-only on purpose: gear reaches an event by
-           being checked out or reserved against it. -->
-      <div v-if="!isNew" class="trax-card mt-3">
-        <div class="trax-card-pad">
-          <h3 class="trax-page-title">On this job</h3>
-          <p class="small text-secondary mb-0">
-            <strong>{{ booked.units }}</strong> unit(s) out on
-            <strong>{{ booked.lines }}</strong> line(s) ·
-            <strong>{{ booked.reservations }}</strong> reservation(s).
-            Gear joins a job from the selection drawer, by picking this event when checking out or
-            reserving — deleting the event here never takes the gear with it.
-          </p>
+      <!-- What is on the job. Read-only: gear joins an event by being checked
+           out or reserved against it. -->
+      <div v-if="!isNew" class="trax-list mb-3"
+           title="Gear joins a job when it is checked out or reserved for this event">
+        <div class="trax-kv">
+          <span>On this job</span>
+          <strong class="fw-normal">
+            <b>{{ booked.units }}</b> unit(s) on {{ booked.lines }} line(s) · <b>{{ booked.reservations }}</b> reserv.
+          </strong>
         </div>
       </div>
 
+      <form class="trax-form" @submit.prevent="save">
+        <div class="trax-group">
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label" for="f-ev-name">Name</label>
+              <input id="f-ev-name" class="form-control" data-autofocus="desktop"
+                     v-model="form.name" required maxlength="200"
+                     placeholder="e.g. Summer festival 2026">
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="f-ev-client">Client</label>
+              <input id="f-ev-client" class="form-control"
+                     v-model="form.client" maxlength="200">
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="f-ev-status">Status</label>
+              <select id="f-ev-status" class="form-select" v-model="form.status"
+                      title="Edit the workflow under Settings → Events">
+                <option v-for="status in workflow.statuses" :key="status.id" :value="status.id">
+                  {{ status.label }}
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="trax-group">
+          <div class="trax-group-title">When</div>
+          <div class="row g-2">
+            <div class="col-12 col-sm-6">
+              <label class="form-label" for="f-ev-start">Starts</label>
+              <input id="f-ev-start" type="datetime-local" class="form-control"
+                     v-model="form.startAt">
+            </div>
+            <div class="col-12 col-sm-6">
+              <label class="form-label" for="f-ev-end">Ends</label>
+              <input id="f-ev-end" type="datetime-local" class="form-control"
+                     v-model="form.endAt">
+            </div>
+          </div>
+        </div>
+
+        <div class="trax-group">
+          <div class="trax-group-title">Where</div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label" for="f-ev-location">Location</label>
+              <input id="f-ev-location" class="form-control"
+                     v-model="form.location" maxlength="200">
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="f-ev-contact">On-site contact</label>
+              <input id="f-ev-contact" class="form-control"
+                     v-model="form.contact" maxlength="200" placeholder="Name, phone">
+            </div>
+          </div>
+        </div>
+
+        <div class="trax-group">
+          <label class="trax-group-title" for="f-ev-notes">Notes</label>
+          <textarea id="f-ev-notes" class="form-control" rows="3" v-model="form.notes"></textarea>
+        </div>
+      </form>
+
       <template #footer>
-        <button v-if="!isNew" class="btn btn-sm btn-outline-danger" @click="confirmDelete = true">
-          <i class="bi bi-trash"></i> Delete
-        </button>
+        <Menu v-if="!isNew" label="More actions" icon="bi-three-dots" up align="start"
+              button-class="btn btn-outline-secondary">
+          <button type="button" class="trax-menu-item is-danger" @click="confirmDelete = true">
+            <i class="bi bi-trash"></i> Delete event
+          </button>
+        </Menu>
         <span class="flex-grow-1"></span>
-        <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">Cancel</button>
-        <button class="btn btn-sm btn-primary" :disabled="saving" @click="save">
+        <button class="btn btn-outline-secondary" @click="emit('close')">Cancel</button>
+        <button class="btn btn-primary" :disabled="saving" @click="save">
           <span v-if="saving" class="spinner-border spinner-border-sm me-1"></span>
-          {{ isNew ? 'Create event' : 'Save' }}
+          {{ isNew ? 'Create' : 'Save' }}
         </button>
       </template>
     </Drawer>
@@ -217,9 +225,9 @@ export default {
     <ConfirmDialog v-if="confirmDelete"
                    title="Delete this event?"
                    :message="booked.lines || booked.reservations
-                     ? 'The gear stays exactly where it is — ' + booked.lines + ' checkout line(s) and '
-                       + booked.reservations + ' reservation(s) simply stop naming this job.'
-                     : 'Nothing is booked on it, so nothing else changes.'"
+                     ? 'The gear stays put. ' + booked.lines + ' checkout line(s) and '
+                       + booked.reservations + ' reservation(s) stop naming this job.'
+                     : 'Nothing is booked on it.'"
                    confirm-label="Delete" danger
                    @confirm="remove" @cancel="confirmDelete = false" />
   `,

@@ -108,7 +108,7 @@ export default {
     <div>
       <div class="row g-2" :class="dense ? 'align-items-center' : 'align-items-end'">
         <div :class="dense ? 'col-12 col-sm-5' : 'col-12 col-md-5'">
-          <label v-if="!dense" class="form-label small mb-1">Charged as</label>
+          <label v-if="!dense" class="form-label">Charged as</label>
           <select class="form-select form-select-sm" :value="rule.mode" :disabled="disabled"
                   aria-label="How this rate is charged"
                   @change="setMode($event.target.value)">
@@ -119,7 +119,7 @@ export default {
         </div>
 
         <div v-if="rule.mode === 'PERCENT'" :class="dense ? 'col-12 col-sm-4' : 'col-6 col-md-4'">
-          <label v-if="!dense" class="form-label small mb-1">Daily rate</label>
+          <label v-if="!dense" class="form-label">Daily rate</label>
           <div class="input-group input-group-sm">
             <input class="form-control text-end" type="text" inputmode="decimal"
                    v-model="rule.percent" :disabled="disabled"
@@ -131,7 +131,7 @@ export default {
 
         <template v-if="rule.mode === 'FIXED'">
           <div :class="dense ? 'col-6 col-sm-4' : 'col-6 col-md-4'">
-            <label v-if="!dense" class="form-label small mb-1">Fixed price</label>
+            <label v-if="!dense" class="form-label">Fixed price</label>
             <div class="input-group input-group-sm">
               <input class="form-control text-end" type="text" inputmode="decimal"
                      v-model="rule.fixed" :disabled="disabled"
@@ -141,7 +141,7 @@ export default {
             </div>
           </div>
           <div :class="dense ? 'col-6 col-sm-3' : 'col-6 col-md-3'">
-            <label v-if="!dense" class="form-label small mb-1">Charged</label>
+            <label v-if="!dense" class="form-label">Charged</label>
             <select class="form-select form-select-sm" v-model="rule.fixedPer" :disabled="disabled"
                     aria-label="How often the fixed price is charged" @change="touch()">
               <option value="RENTAL">per rental</option>
@@ -157,7 +157,7 @@ export default {
            default rate says". -->
       <div v-if="showService" class="row g-2 mt-1 align-items-end">
         <div class="col-12 col-md-5">
-          <label class="form-label small mb-1">Full service</label>
+          <label class="form-label">Full service</label>
           <div class="input-group input-group-sm">
             <input class="form-control text-end" type="text" inputmode="decimal"
                    v-model="rule.serviceFactor" :disabled="disabled"
@@ -168,7 +168,7 @@ export default {
           </div>
         </div>
         <div class="col-12 col-md-7">
-          <div class="form-text small mb-0">{{ serviceHint }}</div>
+          <div class="form-text mb-0">{{ serviceHint }}</div>
         </div>
       </div>
 
@@ -176,17 +176,18 @@ export default {
            base rate above is what a hire shorter than the first step costs. -->
       <div v-if="showTiers && rule.mode === 'PERCENT'" class="mt-2">
         <div class="d-flex align-items-center gap-2">
-          <span class="small text-secondary flex-grow-1">
-            Discounts <span v-if="tiers.length">({{ tiers.length }})</span>
+          <span class="small text-secondary flex-grow-1"
+                title="A hire of at least that many days is charged the step's rate for every day">
+            Discounts <span v-if="tiers.length">· {{ tiers.length }}</span>
           </span>
-          <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+          <button type="button" class="btn btn-sm btn-outline-primary"
                   :disabled="disabled || tiers.length >= 24" @click="addTier()">
             <i class="bi bi-plus"></i> Discount
           </button>
         </div>
 
         <div v-for="(tier, index) in tiers" :key="index"
-             class="d-flex align-items-center gap-1 mt-1">
+             class="d-flex align-items-center gap-2 mt-2">
           <span class="small text-secondary">from</span>
           <input class="form-control form-control-sm text-end" style="width:5rem"
                  type="number" min="1" max="3650" step="1" v-model="tier.days"
@@ -200,7 +201,7 @@ export default {
                    @input="touch()">
             <span class="input-group-text">%/d</span>
           </div>
-          <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+          <button type="button" class="btn btn-sm btn-outline-danger"
                   :disabled="disabled" :aria-label="'Remove discount ' + (index + 1)"
                   @click="removeTier(index)">
             <i class="bi bi-x"></i>
@@ -208,11 +209,8 @@ export default {
           <span class="small text-secondary d-none d-md-inline">{{ daysLabel(tier.days) }}</span>
         </div>
 
-        <p v-if="!tiers.length" class="form-text small mb-0">
-          No discounts — every day of a hire costs {{ formatPercent(rule.percent) }} %.
-        </p>
-        <p v-else class="form-text small mb-0">
-          A hire of that many days or more is charged the step's rate for every day of it.
+        <p v-if="!tiers.length" class="form-text mb-0">
+          None · {{ formatPercent(rule.percent) }} % every day
         </p>
       </div>
     </div>

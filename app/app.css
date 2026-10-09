@@ -2958,3 +2958,168 @@ button.trax-row:focus-visible { outline-offset: -3px; }
 .trax-dash .trax-list .trax-table td:first-child { padding-left: 0.9rem; }
 .trax-dash .trax-list .trax-table th:last-child,
 .trax-dash .trax-list .trax-table td:last-child { padding-right: 0.9rem; }
+
+/* -------------------------------------------------- Asset sheet, label drawer, editor forms --- */
+
+/* --- Sheets (AssetSheet, LabelDrawer, SetEditor, EventSheet …) ----------- */
+
+/* Asset sheet header: photo, status pill, "#12 · Power · Store room". */
+.trax-sheet-hero {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.trax-sheet-photo {
+  display: block;
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  object-fit: cover;
+  background: var(--trax-fill);
+  flex: 0 0 auto;
+}
+
+.trax-sheet-photo.is-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  color: var(--trax-faint);
+  font-size: 1.5rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.trax-sheet-photo.is-empty:hover { background: var(--trax-fill-strong); color: var(--trax-muted); }
+
+.trax-sheet-hero-meta {
+  margin-top: 0.3rem;
+  font-size: 0.8125rem;
+  color: var(--trax-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The tab bar fills the sheet's width; counts sit quietly beside the label. */
+.trax-sheet-tabs { display: flex; width: 100%; }
+@media (max-width: 575.98px) {
+  .trax-sheet-tabs .nav-link { padding-left: 0.4rem; padding-right: 0.4rem; gap: 0.25rem; }
+}
+
+.trax-tab-count {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--trax-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A read-only value in a form grid, at the height of the field it stands for. */
+.trax-plain {
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  font-size: 0.9375rem;
+  color: var(--trax-muted);
+}
+
+.trax-currency { flex: 0 0 4.5rem; max-width: 4.5rem; }
+
+/* "12.3" in unit, test and rate rows. */
+.trax-unit-code {
+  font-family: var(--trax-mono);
+  font-size: 0.78rem;
+  color: var(--trax-muted);
+  min-width: 2.4rem;
+  flex: 0 0 auto;
+}
+
+/* The fields of an expanded unit row, under it in the same list. */
+.trax-unit-edit {
+  padding: 0.25rem 0.9rem 0.9rem;
+}
+
+.trax-unit-edit + .trax-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0.9rem;
+  border-top: 1px solid var(--trax-border);
+}
+
+.trax-unit-edit .form-label { font-size: 0.75rem; margin-bottom: 0.2rem; }
+
+.trax-days-input { width: 7.5rem; flex: 0 0 auto; }
+
+/* A piece's test history, indented under it. */
+.trax-test-log {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0 0 0 0.75rem;
+  border-left: 2px solid var(--trax-border);
+  font-size: 0.8125rem;
+}
+
+.trax-test-log > li { padding: 0.3rem 0; }
+
+.trax-history-type::first-letter { text-transform: uppercase; }
+
+/* Label sheet: the previews on white, because that is the sticker. */
+.trax-label-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.9rem;
+  min-height: 9rem;
+}
+
+.trax-label-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 170px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--trax-border), var(--trax-shadow-sm);
+}
+
+.trax-label-actions {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem 0.9rem;
+  border-top: 1px solid var(--trax-border);
+  align-items: center;
+}
+
+.trax-label-actions .trax-label-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.trax-label-actions .trax-label-name small {
+  display: block;
+  font-weight: 400;
+  color: var(--trax-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A sheet's form: sections divided by a hairline, titled in body colour so
+   a section title does not read as one more field label. */
+.trax-form .trax-group + .trax-group {
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--trax-border);
+}
+
+.trax-form .trax-group-title {
+  color: var(--trax-text);
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.55rem;
+}

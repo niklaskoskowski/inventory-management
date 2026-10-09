@@ -22,6 +22,7 @@ import { exportInspectionPdf } from '../lib/pdf.js';
 import Drawer from './ui/Drawer.js';
 import StatusBadge from './ui/StatusBadge.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
+import Menu from './ui/Menu.js';
 import RentalRate from './RentalRate.js';
 
 const BLANK = {
@@ -68,7 +69,7 @@ const cleanOverride = (rule) => ({
 /** Create/edit one asset, plus its live state and history. */
 export default {
   name: 'AssetSheet',
-  components: { Drawer, StatusBadge, ConfirmDialog, RentalRate },
+  components: { Drawer, StatusBadge, ConfirmDialog, Menu, RentalRate },
   props: {
     assetId: { type: Number, default: null },
   },
@@ -628,20 +629,20 @@ export default {
     /** The rule underneath this asset: its category's, or the install's. */
     const categoryRate = computed(() => ruleFor(state.settings, asset.value?.category));
 
+    const categoryRateLabel = computed(() => (categoryRate.value.source === 'category'
+      ? `${asset.value?.category} rate`
+      : 'Default rate'));
+
     const categoryRateText = computed(() => {
-      const { rule, source } = categoryRate.value;
-      const name = source === 'category'
-        ? `Category "${asset.value?.category}"`
-        : 'Default rate';
+      const { rule } = categoryRate.value;
       if (rule.mode === 'FIXED') {
-        return `${name}: ${formatMoney(rule.fixed, rentalCurrency.value)}`
-          + (rule.fixedPer === 'DAY' ? ' per day' : ' per rental');
+        return formatMoney(rule.fixed, rentalCurrency.value)
+          + (rule.fixedPer === 'DAY' ? ' / day' : ' / rental');
       }
       const ladder = (rule.tiers || [])
-        .map((tier) => `from ${tier.days} days ${formatPercent(tier.percent)} %`)
+        .map((tier) => `${tier.days}+ d ${formatPercent(tier.percent)} %`)
         .join(', ');
-      return `${name}: ${formatPercent(rule.percent)} %/day`
-        + (ladder ? ` · discounts: ${ladder}` : ' · no discounts');
+      return `${formatPercent(rule.percent)} %/day` + (ladder ? ` · ${ladder}` : '');
     });
 
     /** The step that would apply to the previewed duration, for the hint. */
@@ -662,10 +663,10 @@ export default {
       if (priced.resolved.mode === 'FIXED') {
         return priced.resolved.fixedPer === 'DAY'
           ? `${formatMoney(priced.resolved.fixed, rentalCurrency.value)}/day · ${money} for ${daysLabel(days)}`
-          : `${money} · fixed, whatever the duration`;
+          : `${money} fixed`;
       }
       if (priced.unpriced) {
-        return `${formatPercent(priced.rate)} %/day · no value recorded, so no price`;
+        return `${formatPercent(priced.rate)} %/day · no value set`;
       }
       return `${formatPercent(priced.rate)} %/day · ${money} for ${daysLabel(days)}`;
     };
@@ -691,8 +692,8 @@ export default {
       }
       const fallback = priceBasis(rentalAsset.value, unit || null);
       return fallback === null
-        ? '— no value'
-        : `${formatMoney(fallback, rentalCurrency.value)} · from the asset`;
+        ? 'No value'
+        : `${formatMoney(fallback, rentalCurrency.value)} (asset)`;
     };
 
     /**
@@ -902,6 +903,23 @@ export default {
       }
     };
 
+    // --- Presentation only -------------------------------------------------
+    // The unit row whose fields are expanded; the list itself stays compact.
+    const openUnit = ref(null);
+    watch(() => props.assetId, () => { openUnit.value = null; });
+    const toggleUnit = (index) => { openUnit.value = openUnit.value === index ? null : index; };
+    const addUnitOpen = () => { addUnit(); openUnit.value = unitsForm.value.length - 1; };
+    const removeUnitAt = (index) => { openUnit.value = null; removeUnit(index); };
+
+    /** Bootstrap colour of a test state, as the quiet status dot. */
+    const STATE_DOT = { danger: 'UNAV', warning: 'RSVD', success: 'FREE', secondary: 'LOCK' };
+    const stateDot = (state) => `status-${STATE_DOT[STATE_CLASS[state]] || 'LOCK'}`;
+
+    /** "#12 · Power · Store room" under the status in the sheet's header. */
+    const heroMeta = computed(() => (asset.value
+      ? [`#${asset.value.id}`, asset.value.category, asset.value.location].filter(Boolean).join(' · ')
+      : ''));
+
     const quickCheckIn = async () => {
       try {
         await mutate('checkout.checkin', { assetIds: [props.assetId] });
@@ -923,7 +941,7 @@ export default {
       exportingTest, inspectionPdf,
       RESULTS, RESULT_LABEL, STATE_CLASS, STATE_LABEL, recordSummary, needsAttention,
       rentalForm, rentalDirty, rentalDays, rentalCurrency, touchRental, saveRental,
-      categoryRate, categoryRateText, activeTier, rentalUnitAt, rateText, rateSource,
+      categoryRate, categoryRateLabel, categoryRateText, activeTier, rentalUnitAt, rateText, rateSource,
       unitValueText,
       daysLabel, formatPercent, unitPriceOf,
       onUnitPurchased, unitWarrantyIsAuto,
@@ -936,6 +954,7 @@ export default {
       STATUSES, CONDITIONS, CONDITION_LABEL, statusLabel,
       formatDate, formatDateTime, formatMoney, isOverdue,
       save, remove, onPhotoPicked, removePhoto, quickCheckIn, emit,
+      openUnit, toggleUnit, addUnitOpen, removeUnitAt, stateDot, heroMeta,
     };
   },
   template: `
@@ -943,62 +962,73 @@ export default {
             :icon="isSet ? 'bi-box-seam' : 'bi-camera'"
             @close="emit('close')">
 
-      <template #header-actions>
-        <span v-if="asset" class="text-secondary font-monospace small me-2">#{{ asset.id }}</span>
-        <StatusBadge v-if="asset" :status="asset.effectiveStatus" :kind="asset.kind"
-                     :detail="asset.quantity > 1 ? (asset.availableQty + ' of ' + asset.quantity + ' free') : ''" />
-      </template>
+      <input v-if="!isNew" ref="fileInput" type="file" class="d-none"
+             accept="image/jpeg,image/png,image/webp" @change="onPhotoPicked">
 
-      <!-- Live state. Units of one asset can be out with several people, so
-           this lists every open line rather than naming one holder. -->
-      <div v-if="lines.length" class="alert alert-danger py-2 px-3 small d-flex align-items-start gap-2">
-        <i class="bi bi-box-arrow-right"></i>
-        <div class="flex-grow-1">
-          <div>
-            {{ outUnits }} unit(s) out
-            <span v-if="asset">of {{ asset.quantity }}</span>
-            with {{ lines.length }} holder(s):
-          </div>
-          <ul class="mb-0 mt-1 ps-3">
-            <li v-for="line in lines" :key="line.lineId">
-              <strong>{{ line.customerName }}</strong> ×{{ line.qty }},
-              due {{ formatDateTime(line.dueAt || line.returnDate) }}
-              <span v-if="isOverdue(line.dueAt || line.returnDate)" class="fw-bold">— overdue</span>
-            </li>
-          </ul>
-        </div>
-        <button class="btn btn-sm btn-outline-light" @click="quickCheckIn">Check in all</button>
-      </div>
-
-      <!-- The test record, when it is not in order. Says it on every tab, like
-           the warranty line: it is the kind of fact that must not need a click. -->
-      <div v-if="(testEnabled || testRecords.length) && needsAttention(testState)"
-           class="alert py-2 px-3 small" :class="'alert-' + STATE_CLASS[testState]">
-        <i class="bi bi-clipboard-x"></i>
-        {{ STATE_LABEL[testState] }}<span v-if="testRule"> · {{ testRule.label }}</span> —
-        <button class="btn btn-link btn-sm p-0 align-baseline" @click="tab = 'inspection'">
-          open the test record
+      <!-- Header: photo, status, and the live facts every tab needs. -->
+      <div v-if="asset" class="trax-sheet-hero">
+        <button v-if="asset.photo" type="button" class="trax-thumb-btn"
+                :aria-label="'Show the photo of ' + asset.name" @click="openAssetPhoto(asset)">
+          <img class="trax-sheet-photo" :src="'uploads/thumb/' + asset.photo" alt="">
         </button>
+        <button v-else type="button" class="trax-sheet-photo is-empty" title="Add photo"
+                aria-label="Add photo" @click="fileInput.click()">
+          <i class="bi" :class="isSet ? 'bi-box-seam' : 'bi-camera'"></i>
+        </button>
+        <div class="min-w-0 flex-grow-1">
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <StatusBadge :status="asset.effectiveStatus" :kind="asset.kind"
+                         :detail="asset.quantity > 1 ? (asset.availableQty + ' of ' + asset.quantity + ' free') : ''" />
+            <span v-if="isSet" class="trax-kind-chip">Kit</span>
+          </div>
+          <div class="trax-sheet-hero-meta">{{ heroMeta }}</div>
+        </div>
       </div>
 
-      <div v-if="warrantyExpired" class="alert alert-warning py-2 px-3 small">
-        <i class="bi bi-shield-exclamation"></i>
-        <span v-if="expiredUnits.length">Warranty expired for {{ expiredUnits.join(', ') }}.</span>
-        <span v-else>Warranty expired {{ formatDateTime(warrantyUntilOf(asset)) }}.</span>
+      <!-- Units of one asset can be out with several people, so every open
+           line is listed rather than one holder. -->
+      <div v-if="asset && (lines.length || warrantyUntilOf(asset) || ((testEnabled || testRecords.length) && needsAttention(testState)))"
+           class="trax-list mb-3">
+        <template v-if="lines.length">
+          <div class="trax-kv">
+            <span><i class="bi bi-box-arrow-right me-1"></i>Out · {{ outUnits }} of {{ asset.quantity }}</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="quickCheckIn">Check in all</button>
+          </div>
+          <div v-for="line in lines" :key="line.lineId" class="trax-kv">
+            <span class="text-truncate">{{ line.customerName }} <span v-if="line.qty > 1">×{{ line.qty }}</span></span>
+            <strong :class="{ 'text-danger': isOverdue(line.dueAt || line.returnDate) }">
+              <span class="fw-normal">{{ isOverdue(line.dueAt || line.returnDate) ? 'Overdue' : 'due' }}</span>
+              {{ formatDateTime(line.dueAt || line.returnDate) }}
+            </strong>
+          </div>
+        </template>
+        <div v-if="warrantyUntilOf(asset)" class="trax-kv">
+          <span>Warranty<span v-if="hasUnits && asset.warrantyNextUnit"> · next {{ asset.id }}.{{ asset.warrantyNextUnit }}</span></span>
+          <strong :class="{ 'text-warning': warrantyExpired }"
+                  :title="expiredUnits.length ? 'Expired: ' + expiredUnits.join(', ') : ''">
+            <span v-if="warrantyExpired">Expired · </span>{{ formatDate(warrantyUntilOf(asset)) }}
+          </strong>
+        </div>
+        <div v-if="(testEnabled || testRecords.length) && needsAttention(testState)" class="trax-kv">
+          <span>{{ testRule ? testRule.label : 'Tests' }}</span>
+          <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="tab = 'inspection'">
+            <span class="trax-status-dot" :class="stateDot(testState)">{{ STATE_LABEL[testState] }}</span>
+          </button>
+        </div>
       </div>
 
-      <ul class="nav nav-tabs nav-tabs-sm mb-3" v-if="!isNew">
+      <ul class="nav nav-tabs nav-tabs-sm trax-sheet-tabs mb-3" v-if="!isNew">
         <li class="nav-item">
           <button class="nav-link" :class="{ active: tab === 'details' }" @click="tab = 'details'">Details</button>
         </li>
         <li class="nav-item" v-if="!isSet">
           <button class="nav-link" :class="{ active: tab === 'units' }" @click="tab = 'units'">
-            Units <span class="badge bg-secondary">{{ asset?.units?.length || 0 }}</span>
+            Units <span v-if="asset?.units?.length" class="trax-tab-count">{{ asset.units.length }}</span>
           </button>
         </li>
         <li class="nav-item" v-if="isSet">
           <button class="nav-link" :class="{ active: tab === 'members' }" @click="tab = 'members'">
-            Contents <span class="badge bg-secondary">{{ members.length }}</span>
+            Contents <span v-if="members.length" class="trax-tab-count">{{ members.length }}</span>
           </button>
         </li>
         <li class="nav-item">
@@ -1006,282 +1036,244 @@ export default {
             Rental <i v-if="rentalDirty" class="bi bi-dot text-warning"></i>
           </button>
         </li>
-        <!-- Only where a test is actually asked for — plus anywhere records
-             already exist, so un-ticking a category never hides documentation. -->
+        <!-- Only where a test is asked for, or records already exist. -->
         <li class="nav-item" v-if="testEnabled || testRecords.length">
-          <button class="nav-link" :class="{ active: tab === 'inspection' }"
-                  @click="tab = 'inspection'">
-            Tests <span class="badge" :class="'bg-' + (needsAttention(testState) ? STATE_CLASS[testState] : 'secondary')">
-              {{ testRecords.length }}
-            </span>
+          <button class="nav-link" :class="{ active: tab === 'inspection' }" @click="tab = 'inspection'">
+            Tests <span v-if="testRecords.length" class="trax-tab-count"
+                        :class="{ 'text-danger': needsAttention(testState) }">{{ testRecords.length }}</span>
           </button>
         </li>
         <li class="nav-item">
           <button class="nav-link" :class="{ active: tab === 'condition' }" @click="tab = 'condition'">
-            Condition <span class="badge bg-secondary">{{ conditionLog.length }}</span>
+            Condition <span v-if="conditionLog.length" class="trax-tab-count">{{ conditionLog.length }}</span>
           </button>
         </li>
         <li class="nav-item">
           <button class="nav-link" :class="{ active: tab === 'documents' }" @click="tab = 'documents'">
-            Documents <span class="badge bg-secondary">{{ documents.length }}</span>
+            Files <span v-if="documents.length" class="trax-tab-count">{{ documents.length }}</span>
           </button>
         </li>
         <li class="nav-item">
-          <button class="nav-link" :class="{ active: tab === 'history' }" @click="tab = 'history'">
-            History <span class="badge bg-secondary">{{ history.length }}</span>
-          </button>
+          <button class="nav-link" :class="{ active: tab === 'history' }" @click="tab = 'history'">History</button>
         </li>
       </ul>
 
       <!-- Details -->
-      <form v-show="tab === 'details'" @submit.prevent="save">
-        <div class="row g-3">
-          <div class="col-12">
-            <label class="form-label small" for="f-name">Name</label>
-            <input id="f-name" class="form-control form-control-sm" data-autofocus
-                   v-model="form.name" required maxlength="200">
-          </div>
-
-          <div class="col-6" v-if="!isSet">
-            <label class="form-label small" for="f-status">Status</label>
-            <select id="f-status" class="form-select form-select-sm" v-model="form.status">
-              <option v-for="s in STATUSES" :key="s" :value="s">{{ statusLabel(s) }}</option>
-            </select>
-          </div>
-          <div class="col-6" v-else>
-            <label class="form-label small">Status</label>
-            <p class="form-control-plaintext form-control-sm text-secondary small mb-0">
-              Derived from contents
-            </p>
-          </div>
-
-          <div class="col-6" v-if="!isSet">
-            <label class="form-label small" for="f-quantity">Quantity</label>
-            <input id="f-quantity" type="number" min="1" class="form-control form-control-sm"
-                   v-model="form.quantity" :disabled="hasUnits">
-            <div v-if="hasUnits" class="form-text small">
-              Derived from the {{ asset.units.length }} tracked units — edit them in the Units tab.
+      <form v-show="tab === 'details'" class="trax-form" @submit.prevent="save">
+        <div class="trax-group">
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label" for="f-name">Name</label>
+              <input id="f-name" class="form-control" data-autofocus="desktop"
+                     v-model="form.name" required maxlength="200">
             </div>
-            <div v-else-if="asset" class="form-text small">
-              {{ asset.availableQty }} of {{ asset.quantity }} free
-              <span v-if="outUnits"> · cannot go below {{ outUnits }} while those are out</span>
+            <div class="col-6">
+              <label class="form-label" for="f-category">Category</label>
+              <input id="f-category" class="form-control" v-model="form.category" list="trax-categories">
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="f-location">Location</label>
+              <input id="f-location" class="form-control" v-model="form.location" list="trax-locations">
             </div>
           </div>
+        </div>
 
-          <!-- A tracked asset has no single grade: each unit carries its own,
-               so the select goes and the counted summary takes its place. -->
-          <div class="col-6" v-if="!hasUnits">
-            <label class="form-label small" for="f-condition">Condition</label>
-            <select id="f-condition" class="form-select form-select-sm" v-model="form.condition">
-              <option v-for="c in CONDITIONS" :key="c" :value="c">{{ CONDITION_LABEL[c] }}</option>
-            </select>
-          </div>
-          <div class="col-6" v-else>
-            <label class="form-label small">Condition</label>
-            <p class="form-control-plaintext form-control-sm text-secondary small mb-0">
-              Condition per unit: {{ unitConditions }}
-            </p>
-          </div>
-
-          <div class="col-6">
-            <label class="form-label small" for="f-category">Category</label>
-            <input id="f-category" class="form-control form-control-sm" v-model="form.category" list="trax-categories">
-          </div>
-
-          <div class="col-6">
-            <label class="form-label small" for="f-location">Location</label>
-            <input id="f-location" class="form-control form-control-sm" v-model="form.location" list="trax-locations">
-          </div>
-
-          <div class="col-12">
-            <label class="form-label small" for="f-notes">Notes</label>
-            <textarea id="f-notes" class="form-control form-control-sm" rows="2" v-model="form.notes"></textarea>
-          </div>
-
-          <div class="col-12"><hr class="my-1"><span class="small text-secondary">Purchase &amp; identity</span></div>
-
-          <div class="col-6">
-            <label class="form-label small" for="f-serial">Serial number</label>
-            <input id="f-serial" class="form-control form-control-sm font-monospace" v-model="form.serial">
-          </div>
-
-          <div class="col-6">
-            <label class="form-label small" for="f-supplier">Supplier</label>
-            <input id="f-supplier" class="form-control form-control-sm" v-model="form.supplier">
-          </div>
-
-          <!-- Two of the same model are rarely bought on the same day, so a
-               tracked asset has no single purchase date either: the units
-               carry both dates and the summary reads them back. -->
-          <div class="col-6" v-if="!hasUnits">
-            <label class="form-label small" for="f-purchased">Purchased</label>
-            <input id="f-purchased" type="date" class="form-control form-control-sm" v-model="form.purchasedAt">
-          </div>
-          <div class="col-6" v-else>
-            <label class="form-label small">Purchased</label>
-            <p class="form-control-plaintext form-control-sm text-secondary small mb-0">
-              Purchased per unit — earliest {{ formatDate(asset.purchasedFirst) }}
-            </p>
-          </div>
-
-          <div class="col-6" v-if="!hasUnits">
-            <label class="form-label small" for="f-warranty">Warranty until</label>
-            <input id="f-warranty" type="date" class="form-control form-control-sm" v-model="form.warrantyUntil">
-            <div v-if="warrantyIsAuto" class="form-text small">
-              Auto-filled as purchase date + {{ warrantyMonths }} months — change it if the
-              warranty is longer.
+        <div class="trax-group">
+          <div class="trax-group-title">Availability</div>
+          <div class="row g-2">
+            <div class="col-6" v-if="!isSet">
+              <label class="form-label" for="f-status">Status</label>
+              <select id="f-status" class="form-select" v-model="form.status">
+                <option v-for="s in STATUSES" :key="s" :value="s">{{ statusLabel(s) }}</option>
+              </select>
             </div>
-          </div>
-          <div class="col-6" v-else>
-            <label class="form-label small">Warranty until</label>
-            <p class="form-control-plaintext form-control-sm text-secondary small mb-0">
-              Warranty per unit — next {{ formatDate(asset.warrantyNext) }}<span
-                v-if="asset.warrantyNextUnit"> (unit {{ asset.id }}.{{ asset.warrantyNextUnit }})</span>
-            </p>
-          </div>
-
-          <div class="col-6">
-            <label class="form-label small" for="f-price">Price</label>
-            <div class="input-group input-group-sm">
-              <input id="f-price" class="form-control" v-model="priceField" inputmode="decimal"
-                     placeholder="0,00" :disabled="unitPriced">
-              <input class="form-control" style="max-width:5rem" v-model="form.currency" maxlength="8" aria-label="Currency">
+            <div class="col-6" v-else>
+              <label class="form-label">Status</label>
+              <div class="trax-plain">From contents</div>
             </div>
-            <div v-if="unitPriced" class="form-text small">
-              Sum of {{ asset.pricedUnits }} unit prices — edit them in the Units tab.
-            </div>
-          </div>
 
-          <div class="col-6">
-            <label class="form-label small" for="f-tags">Tags</label>
-            <input id="f-tags" class="form-control form-control-sm" v-model="form.tags" placeholder="comma, separated">
-          </div>
-
-          <!-- Photo -->
-          <template v-if="!isNew">
-            <div class="col-12"><hr class="my-1"><span class="small text-secondary">Photo</span></div>
-            <div class="col-12 d-flex align-items-center gap-3">
-              <button v-if="asset?.photo" type="button" class="trax-thumb-btn"
-                      :aria-label="'Show the photo of ' + (asset?.name || 'this item')"
-                      @click="openAssetPhoto(asset)">
-                <img :src="'uploads/' + asset.photo" alt=""
-                     style="width:96px;height:96px;object-fit:cover;border-radius:8px">
-              </button>
-              <div v-else class="trax-thumb trax-thumb-placeholder"
-                   style="width:96px;height:96px;font-size:1.6rem">
-                <i class="bi bi-image"></i>
+            <div class="col-6" v-if="!isSet">
+              <label class="form-label" for="f-quantity">Quantity</label>
+              <input id="f-quantity" type="number" min="1" class="form-control"
+                     v-model="form.quantity" :disabled="hasUnits">
+              <div v-if="hasUnits" class="form-text">From {{ asset.units.length }} units</div>
+              <div v-else-if="asset" class="form-text"
+                   :title="outUnits ? 'Cannot go below ' + outUnits + ' while those are out' : ''">
+                {{ asset.availableQty }} of {{ asset.quantity }} free<span v-if="outUnits"> · min. {{ outUnits }}</span>
               </div>
-              <div class="d-flex flex-column gap-2">
-                <input ref="fileInput" type="file" class="d-none"
-                       accept="image/jpeg,image/png,image/webp" @change="onPhotoPicked">
-                <button type="button" class="btn btn-sm btn-outline-secondary" @click="fileInput.click()">
-                  <i class="bi bi-upload"></i> {{ asset?.photo ? 'Replace' : 'Upload' }}
-                </button>
-                <button v-if="asset?.photo" type="button" class="btn btn-sm btn-outline-danger" @click="removePhoto">
+            </div>
+
+            <!-- A tracked asset has no single grade: each unit carries its own. -->
+            <div class="col-6" v-if="!hasUnits">
+              <label class="form-label" for="f-condition">Condition</label>
+              <select id="f-condition" class="form-select" v-model="form.condition">
+                <option v-for="c in CONDITIONS" :key="c" :value="c">{{ CONDITION_LABEL[c] }}</option>
+              </select>
+            </div>
+            <div class="col-6" v-else>
+              <label class="form-label">Condition</label>
+              <div class="trax-plain" title="Per unit">{{ unitConditions }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="trax-group">
+          <div class="trax-group-title">Purchase</div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label" for="f-serial">Serial number</label>
+              <input id="f-serial" class="form-control font-monospace" v-model="form.serial">
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="f-supplier">Supplier</label>
+              <input id="f-supplier" class="form-control" v-model="form.supplier">
+            </div>
+
+            <!-- A tracked asset's units carry both dates; the summary reads them back. -->
+            <div class="col-6" v-if="!hasUnits">
+              <label class="form-label" for="f-purchased">Purchased</label>
+              <input id="f-purchased" type="date" class="form-control" v-model="form.purchasedAt">
+            </div>
+            <div class="col-6" v-else>
+              <label class="form-label">Purchased</label>
+              <div class="trax-plain" title="Per unit, earliest">{{ formatDate(asset.purchasedFirst) }}</div>
+            </div>
+
+            <div class="col-6" v-if="!hasUnits">
+              <label class="form-label" for="f-warranty">Warranty until</label>
+              <input id="f-warranty" type="date" class="form-control" v-model="form.warrantyUntil">
+              <div v-if="warrantyIsAuto" class="form-text">Auto · +{{ warrantyMonths }} months</div>
+            </div>
+            <div class="col-6" v-else>
+              <label class="form-label">Warranty until</label>
+              <div class="trax-plain" title="Per unit, next to expire">{{ formatDate(asset.warrantyNext) }}</div>
+            </div>
+
+            <div class="col-6">
+              <label class="form-label" for="f-price">Price</label>
+              <div class="input-group">
+                <input id="f-price" class="form-control" v-model="priceField" inputmode="decimal"
+                       placeholder="0,00" :disabled="unitPriced">
+                <input class="form-control trax-currency" v-model="form.currency" maxlength="8" aria-label="Currency">
+              </div>
+              <div v-if="unitPriced" class="form-text">Sum of {{ asset.pricedUnits }} units</div>
+            </div>
+
+            <div class="col-6">
+              <label class="form-label" for="f-tags">Tags</label>
+              <input id="f-tags" class="form-control" v-model="form.tags" placeholder="comma, separated">
+            </div>
+          </div>
+        </div>
+
+        <div class="trax-group">
+          <label class="trax-group-title" for="f-notes">Notes</label>
+          <textarea id="f-notes" class="form-control" rows="2" v-model="form.notes"></textarea>
+        </div>
+      </form>
+
+      <!-- Per-unit tracking. The server assigns the numbers, so a row reads
+           "12.–" until saved. Saved on its own; the details form never carries
+           the unit list. -->
+      <div v-show="tab === 'units'">
+        <div v-if="!unitsForm.length" class="trax-empty py-4">
+          <i class="bi bi-list-ol"></i>
+          Units aren't tracked individually.
+          <div class="mt-3">
+            <button type="button" class="btn btn-sm btn-outline-primary" @click="trackUnits"
+                    :title="'Each unit gets a number like ' + asset?.id + '.1 and its own label'">
+              Track {{ asset?.quantity }} units
+            </button>
+          </div>
+        </div>
+
+        <div v-else class="trax-list">
+          <template v-for="(unit, ui) in unitsForm" :key="ui + '-' + (unit.no || 'new')">
+            <div class="trax-row is-tappable" role="button" tabindex="0"
+                 :aria-expanded="openUnit === ui ? 'true' : 'false'"
+                 @click="toggleUnit(ui)" @keydown.enter.prevent="toggleUnit(ui)">
+              <span class="trax-unit-code">{{ unitCode(unit) }}</span>
+              <div class="trax-row-main">
+                <div class="trax-row-title"><span>{{ unit.label || 'Unit ' + unitCode(unit) }}</span></div>
+                <div class="trax-row-meta">
+                  <span v-if="unit.state === 'OUT'" class="trax-status-dot status-UNAV">{{ unitDetail(unit) }}</span>
+                  <span v-else-if="unit.state === 'OOS' || unit.outOfService" class="trax-status-dot status-LOCK">Out of service</span>
+                  <span v-else-if="unit.state" class="trax-status-dot status-FREE">Available</span>
+                  <span v-else class="trax-kind-chip">Unsaved</span>
+                  <span>{{ CONDITION_LABEL[unit.condition] }}</span>
+                  <span v-if="unit.serial" class="font-monospace">{{ unit.serial }}</span>
+                </div>
+              </div>
+              <i class="bi trax-row-chevron" :class="openUnit === ui ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+            </div>
+
+            <div v-if="openUnit === ui" class="trax-unit-edit">
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label" :for="'f-unit-label-' + ui">Label</label>
+                  <input class="form-control form-control-sm" :id="'f-unit-label-' + ui"
+                         v-model="unit.label" maxlength="120" placeholder="e.g. Red" @input="touchUnits">
+                </div>
+                <div class="col-6">
+                  <label class="form-label" :for="'f-unit-serial-' + ui">Serial</label>
+                  <input class="form-control form-control-sm font-monospace" :id="'f-unit-serial-' + ui"
+                         v-model="unit.serial" maxlength="120" @input="touchUnits">
+                </div>
+                <div class="col-6">
+                  <label class="form-label" :for="'f-unit-cond-' + ui">Condition</label>
+                  <select class="form-select form-select-sm" :id="'f-unit-cond-' + ui"
+                          v-model="unit.condition" @change="touchUnits">
+                    <option v-for="c in CONDITIONS" :key="c" :value="c">{{ CONDITION_LABEL[c] }}</option>
+                  </select>
+                </div>
+                <div class="col-6">
+                  <label class="form-label" :for="'f-unit-price-' + ui">Price</label>
+                  <input class="form-control form-control-sm" :id="'f-unit-price-' + ui" type="text"
+                         inputmode="decimal" v-model="unit.price" placeholder="0,00" @input="touchUnits">
+                </div>
+                <!-- Bound by hand, not with v-model: onUnitPurchased() needs the
+                     date the row had to tell an auto-filled warranty from a
+                     typed one. -->
+                <div class="col-6">
+                  <label class="form-label" :for="'f-unit-bought-' + ui">Purchased</label>
+                  <input class="form-control form-control-sm" type="date" :id="'f-unit-bought-' + ui"
+                         :value="unit.purchasedAt" @input="onUnitPurchased(unit, $event.target.value)">
+                </div>
+                <div class="col-6">
+                  <label class="form-label" :for="'f-unit-warranty-' + ui">Warranty until</label>
+                  <input class="form-control form-control-sm" type="date" :id="'f-unit-warranty-' + ui"
+                         v-model="unit.warrantyUntil" @input="touchUnits">
+                  <div v-if="unitWarrantyIsAuto(unit)" class="form-text">Auto · +{{ warrantyMonths }} months</div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label" :for="'f-unit-note-' + ui">Note</label>
+                  <input class="form-control form-control-sm" :id="'f-unit-note-' + ui"
+                         v-model="unit.note" maxlength="500" @input="touchUnits">
+                </div>
+              </div>
+              <div class="d-flex align-items-center gap-2 mt-3">
+                <div class="form-check form-switch mb-0 flex-grow-1">
+                  <input class="form-check-input" type="checkbox" :id="'f-unit-oos-' + ui"
+                         v-model="unit.outOfService" @change="touchUnits">
+                  <label class="form-check-label small" :for="'f-unit-oos-' + ui">Out of service</label>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-danger"
+                        :disabled="unit.state === 'OUT'"
+                        :title="unit.state === 'OUT' ? 'Checked out — return it first' : 'Remove this unit'"
+                        :aria-label="'Remove unit ' + unitCode(unit)"
+                        @click="removeUnitAt(ui)">
                   <i class="bi bi-trash"></i> Remove
                 </button>
               </div>
             </div>
           </template>
         </div>
-      </form>
 
-      <!-- Per-unit tracking. The server assigns the numbers, so a row is
-           only ever "12.–" until it has been saved once. Saved on its own;
-           the details form never carries the unit list. -->
-      <div v-show="tab === 'units'">
-        <template v-if="!unitsForm.length">
-          <p class="small text-secondary mb-2">Individual units are not tracked for this item.</p>
-          <button type="button" class="btn btn-sm btn-outline-primary" @click="trackUnits">
-            <i class="bi bi-list-ol"></i> Track {{ asset?.quantity }} units individually
+        <div v-if="unitsForm.length || unitsDirty" class="d-flex align-items-center gap-2 mt-3">
+          <button type="button" class="btn btn-sm btn-outline-primary" @click="addUnitOpen">
+            <i class="bi bi-plus-lg"></i> Add unit
           </button>
-          <p class="form-text small mt-2 mb-0">
-            Each unit gets a number like {{ asset?.id }}.1 and can be labelled, marked out of
-            service and printed on its own label.
-          </p>
-        </template>
-
-        <ul v-else class="list-group list-group-flush">
-          <li v-for="(unit, ui) in unitsForm" :key="ui + '-' + (unit.no || 'new')"
-              class="list-group-item bg-transparent px-0">
-            <div class="d-flex align-items-center gap-2">
-              <span class="font-monospace small">{{ unitCode(unit) }}</span>
-              <StatusBadge v-if="unit.state === 'OUT'" status="UNAV" :detail="unitDetail(unit)" />
-              <StatusBadge v-else-if="unit.state === 'OOS'" status="LOCK" label="Out of service"
-                           title="Out of service" />
-              <StatusBadge v-else-if="unit.state" status="FREE" />
-              <span class="flex-grow-1"></span>
-              <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
-                      :disabled="unit.state === 'OUT'"
-                      :title="unit.state === 'OUT' ? 'Checked out — return it first' : 'Remove this unit'"
-                      :aria-label="'Remove unit ' + unitCode(unit)"
-                      @click="removeUnit(ui)">
-                <i class="bi bi-x"></i>
-              </button>
-            </div>
-
-            <div class="row g-2 mt-1">
-              <div class="col-6">
-                <input class="form-control form-control-sm" v-model="unit.label" maxlength="120"
-                       placeholder="e.g. Sommer Cable" @input="touchUnits"
-                       :aria-label="'Label for unit ' + unitCode(unit)">
-              </div>
-              <div class="col-6">
-                <input class="form-control form-control-sm font-monospace" v-model="unit.serial"
-                       maxlength="120" placeholder="Serial number" @input="touchUnits"
-                       :aria-label="'Serial number of unit ' + unitCode(unit)">
-              </div>
-              <div class="col-4">
-                <select class="form-select form-select-sm" v-model="unit.condition" @change="touchUnits"
-                        :aria-label="'Condition of unit ' + unitCode(unit)">
-                  <option v-for="c in CONDITIONS" :key="c" :value="c">{{ CONDITION_LABEL[c] }}</option>
-                </select>
-              </div>
-              <div class="col-4">
-                <input class="form-control form-control-sm" type="text" inputmode="decimal"
-                       v-model="unit.price" placeholder="Price" @input="touchUnits"
-                       :aria-label="'Price of unit ' + unitCode(unit)">
-              </div>
-              <div class="col-4 d-flex align-items-center">
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input" type="checkbox" :id="'f-unit-oos-' + ui"
-                         v-model="unit.outOfService" @change="touchUnits">
-                  <label class="form-check-label small" :for="'f-unit-oos-' + ui">Out of service</label>
-                </div>
-              </div>
-              <!-- Bound by hand, not with v-model: onUnitPurchased() needs the
-                   date the row had to tell an auto-filled warranty from a
-                   typed one. -->
-              <div class="col-6">
-                <label class="form-label small mb-1" :for="'f-unit-bought-' + ui">Purchased</label>
-                <input class="form-control form-control-sm" type="date" :id="'f-unit-bought-' + ui"
-                       :value="unit.purchasedAt" @input="onUnitPurchased(unit, $event.target.value)"
-                       :aria-label="'Purchase date of unit ' + unitCode(unit)">
-              </div>
-              <div class="col-6">
-                <label class="form-label small mb-1" :for="'f-unit-warranty-' + ui">Warranty until</label>
-                <input class="form-control form-control-sm" type="date" :id="'f-unit-warranty-' + ui"
-                       v-model="unit.warrantyUntil" @input="touchUnits"
-                       :aria-label="'Warranty of unit ' + unitCode(unit)">
-                <div v-if="unitWarrantyIsAuto(unit)" class="form-text small">
-                  auto: purchase + {{ warrantyMonths }} months
-                </div>
-              </div>
-
-              <div class="col-12">
-                <input class="form-control form-control-sm" v-model="unit.note" maxlength="500"
-                       placeholder="Note (optional)" @input="touchUnits"
-                       :aria-label="'Note on unit ' + unitCode(unit)">
-              </div>
-            </div>
-          </li>
-        </ul>
-
-        <div class="d-flex align-items-center gap-2 mt-3">
-          <button type="button" class="btn btn-sm btn-outline-primary" @click="addUnit">
-            <i class="bi bi-plus"></i> Add unit
-          </button>
-          <span class="flex-grow-1"></span>
+          <span class="flex-grow-1 small text-secondary text-end">{{ unitsDirty ? 'Unsaved changes' : '' }}</span>
           <button type="button" class="btn btn-sm btn-primary"
                   :disabled="!unitsDirty || saving" @click="saveUnits">
             <span v-if="saving" class="spinner-border spinner-border-sm me-1"></span>
@@ -1290,96 +1282,73 @@ export default {
         </div>
       </div>
 
-      <!-- Rental rates. What the gear costs to HIRE, which is not what it is
-           worth: the price below is read-only here and is only ever the basis
-           a percentage rate is worked out from. -->
+      <!-- Rental rates: what the gear costs to HIRE. The value below is only
+           the basis a percentage rate is worked out from. -->
       <div v-if="tab === 'rental' && !isNew">
-        <p v-if="isSet" class="small text-secondary">
-          A kit is hired out as its contents: every item inside it is charged at its own
-          rate, so a kit has no rate of its own. Open a member to change what it costs.
-        </p>
+        <div v-if="isSet" class="trax-empty py-4">
+          <i class="bi bi-tags"></i>
+          Kits are charged by their contents.
+        </div>
 
         <template v-else>
-          <div class="alert alert-secondary py-2 px-3 small d-flex align-items-start gap-2">
-            <i class="bi bi-tags"></i>
-            <div>
-              {{ categoryRateText }}
-              <div class="text-secondary">
-                Edit it under Settings → Rental rates. Anything set below overrules it.
-              </div>
+          <div class="trax-list">
+            <div class="trax-kv">
+              <span title="Edit under Settings → Rental rates">{{ categoryRateLabel }}</span>
+              <strong class="text-end">{{ categoryRateText }}</strong>
             </div>
-          </div>
-
-          <div class="row g-3">
-            <div class="col-12 col-sm-6">
-              <label class="form-label small" for="f-rental-value">Value (read-only)</label>
-              <input id="f-rental-value" class="form-control form-control-sm" readonly
-                     :value="formatMoney(unitPriceOf(asset), rentalCurrency) || '—'">
-              <div class="form-text small">
-                Per unit<span v-if="unitPriced"> · the sum of the unit prices, divided by {{ asset?.quantity }}</span>.
-                Percentage rates are worked out from this.
-              </div>
+            <div class="trax-kv">
+              <span title="Per unit. Percentage rates are based on this.">Value per unit</span>
+              <strong>{{ formatMoney(unitPriceOf(asset), rentalCurrency) || '—' }}</strong>
             </div>
-            <div class="col-12 col-sm-6">
-              <label class="form-label small" for="f-rental-days">Price a hire of</label>
-              <div class="input-group input-group-sm">
+            <div class="trax-kv">
+              <label class="mb-0" for="f-rental-days"
+                     :title="activeTier ? 'Discount from ' + activeTier.days + ' days' : 'Preview only'">
+                Preview for<span v-if="activeTier" class="text-success"> · discount</span>
+              </label>
+              <div class="input-group input-group-sm trax-days-input">
                 <input id="f-rental-days" class="form-control text-end" type="number" min="1" max="3650"
                        v-model="rentalDays">
                 <span class="input-group-text">days</span>
               </div>
-              <div class="form-text small">
-                <span v-if="activeTier">
-                  Discount step: from {{ activeTier.days }} days on.
-                </span>
-                <span v-else>Preview only — nothing here is stored.</span>
+            </div>
+          </div>
+
+          <div class="trax-group">
+            <div class="trax-group-title">This asset</div>
+            <RentalRate :rule="rentalForm.rental" variant="override" :currency="rentalCurrency"
+                        :inherit-label="categoryRate.source === 'category'
+                          ? 'Category rate' : 'Default rate'"
+                        @change="touchRental" />
+            <div class="form-text">
+              {{ rateText(null) }} · {{ rateSource(null) }}
+            </div>
+          </div>
+
+          <!-- Per unit. Only the rate is editable here; prices live in Units. -->
+          <div v-if="rentalForm.units.length" class="trax-group">
+            <div class="trax-group-title">Per unit</div>
+            <div class="trax-list">
+              <div v-for="(row, ri) in rentalForm.units" :key="row.no" class="trax-row d-block">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <span class="trax-unit-code">{{ asset.id }}.{{ row.no }}</span>
+                  <span v-if="asset?.units?.[ri]?.label" class="small fw-semibold text-truncate">{{ asset.units[ri].label }}</span>
+                  <span class="flex-grow-1"></span>
+                  <span class="small text-secondary">{{ unitValueText(ri) }}</span>
+                </div>
+                <RentalRate :rule="row.rental" variant="override" :dense="true"
+                            :currency="rentalCurrency" inherit-label="Asset rate"
+                            @change="touchRental" />
+                <div class="form-text">
+                  {{ rateText(rentalUnitAt(ri)) }} · {{ rateSource(rentalUnitAt(ri)) }}
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="mt-3">
-            <h3 class="trax-page-title">This asset's rate</h3>
-            <RentalRate :rule="rentalForm.rental" variant="override" :currency="rentalCurrency"
-                        :inherit-label="categoryRate.source === 'category'
-                          ? 'Use the category rate' : 'Use the default rate'"
-                        @change="touchRental" />
-            <div class="small text-secondary mt-1">
-              {{ rateText(null) }} <span class="text-body-secondary">· from {{ rateSource(null) }}</span>
-            </div>
-          </div>
-
-          <!-- Per unit. Only the rate is editable here; the price beside it is
-               the unit's own and is edited in the Units tab. -->
-          <div v-if="rentalForm.units.length" class="mt-3">
-            <h3 class="trax-page-title">Per unit</h3>
-            <ul class="list-group list-group-flush">
-              <li v-for="(row, ri) in rentalForm.units" :key="row.no"
-                  class="list-group-item bg-transparent px-0">
-                <div class="d-flex align-items-center gap-2">
-                  <span class="font-monospace small">{{ asset.id }}.{{ row.no }}</span>
-                  <span v-if="asset?.units?.[ri]?.label"
-                        class="small text-secondary text-truncate">{{ asset.units[ri].label }}</span>
-                  <span class="flex-grow-1"></span>
-                  <span class="small text-secondary">{{ unitValueText(ri) }}</span>
-                </div>
-                <div class="mt-1">
-                  <RentalRate :rule="row.rental" variant="override" :dense="true"
-                              :currency="rentalCurrency"
-                              inherit-label="Use this asset's rate"
-                              @change="touchRental" />
-                </div>
-                <div class="small text-secondary mt-1">
-                  {{ rateText(rentalUnitAt(ri)) }}
-                  <span class="text-body-secondary">· from {{ rateSource(rentalUnitAt(ri)) }}</span>
-                </div>
-              </li>
-            </ul>
-          </div>
-
           <div class="d-flex align-items-center gap-2 mt-3">
-            <span class="small text-secondary flex-grow-1">
-              Rates are never stored on a booking — a hire is always priced by what is in force now.
-            </span>
+            <span class="flex-grow-1 small text-secondary">{{ rentalDirty ? 'Unsaved changes' : '' }}</span>
             <button type="button" class="btn btn-sm btn-primary"
+                    title="Bookings are always priced at the rates in force"
                     :disabled="!rentalDirty || saving" @click="saveRental">
               <span v-if="saving" class="spinner-border spinner-border-sm me-1"></span>
               Save rates
@@ -1388,364 +1357,314 @@ export default {
         </template>
       </div>
 
-      <!-- Test records. One history per physical piece, because that is what a
-           test certificate is about: cable 183.5, not "cables". -->
+      <!-- Test records. One history per physical piece: cable 183.5, not "cables". -->
       <div v-if="tab === 'inspection' && !isNew">
-        <div v-if="!testEnabled" class="alert alert-secondary py-2 px-3 small">
-          <i class="bi bi-info-circle"></i>
-          <span v-if="asset?.category">
-            "{{ asset.category }}" is not set up for tests. Tick it under
-            Settings → Inspections and this asset starts asking for a record.
-          </span>
-          <span v-else>
-            This asset has no category, and tests are switched on per category
-            under Settings → Inspections.
-          </span>
-          <span v-if="testRecords.length"> The records below stay either way.</span>
-        </div>
-
-        <div v-else class="alert py-2 px-3 small d-flex align-items-start gap-2"
-             :class="'alert-' + STATE_CLASS[testState]">
-          <i class="bi bi-clipboard-check"></i>
-          <div>
-            <strong>{{ testRule.label }}</strong> — {{ STATE_LABEL[testState] }}
-            <div class="text-secondary">
-              <span v-if="testRule.intervalMonths">
-                Valid for {{ testRule.intervalMonths }} month(s) from each pass.
-              </span>
-              <span v-else>No repeat — nothing falls due on its own.</span>
-              <span v-if="(testRule.fields || []).length">
-                Records {{ testRule.fields.join(', ') }}.
-              </span>
-            </div>
+        <div class="d-flex align-items-start gap-2 mb-3">
+          <div class="flex-grow-1 min-w-0 small">
+            <template v-if="testEnabled">
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <strong>{{ testRule.label }}</strong>
+                <span class="trax-status-dot" :class="stateDot(testState)">{{ STATE_LABEL[testState] }}</span>
+              </div>
+              <div class="text-secondary">
+                {{ testRule.intervalMonths ? 'Every ' + testRule.intervalMonths + ' months' : 'No repeat' }}<span
+                  v-if="(testRule.fields || []).length"> · {{ testRule.fields.join(', ') }}</span>
+              </div>
+            </template>
+            <span v-else class="text-secondary" title="Switch tests on per category under Settings → Inspections">
+              <i class="bi bi-info-circle"></i>
+              Tests are off for {{ asset?.category ? '"' + asset.category + '"' : 'items without a category' }}.
+            </span>
           </div>
-        </div>
-
-        <div class="d-flex align-items-center gap-2 mb-2">
-          <span class="small text-secondary flex-grow-1">
-            {{ testRecords.length }} record(s) on {{ testRows.length }} piece(s)
-          </span>
-          <button type="button" class="btn btn-sm btn-outline-secondary"
+          <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
                   :disabled="exportingTest || !testRecords.length" @click="inspectionPdf"
                   aria-label="Test report PDF for this asset">
             <span v-if="exportingTest" class="spinner-border spinner-border-sm me-1"></span>
             <i v-else class="bi bi-file-earmark-text"></i>
-            Test report
+            Report
           </button>
         </div>
 
-        <ul class="list-group list-group-flush">
-          <li v-for="row in testRows" :key="row.code" class="list-group-item bg-transparent px-0">
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <span class="font-monospace small">{{ row.code }}</span>
-              <span v-if="row.label" class="small text-secondary text-truncate">{{ row.label }}</span>
-              <span class="badge" :class="'bg-' + STATE_CLASS[row.state]">
-                {{ STATE_LABEL[row.state] }}
-              </span>
+        <div class="trax-list">
+          <div v-for="row in testRows" :key="row.code" class="trax-row d-block">
+            <div class="d-flex align-items-center gap-2">
+              <span class="trax-unit-code">{{ row.code }}</span>
+              <span v-if="row.label" class="small fw-semibold text-truncate">{{ row.label }}</span>
+              <span class="trax-status-dot small" :class="stateDot(row.state)">{{ STATE_LABEL[row.state] }}</span>
               <span class="flex-grow-1"></span>
-              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+              <button type="button" class="btn btn-sm btn-outline-primary text-nowrap"
                       :disabled="testBusy" @click="openTest(row)"
                       :aria-label="'Record a test for ' + row.code">
-                <i class="bi bi-plus"></i> Record test
+                <i class="bi bi-plus-lg"></i> Test
               </button>
             </div>
-            <!-- Only when there IS a last test: the badge and the empty-state
-                 line below already say "never tested", and a third copy of it
-                 is noise on every untested piece. -->
-            <div v-if="row.latest" class="small text-secondary">{{ recordSummary(row.latest) }}</div>
 
             <!-- The form, under the piece it is about. -->
-            <div v-if="testFor === row.code && testForm" class="trax-card mt-2">
-              <div class="trax-card-pad">
-                <div class="row g-2">
-                  <div class="col-6 col-md-4">
-                    <label class="form-label small mb-1" for="f-test-at">Tested on</label>
-                    <input class="form-control form-control-sm" id="f-test-at" type="date"
-                           :value="testForm.at" @input="onTestDate($event.target.value)">
-                  </div>
-                  <div class="col-6 col-md-4">
-                    <label class="form-label small mb-1" for="f-test-result">Result</label>
-                    <!-- Bound by hand, not with v-model: onTestResult() needs
-                         to compare the next date against what the interval
-                         said before the result changed. -->
-                    <select class="form-select form-select-sm" id="f-test-result"
-                            :value="testForm.result" @change="onTestResult($event.target.value)">
-                      <option v-for="r in RESULTS" :key="r" :value="r">{{ RESULT_LABEL[r] }}</option>
-                    </select>
-                  </div>
-                  <div class="col-12 col-md-4">
-                    <label class="form-label small mb-1" for="f-test-next">Next test</label>
-                    <input class="form-control form-control-sm" id="f-test-next" type="date"
-                           v-model="testForm.nextAt">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label small mb-1" for="f-test-by">Tested by</label>
-                    <input class="form-control form-control-sm" id="f-test-by" maxlength="120"
-                           v-model="testForm.by" placeholder="Who did the test">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label small mb-1" for="f-test-label">Test</label>
-                    <input class="form-control form-control-sm" id="f-test-label" maxlength="120"
-                           v-model="testForm.label" placeholder="e.g. DGUV V3">
-                  </div>
-
-                  <!-- The parameters the category asks for, in its order. -->
-                  <div v-for="(field, vi) in testForm.values" :key="vi" class="col-12 col-md-6">
-                    <label class="form-label small mb-1" :for="'f-test-value-' + vi">
-                      {{ field.name || ('Parameter ' + (vi + 1)) }}
-                    </label>
-                    <input class="form-control form-control-sm" :id="'f-test-value-' + vi"
-                           maxlength="120" v-model="field.value" placeholder="Measured value">
-                  </div>
-
-                  <div class="col-12">
-                    <label class="form-label small mb-1" for="f-test-note">Note</label>
-                    <textarea class="form-control form-control-sm" id="f-test-note" rows="2"
-                              maxlength="1000" v-model="testForm.note"></textarea>
-                  </div>
-
-                  <div class="col-12">
-                    <label class="form-label small mb-1" for="f-test-file">
-                      Certificate (optional)
-                    </label>
-                    <input class="form-control form-control-sm" id="f-test-file" type="file"
-                           accept="application/pdf,image/jpeg,image/png,image/webp,text/plain"
-                           @change="pickTestFile">
-                    <div class="form-text small">
-                      PDF, image or text. It can also be attached to the record later.
-                    </div>
-                  </div>
+            <div v-if="testFor === row.code && testForm" class="trax-unit-edit px-0 pb-1">
+              <div class="row g-2">
+                <div class="col-6 col-md-4">
+                  <label class="form-label" for="f-test-at">Tested on</label>
+                  <input class="form-control form-control-sm" id="f-test-at" type="date"
+                         :value="testForm.at" @input="onTestDate($event.target.value)">
+                </div>
+                <div class="col-6 col-md-4">
+                  <label class="form-label" for="f-test-result">Result</label>
+                  <!-- Bound by hand: onTestResult() compares the next date
+                       against what the interval said before the change. -->
+                  <select class="form-select form-select-sm" id="f-test-result"
+                          :value="testForm.result" @change="onTestResult($event.target.value)">
+                    <option v-for="r in RESULTS" :key="r" :value="r">{{ RESULT_LABEL[r] }}</option>
+                  </select>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label" for="f-test-next">Next test</label>
+                  <input class="form-control form-control-sm" id="f-test-next" type="date"
+                         v-model="testForm.nextAt">
+                </div>
+                <div class="col-6">
+                  <label class="form-label" for="f-test-by">Tested by</label>
+                  <input class="form-control form-control-sm" id="f-test-by" maxlength="120"
+                         v-model="testForm.by">
+                </div>
+                <div class="col-6">
+                  <label class="form-label" for="f-test-label">Test</label>
+                  <input class="form-control form-control-sm" id="f-test-label" maxlength="120"
+                         v-model="testForm.label" placeholder="e.g. DGUV V3">
                 </div>
 
-                <div class="d-flex align-items-center gap-2 mt-3">
-                  <span class="small text-secondary flex-grow-1">
-                    Filed against {{ row.code }}.
-                  </span>
-                  <button type="button" class="btn btn-sm btn-outline-secondary"
-                          :disabled="testBusy" @click="closeTest">Cancel</button>
-                  <button type="button" class="btn btn-sm btn-primary"
-                          :disabled="testBusy" @click="submitTest">
-                    <span v-if="testBusy" class="spinner-border spinner-border-sm me-1"></span>
-                    Save test
-                  </button>
+                <!-- The parameters the category asks for, in its order. -->
+                <div v-for="(field, vi) in testForm.values" :key="vi" class="col-6">
+                  <label class="form-label" :for="'f-test-value-' + vi">
+                    {{ field.name || ('Parameter ' + (vi + 1)) }}
+                  </label>
+                  <input class="form-control form-control-sm" :id="'f-test-value-' + vi"
+                         maxlength="120" v-model="field.value">
                 </div>
+
+                <div class="col-12">
+                  <label class="form-label" for="f-test-note">Note</label>
+                  <textarea class="form-control form-control-sm" id="f-test-note" rows="2"
+                            maxlength="1000" v-model="testForm.note"></textarea>
+                </div>
+
+                <div class="col-12">
+                  <label class="form-label" for="f-test-file">Certificate</label>
+                  <input class="form-control form-control-sm" id="f-test-file" type="file"
+                         accept="application/pdf,image/jpeg,image/png,image/webp,text/plain"
+                         title="PDF, image or text — optional" @change="pickTestFile">
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-end gap-2 mt-3">
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        :disabled="testBusy" @click="closeTest">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary"
+                        :disabled="testBusy" @click="submitTest">
+                  <span v-if="testBusy" class="spinner-border spinner-border-sm me-1"></span>
+                  Save test
+                </button>
               </div>
             </div>
 
             <!-- This piece's history, newest first. -->
-            <ol v-if="row.records.length" class="list-unstyled mb-0 mt-2 ps-3 border-start border-secondary-subtle">
-              <li v-for="record in row.records" :key="record.id" class="py-1">
+            <ol v-if="row.records.length" class="trax-test-log">
+              <li v-for="record in row.records" :key="record.id">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                  <span class="badge" :class="record.result === 'PASS' ? 'bg-success' : 'bg-danger'">
+                  <span class="trax-status-dot" :class="record.result === 'PASS' ? 'status-FREE' : 'status-UNAV'">
                     {{ RESULT_LABEL[record.result] }}
                   </span>
-                  <span class="small">{{ formatDate(record.at) }}</span>
+                  <span>{{ formatDate(record.at) }}</span>
                   <span v-if="record.label" class="trax-kind-chip">{{ record.label }}</span>
-                  <span v-if="record.nextAt" class="small text-secondary">
-                    next {{ formatDate(record.nextAt) }}
-                  </span>
-                  <span v-if="record.by" class="small text-secondary">· {{ record.by }}</span>
                   <span class="flex-grow-1"></span>
-                  <button v-if="record.file" type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
-                          @click="openCertificate(record)"
+                  <button v-if="record.file" type="button" class="btn btn-sm btn-outline-secondary"
+                          title="Certificate" @click="openCertificate(record)"
                           :aria-label="'Open the certificate of the test on ' + formatDate(record.at)">
-                    <i class="bi bi-paperclip"></i> Certificate
+                    <i class="bi bi-paperclip"></i>
                   </button>
-                  <label v-else class="btn btn-sm btn-outline-secondary py-0 px-2 mb-0">
-                    <i class="bi bi-upload"></i> Certificate
+                  <label v-else class="btn btn-sm btn-outline-secondary mb-0" title="Attach certificate">
+                    <i class="bi bi-upload"></i>
                     <input type="file" class="d-none" :disabled="testBusy"
                            accept="application/pdf,image/jpeg,image/png,image/webp,text/plain"
                            @change="attachCertificate(record, $event)">
                   </label>
-                  <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                  <button type="button" class="btn btn-sm btn-outline-danger"
                           :disabled="testBusy" @click="testConfirm = record"
                           :aria-label="'Remove the test record of ' + formatDate(record.at)">
                     <i class="bi bi-trash"></i>
                   </button>
                 </div>
-                <div v-if="record.values.length" class="small text-secondary">
+                <div class="text-secondary">
+                  <span v-if="record.nextAt">Next {{ formatDate(record.nextAt) }}</span><span
+                    v-if="record.nextAt && record.by"> · </span><span v-if="record.by">{{ record.by }}</span>
+                </div>
+                <div v-if="record.values.length" class="text-secondary">
                   <span v-for="(value, xi) in record.values" :key="xi">
                     {{ value.name }}: <span class="font-monospace">{{ value.value }}</span><span
                       v-if="xi < record.values.length - 1"> · </span>
                   </span>
                 </div>
-                <div v-if="record.note" class="small text-secondary">{{ record.note }}</div>
+                <div v-if="record.note" class="text-secondary">{{ record.note }}</div>
               </li>
             </ol>
-            <div v-else class="small text-secondary mt-1">No test on record for this one yet.</div>
-          </li>
-        </ul>
+            <div v-else class="small text-secondary mt-1">No tests yet</div>
+          </div>
+        </div>
 
-        <!-- Records filed before the units were listed. They belong to the
-             record as a whole and would otherwise simply vanish from view. -->
-        <div v-if="testLoose.length" class="mt-3">
-          <h3 class="trax-page-title">Filed against the whole asset</h3>
-          <ol class="list-unstyled mb-0 small">
-            <li v-for="record in testLoose" :key="record.id" class="d-flex align-items-center gap-2 py-1">
-              <span class="badge" :class="record.result === 'PASS' ? 'bg-success' : 'bg-danger'">
-                {{ RESULT_LABEL[record.result] }}
+        <!-- Records filed before the units were listed; they would otherwise vanish. -->
+        <div v-if="testLoose.length" class="trax-group">
+          <div class="trax-group-title">Whole asset</div>
+          <div class="trax-list">
+            <div v-for="record in testLoose" :key="record.id" class="trax-kv">
+              <span>
+                <span class="trax-status-dot" :class="record.result === 'PASS' ? 'status-FREE' : 'status-UNAV'">
+                  {{ RESULT_LABEL[record.result] }}</span>
+                {{ formatDate(record.at) }}<span v-if="record.by"> · {{ record.by }}</span>
               </span>
-              <span>{{ formatDate(record.at) }}</span>
-              <span v-if="record.by" class="text-secondary">· {{ record.by }}</span>
-              <span class="flex-grow-1"></span>
-              <button v-if="record.file" type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
-                      @click="openCertificate(record)">
+              <button v-if="record.file" type="button" class="btn btn-sm btn-outline-secondary"
+                      title="Certificate" @click="openCertificate(record)">
                 <i class="bi bi-paperclip"></i>
               </button>
-              <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+              <button type="button" class="btn btn-sm btn-outline-danger" title="Remove"
                       :disabled="testBusy" @click="testConfirm = record">
                 <i class="bi bi-trash"></i>
               </button>
-            </li>
-          </ol>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Kit contents -->
       <div v-show="tab === 'members'">
-        <div class="d-flex align-items-start gap-2 mb-2">
-          <p class="small text-secondary mb-0 flex-grow-1">
-            A kit's status is derived from its contents. Deleting the kit never deletes these items.
-          </p>
-          <!-- Add or take out items, change quantities: the kit editor, opened
-               on this kit instead of a new one. -->
+        <div class="trax-list-header">
+          <span class="flex-grow-1" title="Deleting the kit never deletes these items">
+            {{ members.length }} item(s) · status follows contents
+          </span>
+          <!-- The kit editor, opened on this kit. -->
           <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
                   @click="emit('edit-kit', assetId)">
-            <i class="bi bi-pencil-square"></i> Edit contents
+            <i class="bi bi-pencil"></i> Edit
           </button>
         </div>
-        <ul class="list-group list-group-flush">
-          <li v-for="(member, mi) in members" :key="mi + '-' + member.id"
-              class="list-group-item bg-transparent d-flex align-items-center gap-2 px-0">
+        <div v-if="members.length" class="trax-list">
+          <div v-for="(member, mi) in members" :key="mi + '-' + member.id" class="trax-row">
             <button v-if="member.photo" type="button" class="trax-thumb-btn"
                     :aria-label="'Show the photo of ' + member.name"
                     @click.stop="openAssetPhoto(member)">
               <img class="trax-thumb" :src="'uploads/thumb/' + member.photo" alt="">
             </button>
             <span v-else class="trax-thumb trax-thumb-placeholder"><i class="bi bi-camera"></i></span>
-            <button class="trax-name-btn flex-grow-1" @click="emit('open', member.id)">{{ member.name }}</button>
+            <div class="trax-row-main">
+              <button class="trax-name-btn text-truncate mw-100" @click="emit('open', member.id)">{{ member.name }}</button>
+              <div class="trax-row-meta">
+                <span class="trax-status-dot" :class="'status-' + member.effectiveStatus">
+                  {{ statusLabel(member.effectiveStatus, member.kind) }}<span
+                    v-if="member.quantity > 1"> · {{ member.availableQty }} of {{ member.quantity }} free</span>
+                </span>
+              </div>
+            </div>
             <span v-if="member.reqQty > 1" class="trax-kind-chip">×{{ member.reqQty }}</span>
-            <StatusBadge :status="member.effectiveStatus" :kind="member.kind"
-                         :detail="member.quantity > 1 ? (member.availableQty + ' of ' + member.quantity + ' free') : ''" />
-          </li>
-          <li v-if="!members.length" class="text-secondary small py-3">This kit is empty.</li>
-        </ul>
+          </div>
+        </div>
+        <div v-else class="trax-empty py-4"><i class="bi bi-box-seam"></i>This kit is empty</div>
       </div>
 
-      <!-- Condition log. Belongs to the asset, not to a booking: an item on
-           the shelf has no booking, and this record outlives every loan.
-           capture="environment" so a phone opens the rear camera directly. -->
+      <!-- Condition log: belongs to the asset, not a booking, and outlives
+           every loan. capture="environment" opens a phone's rear camera. -->
       <div v-show="tab === 'condition'">
-        <p class="small text-secondary">
-          Dated photos of this one item. Kept when it goes out and comes back.
-        </p>
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <span class="small text-secondary flex-grow-1">Dated photos of this item</span>
+          <label class="btn btn-sm btn-outline-primary mb-0" for="f-condition-photos"
+                 :title="'Up to ' + MAX_PHOTOS + ' at once'">
+            <i class="bi bi-camera"></i> Add photos
+          </label>
+          <input id="f-condition-photos" class="d-none" type="file"
+                 multiple accept="image/*" capture="environment" @change="pickConditionPhotos">
+        </div>
 
-        <div class="row g-2 align-items-end mb-3">
-          <div class="col-12">
-            <label class="form-label small mb-1" for="f-condition-photos">
-              Add photos <span class="text-secondary">— up to {{ MAX_PHOTOS }} at once</span>
-            </label>
-            <input id="f-condition-photos" class="form-control form-control-sm" type="file"
-                   multiple accept="image/*" capture="environment" @change="pickConditionPhotos">
-          </div>
-          <div class="col-12">
-            <input class="form-control form-control-sm" v-model="conditionNote"
-                   aria-label="Comment on these photos"
-                   placeholder="What do these show? (scratch, dent, missing part…)">
-          </div>
-          <div class="col-12 d-flex align-items-center gap-2">
-            <span v-if="conditionFiles.length" class="trax-kind-chip">
-              <i class="bi bi-camera"></i> {{ conditionFiles.length }} photo(s) ready
-            </span>
-            <button v-if="conditionFiles.length" type="button"
-                    class="btn btn-sm btn-outline-secondary" @click="clearConditionPick">Clear</button>
+        <div v-if="conditionFiles.length" class="trax-card trax-card-pad mb-3">
+          <input class="form-control form-control-sm" v-model="conditionNote"
+                 aria-label="Comment on these photos" placeholder="Comment (scratch, dent…)">
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <span class="trax-kind-chip"><i class="bi bi-camera"></i> {{ conditionFiles.length }} photo(s)</span>
             <span class="flex-grow-1"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearConditionPick">Clear</button>
             <button type="button" class="btn btn-sm btn-primary"
-                    :disabled="conditionBusy || !conditionFiles.length" @click="sendConditionPhotos">
+                    :disabled="conditionBusy" @click="sendConditionPhotos">
               <span v-if="conditionBusy" class="spinner-border spinner-border-sm me-1"></span>
-              <i class="bi bi-upload"></i> Upload
+              Upload
             </button>
           </div>
         </div>
 
-        <ul class="list-group list-group-flush">
-          <li v-for="shot in conditionLog" :key="shot.file"
-              class="list-group-item bg-transparent d-flex align-items-center gap-2 px-0">
+        <div v-if="conditionLog.length" class="trax-list">
+          <div v-for="shot in conditionLog" :key="shot.file" class="trax-row">
             <button type="button" class="trax-thumb-btn"
                     :aria-label="'Show the condition photo from ' + formatDateTime(shot.at)"
                     @click="openConditionPhoto(shot.file)">
               <img class="trax-thumb" :src="'uploads/thumb/' + shot.file" alt="Condition photo">
             </button>
-            <div class="flex-grow-1 min-w-0">
-              <div class="small">{{ formatDateTime(shot.at) }}</div>
-              <div v-if="shot.note" class="text-secondary" style="font-size:.75rem">{{ shot.note }}</div>
+            <div class="trax-row-main">
+              <div class="small fw-semibold">{{ formatDateTime(shot.at) }}</div>
+              <div v-if="shot.note" class="trax-row-meta">{{ shot.note }}</div>
             </div>
             <button type="button" class="btn btn-sm btn-outline-danger"
                     :aria-label="'Delete the condition photo from ' + formatDateTime(shot.at)"
                     @click="removeConditionPhoto(shot.file)">
               <i class="bi bi-trash"></i>
             </button>
-          </li>
-          <li v-if="!conditionLog.length" class="text-secondary small py-3">
-            No condition photos yet.
-          </li>
-        </ul>
+          </div>
+        </div>
+        <div v-else-if="!conditionFiles.length" class="trax-empty py-4">
+          <i class="bi bi-images"></i>No condition photos
+        </div>
       </div>
 
-      <!-- Documents. Manuals, receipts, insurance certificates — never public:
-           every one of them is fetched through download.php, which is behind
-           the same login as this page. They appear on no customer page. -->
+      <!-- Documents: manuals, receipts, certificates. Never public — served
+           through download.php behind the login, on no customer page. -->
       <div v-show="tab === 'documents'">
-        <p class="small text-secondary">
-          Manuals, receipts, insurance certificates. Only visible here — never on a
-          customer's booking page. PDF, JPEG, PNG, WebP or plain text, up to
-          {{ MAX_ASSET_DOCS }} per item.
-        </p>
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <span class="small text-secondary flex-grow-1"
+                :title="'PDF, JPEG, PNG, WebP or text · up to ' + MAX_ASSET_DOCS + ' per item'">
+            Internal only · max. {{ MAX_ASSET_DOCS }}
+          </span>
+          <label class="btn btn-sm btn-outline-primary mb-0" for="f-documents"
+                 :title="'Up to ' + MAX_DOCS + ' at once'">
+            <i class="bi bi-paperclip"></i> Attach
+          </label>
+          <input id="f-documents" class="d-none" type="file"
+                 multiple accept=".pdf,.txt,.jpg,.jpeg,.png,.webp,application/pdf,text/plain,image/jpeg,image/png,image/webp"
+                 @change="pickDocuments">
+        </div>
 
-        <div class="row g-2 align-items-end mb-3">
-          <div class="col-12">
-            <label class="form-label small mb-1" for="f-documents">
-              Attach files <span class="text-secondary">— up to {{ MAX_DOCS }} at once</span>
-            </label>
-            <input id="f-documents" class="form-control form-control-sm" type="file"
-                   multiple accept=".pdf,.txt,.jpg,.jpeg,.png,.webp,application/pdf,text/plain,image/jpeg,image/png,image/webp"
-                   @change="pickDocuments">
-          </div>
-          <div class="col-12">
-            <input class="form-control form-control-sm" v-model="docTitle"
-                   aria-label="Label for these documents" maxlength="200"
-                   placeholder="What are these? (manual, receipt, insurance…)">
-          </div>
-          <div class="col-12 d-flex align-items-center gap-2">
-            <span v-if="docFiles.length" class="trax-kind-chip">
-              <i class="bi bi-paperclip"></i> {{ docFiles.length }} file(s) ready
-            </span>
-            <button v-if="docFiles.length" type="button"
-                    class="btn btn-sm btn-outline-secondary" @click="clearDocPick">Clear</button>
+        <div v-if="docFiles.length" class="trax-card trax-card-pad mb-3">
+          <input class="form-control form-control-sm" v-model="docTitle"
+                 aria-label="Label for these documents" maxlength="200"
+                 placeholder="Label (manual, receipt…)">
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <span class="trax-kind-chip"><i class="bi bi-paperclip"></i> {{ docFiles.length }} file(s)</span>
             <span class="flex-grow-1"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="clearDocPick">Clear</button>
             <button type="button" class="btn btn-sm btn-primary"
-                    :disabled="docBusy || !docFiles.length" @click="sendDocuments">
+                    :disabled="docBusy" @click="sendDocuments">
               <span v-if="docBusy" class="spinner-border spinner-border-sm me-1"></span>
-              <i class="bi bi-upload"></i> Attach
+              Upload
             </button>
           </div>
         </div>
 
-        <ul class="list-group list-group-flush">
-          <li v-for="doc in documents" :key="doc.file"
-              class="list-group-item bg-transparent d-flex align-items-center gap-2 px-0">
-            <i class="bi bi-file-earmark-text fs-5 text-secondary"></i>
-            <div class="flex-grow-1 min-w-0">
-              <!-- The name opens the preview; the button beside it still
-                   downloads, which is the only way to get a copy on disk. -->
-              <button type="button" class="trax-name-btn small text-truncate w-100 text-start"
+        <div v-if="documents.length" class="trax-list">
+          <div v-for="doc in documents" :key="doc.file" class="trax-row">
+            <span class="trax-thumb trax-thumb-placeholder"><i class="bi bi-file-earmark-text"></i></span>
+            <div class="trax-row-main">
+              <!-- The name previews; the button beside it downloads. -->
+              <button type="button" class="trax-name-btn text-truncate mw-100 text-start"
                       :aria-label="'Preview ' + doc.name" @click="openDocument(doc)">
-                <strong v-if="doc.title">{{ doc.title }}</strong>
-                <span v-else>{{ doc.name }}</span>
+                {{ doc.title || doc.name }}
               </button>
-              <div class="text-secondary text-truncate" style="font-size:.75rem">
-                <span v-if="doc.title">{{ doc.name }} · </span>{{ formatSize(doc.size) }} ·
-                {{ formatDateTime(doc.addedAt) }}
+              <div class="trax-row-meta text-truncate">
+                <span v-if="doc.title" class="text-truncate">{{ doc.name }}</span>
+                <span>{{ formatSize(doc.size) }}</span>
+                <span>{{ formatDate(doc.addedAt) }}</span>
               </div>
             </div>
             <a class="btn btn-sm btn-outline-secondary" :href="'download.php?file=' + doc.file"
@@ -1757,30 +1676,30 @@ export default {
                     @click="removeDocument(doc.file)">
               <i class="bi bi-trash"></i>
             </button>
-          </li>
-          <li v-if="!documents.length" class="text-secondary small py-3">
-            No documents attached yet.
-          </li>
-        </ul>
+          </div>
+        </div>
+        <div v-else-if="!docFiles.length" class="trax-empty py-4">
+          <i class="bi bi-folder2-open"></i>No files attached
+        </div>
       </div>
 
       <!-- History -->
       <div v-show="tab === 'history'">
-        <ol class="list-unstyled mb-0">
-          <li v-for="entry in history" :key="entry.id" class="d-flex gap-2 py-2 border-bottom border-secondary-subtle">
-            <i class="bi bi-dot"></i>
-            <div class="flex-grow-1">
-              <div class="small"><strong>{{ entry.type.replace(/_/g, ' ') }}</strong>
-                <span v-if="entry.customerName" class="text-secondary"> · {{ entry.customerName }}</span>
+        <div v-if="history.length" class="trax-list">
+          <div v-for="entry in history" :key="entry.id" class="trax-row">
+            <div class="trax-row-main">
+              <div class="trax-row-title">
+                <span class="trax-history-type">{{ entry.type.replace(/_/g, ' ') }}</span>
               </div>
-              <div class="text-secondary" style="font-size:.75rem">
-                {{ formatDateTime(entry.at) }}
-                <span v-if="entry.note"> · {{ entry.note }}</span>
+              <div class="trax-row-meta">
+                <span>{{ formatDateTime(entry.at) }}</span>
+                <span v-if="entry.customerName">{{ entry.customerName }}</span>
+                <span v-if="entry.note">{{ entry.note }}</span>
               </div>
             </div>
-          </li>
-          <li v-if="!history.length" class="text-secondary small py-3">Nothing recorded yet.</li>
-        </ol>
+          </div>
+        </div>
+        <div v-else class="trax-empty py-4"><i class="bi bi-clock-history"></i>Nothing recorded yet</div>
       </div>
 
       <datalist id="trax-categories">
@@ -1791,21 +1710,28 @@ export default {
       </datalist>
 
       <template #footer>
-        <button v-if="!isNew" type="button" class="btn btn-sm btn-outline-danger"
-                @click="confirmDelete = true">
-          <i class="bi bi-trash"></i> Delete
-        </button>
-        <button v-if="!isNew" type="button" class="btn btn-sm btn-outline-secondary"
-                @click="emit('label', asset.id)">
-          <i class="bi bi-printer"></i> Label
-        </button>
-        <button v-if="isSet && !isNew" type="button" class="btn btn-sm btn-outline-secondary"
-                @click="emit('edit-kit', assetId)">
-          <i class="bi bi-box-seam"></i> Edit contents
-        </button>
+        <Menu v-if="!isNew" label="More actions" icon="bi-three-dots" up align="start"
+              button-class="btn btn-outline-secondary trax-footer-more">
+          <button type="button" class="trax-menu-item" @click="emit('label', asset.id)">
+            <i class="bi bi-qr-code"></i> Print label
+          </button>
+          <button v-if="isSet" type="button" class="trax-menu-item" @click="emit('edit-kit', assetId)">
+            <i class="bi bi-box-seam"></i> Edit contents
+          </button>
+          <button type="button" class="trax-menu-item" @click="fileInput.click()">
+            <i class="bi bi-camera"></i> {{ asset?.photo ? 'Replace photo' : 'Add photo' }}
+          </button>
+          <button v-if="asset?.photo" type="button" class="trax-menu-item" @click="removePhoto">
+            <i class="bi bi-image"></i> Remove photo
+          </button>
+          <div class="trax-menu-sep"></div>
+          <button type="button" class="trax-menu-item is-danger" @click="confirmDelete = true">
+            <i class="bi bi-trash"></i> {{ isSet ? 'Delete kit' : 'Delete asset' }}
+          </button>
+        </Menu>
         <span class="flex-grow-1"></span>
-        <button type="button" class="btn btn-sm btn-outline-secondary" @click="emit('close')">Cancel</button>
-        <button type="button" class="btn btn-sm btn-primary" :disabled="saving" @click="save">
+        <button type="button" class="btn btn-outline-secondary" @click="emit('close')">Cancel</button>
+        <button type="button" class="btn btn-primary" :disabled="saving" @click="save">
           <span v-if="saving" class="spinner-border spinner-border-sm me-1"></span>
           {{ isNew ? 'Create' : 'Save' }}
         </button>
@@ -1815,18 +1741,16 @@ export default {
     <ConfirmDialog v-if="confirmDelete"
                    :title="isSet ? 'Delete this kit?' : 'Delete this asset?'"
                    :message="isSet
-                     ? 'The kit definition is removed. The items inside it are kept.'
-                     : 'This removes the asset and its photo. History entries are kept.'"
+                     ? 'The items inside it are kept.'
+                     : 'The asset and its photo are removed. History is kept.'"
                    confirm-label="Delete" danger
                    @confirm="remove" @cancel="confirmDelete = false" />
 
-    <!-- A test record is documentation, so removing one asks first and says
-         what goes with it. -->
+    <!-- A test record is documentation, so removing one asks first. -->
     <ConfirmDialog v-if="testConfirm"
                    title="Remove this test record?"
                    :message="'The ' + (testConfirm.label || 'test') + ' of ' + formatDate(testConfirm.at)
-                     + ' is deleted' + (testConfirm.file ? ', together with its certificate.' : '.')
-                     + ' This cannot be undone.'"
+                     + (testConfirm.file ? ' and its certificate' : '') + ' will be deleted. This cannot be undone.'"
                    confirm-label="Remove" danger
                    @confirm="removeTest" @cancel="testConfirm = null" />
   `,

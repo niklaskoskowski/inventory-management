@@ -230,51 +230,49 @@ export default {
   },
   template: `
     <Drawer :title="'Label · ' + (asset?.name || '')" icon="bi-printer" @close="emit('close')">
-      <p class="small text-secondary">
-        The QR code points at this asset's public page, so scanning it works from
-        any phone camera — not just from inside {{ appName }}.
-      </p>
-
-      <template v-if="hasUnits">
-        <label class="form-label small text-secondary mb-1">Label for</label>
-        <select class="form-select form-select-sm mb-2" v-model="selected">
-          <option value="">Product label (ID {{ assetId }})</option>
-          <option v-for="unit in units" :key="unit.no" :value="String(unit.no)">
-            {{ unitOption(unit) }}
-          </option>
-        </select>
-        <p class="small text-secondary">
-          Each unit gets its own QR label; scanning it selects that exact unit.
-        </p>
-      </template>
-
-      <div v-if="printerEnabled" class="d-flex align-items-center gap-2 mb-1 small">
-        <i class="bi bi-printer text-secondary"></i>
-        <span class="text-secondary flex-grow-1">Label printer</span>
-        <label class="text-secondary" for="label-copies">Copies</label>
-        <input id="label-copies" type="number" min="1" max="20" class="form-control form-control-sm"
-               style="width:4.5rem" v-model.number="copies">
+      <div class="trax-list mb-3">
+        <!-- Which label: the product's, or one unit's own (scanning that selects the unit). -->
+        <div v-if="hasUnits" class="trax-kv">
+          <label class="mb-0" for="label-for">Label for</label>
+          <select id="label-for" class="form-select form-select-sm w-auto mw-100" v-model="selected">
+            <option value="">Product · {{ assetId }}</option>
+            <option v-for="unit in units" :key="unit.no" :value="String(unit.no)">
+              {{ unitOption(unit) }}
+            </option>
+          </select>
+        </div>
+        <!-- Whether this label is on the gear yet; each label has its own. -->
+        <div class="trax-kv">
+          <label class="mb-0" for="label-labeled">Attached to the gear</label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="label-labeled"
+                   :checked="labeled" :disabled="labeledBusy" @change="toggleLabeled">
+          </div>
+        </div>
+        <div v-if="printerEnabled" class="trax-kv">
+          <label class="mb-0" for="label-copies" :title="'Label printer: ' + stripText">
+            Copies <span class="small">· {{ stripText }}</span>
+          </label>
+          <input id="label-copies" type="number" min="1" max="20" class="form-control form-control-sm text-end"
+                 style="width:4.5rem" v-model.number="copies">
+        </div>
       </div>
-      <p v-if="printerEnabled" class="small text-secondary mb-3">
-        Prints like Settings → Labels → Batch print – {{ stripText }}; copies and "all unit labels"
-        as one strip.
-      </p>
 
-      <div class="row g-3">
+      <div class="row g-2">
         <div class="col-6">
-          <div class="trax-card p-2 text-center">
-            <div class="small text-secondary mb-2">Portrait · 14 × 30 mm</div>
-            <img :src="portrait" alt="Portrait label preview"
-                 class="img-fluid bg-white rounded" style="max-height:280px">
-            <div class="d-grid gap-1 mt-2">
-              <a class="btn btn-sm btn-outline-secondary" :href="portrait" :download="portraitName">
-                <i class="bi bi-download"></i> Download
-              </a>
-              <button class="btn btn-sm btn-outline-secondary" @click="printLabel(portrait)">
-                <i class="bi bi-printer"></i> Print
-              </button>
-              <button v-if="printerEnabled" class="btn btn-sm btn-primary"
-                      :disabled="!!sending" @click="sendToPrinter('portrait')">
+          <div class="trax-list h-100 d-flex flex-column">
+            <div class="trax-label-preview flex-grow-1" :title="appName + ' QR · opens the public page'">
+              <img :src="portrait" alt="Portrait label preview">
+            </div>
+            <div class="trax-label-actions">
+              <div class="trax-label-name">Portrait<small>14 × 30 mm</small></div>
+              <a class="btn btn-sm btn-outline-secondary" :href="portrait" :download="portraitName"
+                 title="Download" aria-label="Download portrait label"><i class="bi bi-download"></i></a>
+              <button class="btn btn-sm btn-outline-secondary" @click="printLabel(portrait)"
+                      title="Print" aria-label="Print portrait label"><i class="bi bi-printer"></i></button>
+            </div>
+            <div v-if="printerEnabled" class="px-2 pb-2">
+              <button class="btn btn-sm btn-primary w-100" :disabled="!!sending" @click="sendToPrinter('portrait')">
                 <span v-if="sending === 'portrait'" class="spinner-border spinner-border-sm me-1"></span>
                 <i v-else class="bi bi-send"></i> Send to printer
               </button>
@@ -283,90 +281,84 @@ export default {
         </div>
 
         <div class="col-6">
-          <div class="trax-card p-2 text-center">
-            <div class="small text-secondary mb-2">Wide · 30 × 14 mm</div>
-            <img :src="wide" alt="Wide label preview"
-                 class="img-fluid bg-white rounded" style="max-height:280px">
-            <div class="d-grid gap-1 mt-2">
-              <a class="btn btn-sm btn-outline-secondary" :href="wide" :download="wideName">
-                <i class="bi bi-download"></i> Download
-              </a>
-              <button class="btn btn-sm btn-outline-secondary" @click="printLabel(wide)">
-                <i class="bi bi-printer"></i> Print
-              </button>
-              <button v-if="printerEnabled" class="btn btn-sm btn-primary"
-                      :disabled="!!sending" @click="sendToPrinter('wide')">
+          <div class="trax-list h-100 d-flex flex-column">
+            <div class="trax-label-preview flex-grow-1" :title="appName + ' QR · opens the public page'">
+              <img :src="wide" alt="Wide label preview">
+            </div>
+            <div class="trax-label-actions">
+              <div class="trax-label-name">Wide<small>30 × 14 mm</small></div>
+              <a class="btn btn-sm btn-outline-secondary" :href="wide" :download="wideName"
+                 title="Download" aria-label="Download wide label"><i class="bi bi-download"></i></a>
+              <button class="btn btn-sm btn-outline-secondary" @click="printLabel(wide)"
+                      title="Print" aria-label="Print wide label"><i class="bi bi-printer"></i></button>
+            </div>
+            <div v-if="printerEnabled" class="px-2 pb-2">
+              <button class="btn btn-sm btn-primary w-100" :disabled="!!sending" @click="sendToPrinter('wide')">
                 <span v-if="sending === 'wide'" class="spinner-border spinner-border-sm me-1"></span>
                 <i v-else class="bi bi-send"></i> Send to printer
               </button>
             </div>
           </div>
         </div>
-      </div>
 
-      <div class="col-12 mt-3">
-        <div class="trax-card p-2 text-center">
-          <div class="small text-secondary mb-2">
-            Cable flag · {{ 60 + cableGapMm }} × 14 mm — the middle {{ cableGapMm }} mm wraps the
-            cable, the ends meet back to back
-          </div>
-          <img :src="cable" alt="Cable flag label preview" class="img-fluid bg-white rounded">
-          <div class="d-flex gap-1 mt-2 justify-content-center">
-            <a class="btn btn-sm btn-outline-secondary" :href="cable" :download="cableName">
-              <i class="bi bi-download"></i> Download
-            </a>
-            <button class="btn btn-sm btn-outline-secondary" @click="printLabel(cable)">
-              <i class="bi bi-printer"></i> Print
-            </button>
-            <button v-if="printerEnabled" class="btn btn-sm btn-primary"
-                    :disabled="!!sending" @click="sendToPrinter('cable')">
-              <span v-if="sending === 'cable'" class="spinner-border spinner-border-sm me-1"></span>
-              <i v-else class="bi bi-send"></i> Send to printer
-            </button>
+        <div class="col-12">
+          <div class="trax-list">
+            <div class="trax-label-preview" style="min-height:0">
+              <img :src="cable" alt="Cable flag label preview">
+            </div>
+            <div class="trax-label-actions">
+              <div class="trax-label-name"
+                   :title="'The middle ' + cableGapMm + ' mm wraps the cable; the ends meet back to back'">
+                Cable flag<small>{{ 60 + cableGapMm }} × 14 mm · {{ cableGapMm }} mm wrap</small>
+              </div>
+              <a class="btn btn-sm btn-outline-secondary" :href="cable" :download="cableName"
+                 title="Download" aria-label="Download cable flag label"><i class="bi bi-download"></i></a>
+              <button class="btn btn-sm btn-outline-secondary" @click="printLabel(cable)"
+                      title="Print" aria-label="Print cable flag label"><i class="bi bi-printer"></i></button>
+              <button v-if="printerEnabled" class="btn btn-sm btn-primary"
+                      :disabled="!!sending" @click="sendToPrinter('cable')" aria-label="Send cable flag to printer">
+                <span v-if="sending === 'cable'" class="spinner-border spinner-border-sm me-1"></span>
+                <i v-else class="bi bi-send"></i> Send
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Whether this label is on the gear yet. Per label: the product label
-           and every unit's label each have their own. -->
-      <div class="form-check form-switch mt-3">
-        <input class="form-check-input" type="checkbox" role="switch" id="label-labeled"
-               :checked="labeled" :disabled="labeledBusy" @change="toggleLabeled">
-        <label class="form-check-label small" for="label-labeled">
-          Labeled — the {{ code }} label is on the gear
-        </label>
-      </div>
-
-      <div v-if="hasUnits" class="d-grid gap-2 mt-3">
-        <button class="btn btn-sm btn-outline-secondary" @click="printAllUnits">
-          <i class="bi bi-printer"></i> Print all unit labels
-        </button>
-        <button class="btn btn-sm btn-outline-secondary"
-                :disabled="downloadingAll" @click="downloadAllUnits">
-          <span v-if="downloadingAll" class="spinner-border spinner-border-sm me-1"></span>
-          <i v-else class="bi bi-file-earmark-zip"></i>
-          {{ downloadingAll ? 'Preparing…' : 'Download all unit labels' }}
-        </button>
-        <div v-if="printerEnabled" class="input-group input-group-sm">
+      <div v-if="hasUnits" class="trax-group mt-3">
+        <div class="trax-group-title">All {{ units.length }} units</div>
+        <div class="d-flex flex-wrap gap-2">
+          <button class="btn btn-sm btn-outline-secondary" @click="printAllUnits">
+            <i class="bi bi-printer"></i> Print all
+          </button>
+          <button class="btn btn-sm btn-outline-secondary"
+                  :disabled="downloadingAll" @click="downloadAllUnits">
+            <span v-if="downloadingAll" class="spinner-border spinner-border-sm me-1"></span>
+            <i v-else class="bi bi-file-earmark-zip"></i>
+            {{ downloadingAll ? 'Preparing…' : 'Download ZIP' }}
+          </button>
+        </div>
+        <div v-if="printerEnabled" class="input-group input-group-sm mt-2">
           <select class="form-select" v-model="printerFormat" aria-label="Format for the unit labels"
                   :disabled="!!sending">
             <option value="portrait">Portrait</option>
             <option value="wide">Wide</option>
             <option value="cable">Cable flag</option>
           </select>
-          <button class="btn btn-primary" :disabled="!!sending" @click="sendAllUnits">
+          <button class="btn btn-primary" :disabled="!!sending" @click="sendAllUnits"
+                  title="All unit labels as one strip">
             <span v-if="sending === 'units'" class="spinner-border spinner-border-sm me-1"></span>
             <i v-else class="bi bi-send"></i>
             {{ unitProgress
               ? (unitProgress.done < unitProgress.total ? 'Uploading ' + unitProgress.done + ' / ' + unitProgress.total : 'Printing…')
-              : 'Print all ' + units.length + ' unit labels as one strip' }}
+              : 'Send all as one strip' }}
           </button>
         </div>
       </div>
 
       <template #footer>
         <span class="flex-grow-1 small text-secondary font-monospace">ID {{ code }}</span>
-        <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">Close</button>
+        <button class="btn btn-outline-secondary" @click="emit('close')">Done</button>
       </template>
     </Drawer>
   `,
