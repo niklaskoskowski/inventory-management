@@ -48,21 +48,24 @@ function trax_booking_gone(): never
     http_response_code(404);
     echo <<<HTML
         <!DOCTYPE html>
-        <html lang="en" data-bs-theme="dark">
+        <html lang="en">
         <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
         <meta name="robots" content="noindex, nofollow">
+        <meta name="color-scheme" content="light dark">
         <title>Link not available</title>
-        <link rel="stylesheet" href="vendor/bootstrap.min.css">
-        <style>body{background:#0c0f12;color:#e6edf3;touch-action:manipulation;} .wrap{max-width:520px;margin:0 auto;padding:4rem 1rem;}</style>
+        <link rel="stylesheet" href="public.css">
+        <link rel="stylesheet" href="vendor/bootstrap-icons.css">
         </head>
-        <body>
-        <div class="wrap">
-        <h1 class="h5">This link is not available.</h1>
-        <p class="text-secondary small mb-0">It may have expired, or it may never have been valid. If you still need
-        your booking details, please ask the person who lent you the equipment for a new link.</p>
+        <body class="pub-page pub-solo">
+        <main class="pub-solo-main">
+        <div class="pub-card pub-solo-head">
+        <div class="pub-appicon" aria-hidden="true"><i class="bi bi-link-45deg"></i></div>
+        <h1 class="pub-solo-title">Link not available</h1>
+        <p class="pub-solo-sub">It may have expired. Ask the lender for a new link.</p>
         </div>
+        </main>
         </body>
         </html>
 
@@ -491,131 +494,86 @@ $pdfBranding = [
 ];
 ?>
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow">
+    <meta name="color-scheme" content="light dark">
     <title>Your booking · <?php echo esc($view['orgName']); ?></title>
-    <link rel="stylesheet" href="vendor/bootstrap.min.css">
+    <!-- All styling lives in public.css. Deliberately no inline style block:
+         api_test.sh asserts the rendered page contains no at-sign at all. -->
+    <link rel="stylesheet" href="public.css">
     <link rel="stylesheet" href="vendor/bootstrap-icons.css">
-    <style>
-        body { background: #0c0f12; color: #e6edf3; touch-action: manipulation; }
-        button, .btn { touch-action: manipulation; }
-        .sheet { max-width: 720px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
-        .brandbar { height: 4px; border-radius: 999px; margin-bottom: 1.25rem; }
-        .card-t { background: #11161b; border: 1px solid #1b232b; border-radius: .75rem; }
-        .thumb { width: 56px; height: 56px; object-fit: cover; border-radius: .5rem; background: #1b232b; }
-        .thumb-empty { display: inline-flex; align-items: center; justify-content: center; color: #55606b; }
-        .meta-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: #8b98a5; }
-        .badge-status { font-size: .7rem; font-weight: 600; padding: .2rem .55rem; border-radius: 999px; }
-        .s-open { color: #f0c674; background: rgba(210,153,34,.15); }
-        .s-done { color: #7ee2a0; background: rgba(46,160,67,.15); }
-        .s-void { color: #b1bac4; background: rgba(110,118,129,.18); }
-        .kit { font-size: .7rem; color: #8b98a5; }
-        .shot { width: 120px; }
-        .shot-img { width: 120px; height: 90px; object-fit: cover; border-radius: .5rem; background: #1b232b; }
-        /* The signature pad. White because that is what the drawing is stored
-           and printed on: dark ink on white travels from a phone screen to a
-           PDF without a single inversion along the way. */
-        .sig-pad { width: 100%; height: 170px; border-radius: .5rem; background: #fff;
-                   border: 1px solid #1b232b; touch-action: none; display: block; cursor: crosshair; }
-        .sig-shot { max-width: 100%; border-radius: .5rem; background: #fff; }
-        .sig-name { font-size: 1rem; }
-        .sig-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
-        .sig-ok { color: #7ee2a0; }
-        .sig-warn { color: #f0c674; }
-        /* The terms, folded under the pad: readable in place on a phone
-           without leaving the page, and scrollable so they never push the
-           pad off the screen. */
-        .terms-box { border: 1px solid #1b232b; border-radius: .5rem; background: #0c0f12; }
-        .terms-box > summary { cursor: pointer; padding: .5rem .75rem; font-size: .85rem; color: #c9d1d9; }
-        .terms-body { max-height: 45vh; overflow-y: auto; padding: 0 .75rem .75rem; font-size: .85rem; color: #c9d1d9; }
-        .terms-body h2, .terms-body h3, .terms-body h4 { font-size: .95rem; margin: 1rem 0 .4rem; color: #e6edf3; }
-        .terms-body p, .terms-body ul, .terms-body ol, .terms-body blockquote { margin-bottom: .6rem; }
-        .terms-body a, .terms-link { color: #8ab4f8; }
-        .terms-accept { font-size: .9rem; }
-        .terms-accept .form-check-input { width: 1.15rem; height: 1.15rem; margin-top: .15rem; }
-        .foot { border-top: 1px solid #1b232b; margin-top: 2rem; padding-top: 1rem; font-size: .8rem; color: #8b98a5; }
-        .foot a { color: #8b98a5; }
-        /* Deliberately no 16px focus-zoom rule: this sheet is read-only and has
-           no form controls, and api_test.sh asserts the rendered page contains
-           no at-sign at all, which any media block would violate. */
-    </style>
 </head>
-<body>
-<div class="sheet">
-    <div class="brandbar" style="background: <?php echo esc($view['brandColor']); ?>;"></div>
+<body class="pub-page">
+<header class="pub-top">
+    <div class="pub-top-inner">
+        <span class="pub-appicon bk-mark" style="background: <?php echo esc($view['brandColor']); ?>;" aria-hidden="true"><i class="bi bi-box-seam"></i></span>
+        <span class="pub-wordmark"><?php echo esc($view['orgName']); ?></span>
+    </div>
+</header>
 
-    <div class="d-flex align-items-center gap-2 mb-3">
-        <h1 class="h5 mb-0 flex-grow-1"><?php echo esc($view['orgName']); ?> · Your booking</h1>
-        <span class="badge-status <?php echo esc($statusClass); ?>"><?php echo esc($statusText); ?></span>
+<main class="pub-main">
+    <div class="bk-head">
+        <div class="bk-head-text">
+            <h1 class="pub-title">Your booking</h1>
+        </div>
+        <span class="bk-badge <?php echo esc($statusClass); ?>"><?php echo esc($statusText); ?></span>
     </div>
 
-    <div class="card-t p-3 mb-3">
-        <div class="meta-label">Booked for</div>
-        <div class="mb-3"><?php echo esc($view['customerName']); ?></div>
-
-        <div class="row g-3">
+    <section class="bk-section">
+        <div class="pub-group">
+            <div class="pub-row pub-kv"><span>Booked for</span><strong><?php echo esc($view['customerName']); ?></strong></div>
             <?php if ($view['startAt'] !== null): ?>
-                <div class="col-6 col-md-4">
-                    <div class="meta-label">From</div>
-                    <div><?php echo esc($view['startAt']); ?></div>
-                </div>
+                <div class="pub-row pub-kv"><span>From</span><strong><?php echo esc($view['startAt']); ?></strong></div>
             <?php endif; ?>
             <?php if ($view['dueAt'] !== null): ?>
-                <div class="col-6 col-md-4">
-                    <div class="meta-label"><?php echo esc($dueLabel); ?></div>
-                    <div><?php echo esc($view['dueAt']); ?></div>
-                </div>
+                <div class="pub-row pub-kv"><span><?php echo esc($dueLabel); ?></span><strong><?php echo esc($view['dueAt']); ?></strong></div>
             <?php endif; ?>
-            <div class="col-6 col-md-4">
-                <div class="meta-label">Issued</div>
-                <div><?php echo esc($view['createdAt']); ?></div>
-            </div>
+            <div class="pub-row pub-kv"><span>Issued</span><strong><?php echo esc($view['createdAt']); ?></strong></div>
         </div>
-    </div>
+    </section>
 
-    <div class="card-t p-3">
-        <div class="meta-label mb-2"><?php echo count($view['items']); ?> item(s)</div>
+    <section class="bk-section">
+        <h2 class="pub-eyebrow"><?php echo count($view['items']); ?> <?php echo count($view['items']) === 1 ? 'item' : 'items'; ?></h2>
         <?php if ($view['items'] === []): ?>
-            <p class="text-secondary small mb-0">Nothing is listed on this booking.</p>
+            <p class="pub-empty">Nothing is listed.</p>
         <?php else: ?>
+            <div class="pub-group bk-items">
             <?php foreach ($view['items'] as $item): ?>
-                <div class="border-bottom border-dark-subtle">
-                    <div class="d-flex align-items-center gap-3 py-2">
+                <div class="bk-item">
+                    <div class="pub-row">
                         <?php if ($item['thumb'] !== null): ?>
-                            <img class="thumb" src="<?php echo esc($item['thumb']); ?>" alt="">
+                            <img class="bk-thumb" src="<?php echo esc($item['thumb']); ?>" alt="">
                         <?php else: ?>
-                            <span class="thumb thumb-empty"><i class="bi bi-box-seam"></i></span>
+                            <span class="bk-thumb bk-thumb-empty"><i class="bi bi-box-seam"></i></span>
                         <?php endif; ?>
-                        <div class="flex-grow-1">
-                            <div><?php echo esc($item['name']); ?></div>
-                            <?php if ($item['setName'] !== ''): ?>
-                                <div class="kit">in <?php echo esc($item['setName']); ?></div>
+                        <div class="pub-row-main">
+                            <div class="pub-row-title"><?php echo esc($item['name']); ?></div>
+                            <?php if ($item['setName'] !== '' || $item['unitNos'] !== []): ?>
+                                <div class="pub-row-meta">
+                                    <?php if ($item['setName'] !== ''): ?>in <?php echo esc($item['setName']); ?><?php endif; ?>
+                                    <?php if ($item['setName'] !== '' && $item['unitNos'] !== []): ?> · <?php endif; ?>
+                                    <?php if ($item['unitNos'] !== []): ?>units <?php echo esc(implode(', ', $item['unitNos'])); ?><?php endif; ?>
+                                </div>
                             <?php endif; ?>
                         </div>
-                        <div class="text-secondary small">
-                            × <?php echo esc((string)$item['qty']); ?>
-                            <?php if ($item['unitNos'] !== []): ?>
-                                · units <?php echo esc(implode(', ', $item['unitNos'])); ?>
-                            <?php endif; ?>
-                        </div>
+                        <div class="pub-row-end bk-qty">× <?php echo esc((string)$item['qty']); ?></div>
                     </div>
 
                     <?php if ($item['photos'] !== []): ?>
-                        <!-- Photos of THIS piece, so the note is readable as
-                             being about it and not about the whole booking. -->
-                        <div class="meta-label mb-2">Condition photos of <?php echo esc($item['name']); ?></div>
-                        <div class="d-flex flex-wrap gap-3 pb-3">
+                        <!-- Photos of THIS piece, so the note reads as being
+                             about it and not about the whole booking. -->
+                        <div class="bk-shots" aria-label="Condition photos of <?php echo esc($item['name']); ?>">
                             <?php foreach ($item['photos'] as $photo): ?>
-                                <div class="shot">
+                                <div class="bk-shot">
                                     <a href="<?php echo esc($photo['full']); ?>" target="_blank" rel="noopener noreferrer">
-                                        <img class="shot-img" src="<?php echo esc($photo['thumb']); ?>" alt="Condition photo">
+                                        <img src="<?php echo esc($photo['thumb']); ?>" alt="Condition photo">
                                     </a>
-                                    <div class="kit mt-1"><?php echo esc($photo['at']); ?></div>
+                                    <div><?php echo esc($photo['at']); ?></div>
                                     <?php if ($photo['note'] !== ''): ?>
-                                        <div class="small text-secondary"><?php echo esc($photo['note']); ?></div>
+                                        <div class="bk-shot-note"><?php echo esc($photo['note']); ?></div>
                                     <?php endif; ?>
                                 </div>
                             <?php endforeach; ?>
@@ -623,128 +581,130 @@ $pdfBranding = [
                     <?php endif; ?>
                 </div>
             <?php endforeach; ?>
+            </div>
         <?php endif; ?>
-    </div>
+    </section>
 
     <?php if ($view['photos'] !== []): ?>
         <!-- What is left: photos naming no item, or an item this booking does
              not list. Shown rather than dropped. -->
-        <div class="card-t p-3 mt-3">
-            <div class="meta-label mb-2">Condition photos</div>
-            <div class="d-flex flex-wrap gap-3">
-                <?php foreach ($view['photos'] as $photo): ?>
-                    <div class="shot">
-                        <a href="<?php echo esc($photo['full']); ?>" target="_blank" rel="noopener noreferrer">
-                            <img class="shot-img" src="<?php echo esc($photo['thumb']); ?>" alt="Condition photo">
-                        </a>
-                        <div class="kit mt-1"><?php echo esc($photo['at']); ?></div>
-                        <?php if ($photo['note'] !== ''): ?>
-                            <div class="small text-secondary"><?php echo esc($photo['note']); ?></div>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
+        <section class="bk-section">
+            <h2 class="pub-eyebrow">Condition photos</h2>
+            <div class="pub-group">
+                <div class="bk-shots bk-shots-loose">
+                    <?php foreach ($view['photos'] as $photo): ?>
+                        <div class="bk-shot">
+                            <a href="<?php echo esc($photo['full']); ?>" target="_blank" rel="noopener noreferrer">
+                                <img src="<?php echo esc($photo['thumb']); ?>" alt="Condition photo">
+                            </a>
+                            <div><?php echo esc($photo['at']); ?></div>
+                            <?php if ($photo['note'] !== ''): ?>
+                                <div class="bk-shot-note"><?php echo esc($photo['note']); ?></div>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
-        </div>
+        </section>
     <?php endif; ?>
 
     <!-- Hand-over. Either what was signed, or the pad to sign it on: one
          signature per booking, the customer's own, and once it is there this
          page will not take another. -->
     <?php if ($view['signature'] !== null): ?>
-        <div class="card-t p-3 mt-3">
-            <div class="meta-label mb-2">Received by</div>
-            <img class="sig-shot" src="<?php echo esc($view['signature']['src']); ?>"
-                 alt="Signature of <?php echo esc($view['signature']['name']); ?>">
-            <div class="sig-name mt-2"><?php echo esc($view['signature']['name']); ?></div>
-            <div class="kit"><?php echo esc($view['signature']['at']); ?></div>
-            <?php if ($view['signature']['terms'] !== null): ?>
-                <div class="kit mt-1">
-                    Accepted the
-                    <a class="terms-link" href="<?php echo esc($view['signature']['terms']['url']); ?>"
-                       target="_blank" rel="noopener noreferrer">terms &amp; conditions,
-                        version <?php echo esc((string)$view['signature']['terms']['version']); ?></a>
-                    of <?php echo esc($view['signature']['terms']['at']); ?>.
-                </div>
-            <?php endif; ?>
-        </div>
-    <?php elseif ($view['canSign']): ?>
-        <div class="card-t p-3 mt-3">
-            <div class="meta-label mb-2">Sign for the equipment</div>
-            <p class="small text-secondary">
-                Signing confirms you received the items listed above<?php
-                if ($view['terms'] !== null): ?> and accept our terms &amp; conditions<?php endif; ?>.
-            </p>
-
-            <form id="sig-form" method="post" enctype="multipart/form-data"
-                  action="booking.php?t=<?php echo esc($token); ?>">
-                <input type="hidden" name="action" value="sign">
-                <!-- Not a real field. Anything typed in it is a bot. -->
-                <input class="sig-hp" type="text" name="website" tabindex="-1" autocomplete="off"
-                       aria-hidden="true">
-
-                <label class="meta-label" for="sig-signed-name">Your name</label>
-                <input class="form-control mb-2" id="sig-signed-name" name="signedName" type="text"
-                       maxlength="200" autocomplete="name"
-                       value="<?php echo esc($view['customerName']); ?>">
-
-                <canvas id="sig-pad" class="sig-pad"></canvas>
-
-                <?php if ($view['terms'] !== null): ?>
-                    <!-- What the signature is given under. The version rides
-                         along, so a change to the terms while this page was
-                         open is caught rather than accepted unread. -->
-                    <input type="hidden" name="termsVersion"
-                           value="<?php echo esc((string)$view['terms']['version']); ?>">
-                    <details class="terms-box mt-3">
-                        <summary>
-                            Terms &amp; conditions · version <?php echo esc((string)$view['terms']['version']); ?>
-                            of <?php echo esc($view['terms']['at']); ?>
-                        </summary>
-                        <div class="terms-body"><?php echo $view['terms']['html']; ?></div>
-                    </details>
-                    <div class="form-check terms-accept mt-2">
-                        <input class="form-check-input" type="checkbox" name="acceptTerms" value="1"
-                               id="sig-terms" required>
-                        <label class="form-check-label" for="sig-terms">
-                            I have read and accept the
-                            <a class="terms-link" href="<?php echo esc($view['terms']['url']); ?>"
-                               target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>.
-                        </label>
+        <section class="bk-section">
+            <h2 class="pub-eyebrow">Received by</h2>
+            <div class="pub-group bk-sig">
+                <img class="sig-shot" src="<?php echo esc($view['signature']['src']); ?>"
+                     alt="Signature of <?php echo esc($view['signature']['name']); ?>">
+                <div class="sig-name"><?php echo esc($view['signature']['name']); ?></div>
+                <div class="kit"><?php echo esc($view['signature']['at']); ?></div>
+                <?php if ($view['signature']['terms'] !== null): ?>
+                    <div class="kit mt-1">
+                        Accepted
+                        <a class="terms-link" href="<?php echo esc($view['signature']['terms']['url']); ?>"
+                           target="_blank" rel="noopener noreferrer">terms v<?php echo esc((string)$view['signature']['terms']['version']); ?></a>
+                        of <?php echo esc($view['signature']['terms']['at']); ?>
                     </div>
                 <?php endif; ?>
+            </div>
+        </section>
+    <?php elseif ($view['canSign']): ?>
+        <section class="bk-section">
+            <h2 class="pub-eyebrow">Sign for the equipment</h2>
+            <div class="pub-card">
+                <form id="sig-form" method="post" enctype="multipart/form-data"
+                      action="booking.php?t=<?php echo esc($token); ?>">
+                    <input type="hidden" name="action" value="sign">
+                    <!-- Not a real field. Anything typed in it is a bot. -->
+                    <input class="sig-hp" type="text" name="website" tabindex="-1" autocomplete="off"
+                           aria-hidden="true">
 
-                <div class="d-flex gap-2 mt-2">
-                    <button class="btn btn-outline-secondary btn-sm" type="button" id="sig-clear">
-                        Clear
-                    </button>
-                    <span class="flex-grow-1"></span>
-                    <button class="btn btn-primary btn-sm" type="submit" id="sig-send" disabled>
-                        Sign
-                    </button>
-                </div>
-                <div class="kit mt-2" id="sig-hint">Draw your signature in the box above.</div>
-            </form>
-        </div>
+                    <label class="pub-field">
+                        <span class="pub-label">Your name</span>
+                        <input class="pub-input" id="sig-signed-name" name="signedName" type="text"
+                               maxlength="200" autocomplete="name"
+                               value="<?php echo esc($view['customerName']); ?>">
+                    </label>
+
+                    <span class="pub-label">Signature</span>
+                    <canvas id="sig-pad" class="sig-pad" aria-label="Signature pad"></canvas>
+                    <div class="kit mt-2" id="sig-hint">Draw your signature in the box.</div>
+
+                    <?php if ($view['terms'] !== null): ?>
+                        <!-- What the signature is given under. The version rides
+                             along, so a change to the terms while this page was
+                             open is caught rather than accepted unread. -->
+                        <input type="hidden" name="termsVersion"
+                               value="<?php echo esc((string)$view['terms']['version']); ?>">
+                        <details class="terms-box">
+                            <summary>
+                                Terms &amp; conditions · v<?php echo esc((string)$view['terms']['version']); ?>
+                            </summary>
+                            <div class="terms-body"><?php echo $view['terms']['html']; ?></div>
+                        </details>
+                        <label class="pub-check" for="sig-terms">
+                            <input type="checkbox" name="acceptTerms" value="1"
+                                   id="sig-terms" required>
+                            <span>I accept the
+                                <a class="terms-link" href="<?php echo esc($view['terms']['url']); ?>"
+                                   target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>.</span>
+                        </label>
+                    <?php endif; ?>
+
+                    <div class="bk-sign-actions">
+                        <button class="pub-btn pub-btn-ghost" type="button" id="sig-clear">
+                            Clear
+                        </button>
+                        <button class="pub-btn pub-btn-primary" type="submit" id="sig-send" disabled>
+                            Sign
+                        </button>
+                    </div>
+                    <p class="kit mt-2 bk-sign-note">Signing confirms you received the items above<?php
+                        if ($view['terms'] !== null): ?> and accept the terms<?php endif; ?>.</p>
+                </form>
+            </div>
+        </section>
     <?php endif; ?>
 
     <!-- The sheet, again. Hidden until the module below has wired it up: a
          button that cannot do anything is worse than no button. -->
-    <div class="d-flex justify-content-end mt-3">
-        <button class="btn btn-outline-light btn-sm d-none" id="pdf-get" type="button">
+    <div class="bk-pdf">
+        <button class="pub-btn pub-btn-tinted d-none" id="pdf-get" type="button">
             <i class="bi bi-file-earmark-arrow-down"></i> Download checklist (PDF)
         </button>
     </div>
 
-    <p class="text-secondary small mt-4 mb-0">
-        This page is private to you. Please do not share the link.
+    <p class="bk-private">
+        <i class="bi bi-lock-fill" aria-hidden="true"></i> Private link — please don't share it.
     </p>
+</main>
 
-    <?php if ($currentTerms !== null): ?>
-        <footer class="foot">
-            <a href="<?php echo esc(trax_terms_url()); ?>" target="_blank" rel="noopener noreferrer">Terms &amp; conditions</a>
-        </footer>
-    <?php endif; ?>
-</div>
+<?php if ($currentTerms !== null): ?>
+    <footer class="pub-foot">
+        <a href="<?php echo esc(trax_terms_url()); ?>" target="_blank" rel="noopener noreferrer">Terms &amp; conditions</a>
+    </footer>
+<?php endif; ?>
 <?php if ($signFlash !== null): ?>
     <script>
         // The redirect's own word on what just happened, shown once and then

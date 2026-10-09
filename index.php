@@ -117,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reportName'])) {
         // telling the script it failed only teaches it what to change.
         $reportSuccess = true;
     } elseif (!$captchaOk) {
-        $reportError = 'The characters did not match — please try again.';
+        $reportError = 'The characters did not match. Try again.';
     } else {
         $reportSuccess = trax_mail_lost_report(
             $asset,
@@ -162,16 +162,17 @@ function pub_e(string $value): string
 <head>
   <meta charset="UTF-8">
   <title><?php echo pub_e($asset['name'] ?? ($appName . ' • Asset')); ?></title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="<?php echo pub_e($brandColor); ?>">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="robots" content="noindex, nofollow">
 <?php if ($favicon !== ''): ?>
   <link rel="icon" type="image/png" href="<?php echo pub_e($favicon); ?>">
 <?php endif; ?>
 
-  <!-- Vendored, not CDN: the folder must work as uploaded. This replaced
-       cdn.tailwindcss.com and the Manrope webfont; public.css is self-contained
-       and sets a system font stack. The iOS 16px focus-zoom fix lives there. -->
+  <!-- Vendored, not CDN: the folder must work as uploaded. public.css is
+       self-contained and carries the iOS 16px focus-zoom fix. -->
   <link rel="stylesheet" href="public.css">
   <link rel="stylesheet" href="vendor/bootstrap-icons.css">
   <style>:root{--trax-brand:<?php echo pub_e($brandColor); ?>;}</style>
@@ -191,14 +192,14 @@ function pub_e(string $value): string
 <main class="pub-main">
   <?php if ($reportSuccess === true): ?>
     <div class="pub-flash pub-flash-ok" role="status">
-      <i class="bi bi-check2-circle" aria-hidden="true"></i>
-      <span>Thank you — your report has been sent to the owner.</span>
+      <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+      <span>Thanks — the owner has your report.</span>
     </div>
   <?php elseif ($reportSuccess === false): ?>
     <div class="pub-flash pub-flash-bad" role="alert">
-      <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+      <i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>
       <span>The report could not be sent.
-        <?php echo $whatsapp !== '' ? 'Please try WhatsApp instead.' : 'Please try again in a moment.'; ?></span>
+        <?php echo $whatsapp !== '' ? 'Please try WhatsApp instead.' : 'Please try again shortly.'; ?></span>
     </div>
   <?php endif; ?>
 
@@ -209,8 +210,8 @@ function pub_e(string $value): string
       </h1>
       <p class="pub-lead">
         <?php echo $id
-            ? 'Nothing in the register carries that number. Check the number printed under the code.'
-            : 'Enter the number printed on the label to see what the item is and how to reach its owner.'; ?>
+            ? 'Check the number printed under the code.'
+            : 'Enter the number on the label.'; ?>
       </p>
       <form method="GET" action="">
         <label class="pub-field">
@@ -218,7 +219,7 @@ function pub_e(string $value): string
           <input class="pub-input" type="text" name="id" inputmode="numeric"
                  placeholder="e.g. 3" autocomplete="off" required>
         </label>
-        <button class="pub-btn pub-btn-ghost" type="submit">
+        <button class="pub-btn pub-btn-primary pub-submit" type="submit">
           <i class="bi bi-search" aria-hidden="true"></i> Look up
         </button>
       </form>
@@ -228,7 +229,6 @@ function pub_e(string $value): string
          live status is fetched below and replaces this whole card. -->
     <div id="assetDataContainer">
       <article class="pub-card">
-        <p class="pub-eyebrow">Asset</p>
         <h1 class="pub-title"><?php echo pub_e((string)$asset['name']); ?></h1>
         <p class="pub-sub">
           <span>ID <span class="pub-id"><?php echo pub_e($unitRow !== null
@@ -238,33 +238,24 @@ function pub_e(string $value): string
           <span><?php echo pub_e((string)$unitRow['label']); ?></span>
 <?php endif; ?>
         </p>
-        <p class="pub-note" id="assetNote" aria-live="polite">Checking current status…</p>
+        <p class="pub-status-note" id="assetNote" aria-live="polite">Checking status…</p>
       </article>
     </div>
 
-    <section class="pub-found">
-      <h2 class="pub-found-title">Found this item?</h2>
-      <p class="pub-found-text">
-<?php if ($whatsapp !== ''): ?>
-        Thank you for picking it up. Either message the owner directly, or leave
-        your details and they will come back to you.
-<?php else: ?>
-        Thank you for picking it up. Leave your details and the owner will come
-        back to you.
-<?php endif; ?>
-      </p>
+    <section class="pub-card">
+      <h2 class="pub-heading">Found this item?</h2>
+      <p class="pub-lead">Help it get back to its owner.</p>
       <!-- No number configured, no button: a dead deep link on a lost-item page
-           is worse than not offering that route at all, and the report form
-           below stands on its own. The tags sit flush left so the markup they
-           guard is emitted exactly as it was when it was unconditional. -->
+           is worse than not offering that route at all. The tags sit flush left
+           so the markup they guard is emitted exactly as when unconditional. -->
       <div class="pub-actions">
 <?php if ($whatsapp !== ''): ?>
-        <a class="pub-btn pub-btn-primary" href="https://wa.me/<?php echo pub_e($whatsapp); ?>">
-          <i class="bi bi-whatsapp" aria-hidden="true"></i> Message on WhatsApp
+        <a class="pub-btn pub-btn-wa" href="https://wa.me/<?php echo pub_e($whatsapp); ?>">
+          <i class="bi bi-whatsapp" aria-hidden="true"></i> WhatsApp
         </a>
 <?php endif; ?>
-        <button class="pub-btn pub-btn-ghost" type="button" id="lostContactOpen">
-          <i class="bi bi-envelope" aria-hidden="true"></i> Report it found
+        <button class="pub-btn <?php echo $whatsapp !== '' ? 'pub-btn-tinted' : 'pub-btn-primary'; ?>" type="button" id="lostContactOpen">
+          <i class="bi bi-envelope-fill" aria-hidden="true"></i> Report it found
         </button>
       </div>
     </section>
@@ -275,7 +266,7 @@ function pub_e(string $value): string
   Property of <strong><?php echo pub_e($ownerName); ?></strong>
 <?php if (trax_terms_published() !== null): ?>
   <span class="pub-foot-sep" aria-hidden="true">·</span>
-  <a href="terms.php">Terms &amp; conditions</a>
+  <a href="terms.php">Terms</a>
 <?php endif; ?>
 </footer>
 
@@ -283,7 +274,7 @@ function pub_e(string $value): string
         <?php echo $reportError !== null ? 'data-open' : ''; ?>>
   <form method="post" action="" id="lostContactForm">
     <div class="pub-modal-head">
-      <h2 class="pub-modal-title" id="lostContactTitle">Report this item found</h2>
+      <h2 class="pub-modal-title" id="lostContactTitle">Report found item</h2>
       <button type="button" class="pub-icon-btn" id="lostContactClose" aria-label="Close">
         <i class="bi bi-x-lg" aria-hidden="true"></i>
       </button>
@@ -291,7 +282,7 @@ function pub_e(string $value): string
     <div class="pub-modal-body">
       <?php if ($reportError !== null): ?>
       <div class="pub-flash pub-flash-bad" role="alert">
-        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        <i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>
         <span><?php echo pub_e($reportError); ?></span>
       </div>
       <?php endif; ?>
@@ -311,14 +302,14 @@ function pub_e(string $value): string
                value="<?php echo pub_e($reportValues['phone']); ?>">
       </label>
       <label class="pub-field">
-        <span class="pub-label">Email <span class="pub-optional">(optional)</span></span>
+        <span class="pub-label">Email <span class="pub-optional">optional</span></span>
         <input class="pub-input" type="email" name="reportEmail" autocomplete="email"
                value="<?php echo pub_e($reportValues['email']); ?>">
       </label>
       <label class="pub-field">
         <span class="pub-label">Where is it?</span>
-        <textarea class="pub-input" name="reportMessage" rows="4" required
-                  placeholder="e.g. Found on the train from Cologne, I can drop it off."><?php
+        <textarea class="pub-input" name="reportMessage" rows="3" required
+                  placeholder="e.g. Found on the train, can drop it off."><?php
           echo pub_e($reportValues['message']); ?></textarea>
       </label>
       <div class="pub-field">
@@ -326,7 +317,9 @@ function pub_e(string $value): string
         <div class="pub-captcha-row">
           <!-- src is set when the dialog opens, so a plain scan starts no session. -->
           <img class="pub-captcha" id="captchaImage" width="200" height="64" alt="Captcha">
-          <button type="button" class="pub-btn pub-btn-ghost" id="captchaReload">New image</button>
+          <button type="button" class="pub-btn pub-btn-ghost pub-btn-sm" id="captchaReload">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> New
+          </button>
         </div>
         <input class="pub-input" name="captcha" inputmode="text" autocomplete="off"
                autocapitalize="characters" spellcheck="false" maxlength="5" required
@@ -334,8 +327,8 @@ function pub_e(string $value): string
       </div>
     </div>
     <div class="pub-modal-foot">
-      <button type="button" class="pub-btn pub-btn-quiet" id="lostContactCancel">Cancel</button>
-      <button type="submit" class="pub-btn pub-btn-ghost">Send report</button>
+      <button type="button" class="pub-btn pub-btn-ghost" id="lostContactCancel">Cancel</button>
+      <button type="submit" class="pub-btn pub-btn-primary">Send report</button>
     </div>
   </form>
 </dialog>
@@ -420,7 +413,7 @@ async function loadAssetData(){
     // Deliberately no customer name, email or return date: this page is
     // reachable by whoever finds the item.
     const outNote = asset.isOut
-      ? '<p class="pub-status-note">This item is signed out at the moment. If you have found it, it is being missed.</p>'
+      ? '<p class="pub-status-note">Checked out right now — the owner is missing it.</p>'
       : '';
 
     const notes = asset.notes
@@ -447,22 +440,23 @@ async function loadAssetData(){
 
     cont.innerHTML = `
       <article class="pub-card">
-        <p class="pub-eyebrow">Asset</p>
         <h1 class="pub-title">${esc(asset.name)}</h1>
         <p class="pub-sub">${meta}</p>
-        <p class="pub-sr">Status</p>
-        <span class="pub-status status-${esc(asset.status)}">
-          <span class="pub-status-dot" aria-hidden="true"></span>
-          ${esc(STATUS_TEXT[asset.status] || asset.status)}
-        </span>
+        <div class="pub-status-row">
+          <span class="pub-sr">Status</span>
+          <span class="pub-status status-${esc(asset.status)}">
+            <span class="pub-status-dot" aria-hidden="true"></span>
+            ${esc(STATUS_TEXT[asset.status] || asset.status)}
+          </span>
+        </div>
         ${unitNote}
         ${outNote}
         ${notes}
-        <p class="pub-note" id="assetNote" aria-live="polite"></p>
+        <p class="pub-status-note" id="assetNote" aria-live="polite"></p>
       </article>`;
   }catch(err){
     console.error('Fetch failed', err);
-    setNote('Offline — showing what was on the label. Retrying shortly.');
+    setNote('Offline — retrying shortly.');
   }
 }
 if(id){loadAssetData();setInterval(loadAssetData,90000);}

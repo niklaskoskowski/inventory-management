@@ -37,9 +37,11 @@ function pub_e(string $value): string
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <title><?php echo pub_e($appName); ?> – Inventory</title>
-    <meta name="theme-color" content="<?php echo pub_e($brandColor); ?>">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
     <meta name="robots" content="noindex, nofollow">
 <?php if ($favicon !== ''): ?>
     <link rel="icon" type="image/png" href="<?php echo pub_e($favicon); ?>">
@@ -60,7 +62,6 @@ function pub_e(string $value): string
         <img class="pub-mark" src="<?php echo pub_e($favicon); ?>" alt="" width="26" height="26">
 <?php endif; ?>
         <span class="pub-wordmark"><?php echo pub_e($appName); ?></span>
-        <span class="pub-top-tag">Inventory</span>
     </div>
 </header>
 
@@ -73,7 +74,7 @@ function pub_e(string $value): string
     <div class="pub-search">
         <label class="pub-sr" for="q">Search inventory</label>
         <i class="bi bi-search pub-search-icon" aria-hidden="true"></i>
-        <input id="q" class="pub-input" type="search" placeholder="Search name, category or ID…"
+        <input id="q" class="pub-input" type="search" placeholder="Search"
                autocomplete="off" autocapitalize="none" spellcheck="false">
     </div>
 
@@ -89,10 +90,10 @@ function pub_e(string $value): string
 </main>
 
 <footer class="pub-foot">
-    Live view · refreshes every 30 seconds.
+    Live · updates every 30 s
 <?php if (trax_terms_published() !== null): ?>
     <span class="pub-foot-sep" aria-hidden="true">·</span>
-    <a href="terms.php">Terms &amp; conditions</a>
+    <a href="terms.php">Terms</a>
 <?php endif; ?>
 </footer>
 
@@ -110,8 +111,8 @@ function esc(value){
   }[c]));
 }
 
-function empty(text){
-  return `<p class="pub-empty">${esc(text)}</p>`;
+function empty(text, icon){
+  return `<p class="pub-empty"><i class="bi ${icon || 'bi-box-seam'}" aria-hidden="true"></i>${esc(text)}</p>`;
 }
 
 function render(){
@@ -127,7 +128,7 @@ function render(){
   if (!assets.length) {
     box.innerHTML = empty('Nothing is registered yet.');
   } else if (!rows.length) {
-    box.innerHTML = empty(`Nothing matches “${query}”.`);
+    box.innerHTML = empty(`Nothing matches “${query}”.`, 'bi-search');
   } else {
     box.innerHTML = '<ul class="pub-list">' + rows.map(a => {
       const meta = [
@@ -171,7 +172,7 @@ async function load(){
     // Only claim a problem when there is nothing on screen to keep; a failed
     // refresh should leave the last good list alone.
     if (assets === null) {
-      document.getElementById('rows').innerHTML = empty('Could not reach the server. Retrying shortly.');
+      document.getElementById('rows').innerHTML = empty('Offline — retrying shortly.', 'bi-wifi-off');
       document.getElementById('summary').textContent = 'Offline';
     }
   }

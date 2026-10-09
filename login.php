@@ -98,6 +98,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
 $csrf       = trax_csrf_token();
 $brandColor = (string)trax_setting('branding.brandColor', '#1F2937');
+// The app icon and name above the form; trax_logo_file() has already checked
+// the favicon exists, so '' means "draw the brand tile instead".
+$appName    = (string)trax_setting('branding.appName', 'Assets');
+$favicon    = (string)trax_setting('branding.faviconFile', '');
 
 /** Escapes for HTML text and attributes. Mirrors the esc() idiom in booking.php / view.php. */
 function esc(mixed $value): string
@@ -108,34 +112,40 @@ function esc(mixed $value): string
 header('Content-Type: text/html; charset=utf-8');
 ?>
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Sign in</title>
-<link rel="stylesheet" href="vendor/bootstrap.min.css">
+<meta name="color-scheme" content="light dark">
+<title>Sign in · <?php echo esc($appName); ?></title>
+<?php if ($favicon !== ''): ?>
+<link rel="icon" type="image/png" href="<?php echo esc($favicon); ?>">
+<?php endif; ?>
 <link rel="stylesheet" href="public.css">
-<style>
-  /* The one thing this page takes from the install's settings. */
-  :root { --trax-brand: <?php echo esc($brandColor); ?>; }
-  .login-main { max-width: 380px; margin: 0 auto; padding: 3.5rem 1rem; }
-  .login-card { padding: 1.25rem; }
-  .login-title { margin: 0 0 1rem; font-size: 1.15rem; font-weight: 600; }
-  .login-card .pub-btn { width: 100%; justify-content: center; margin-top: 1rem; }
-  /* Not .pub-btn-primary: that one is the WhatsApp green, which belongs to the
-     public "message us" button and says nothing about this install. */
-  .login-btn { background: var(--trax-brand); color: var(--trax-brand-ink); }
-</style>
+<link rel="stylesheet" href="vendor/bootstrap-icons.css">
+<style>:root { --trax-brand: <?php echo esc($brandColor); ?>; }</style>
 </head>
-<body>
-<div class="pub-page">
-  <main class="login-main">
-    <div class="pub-card login-card">
-      <h1 class="login-title">Sign in</h1>
+<body class="pub-page pub-solo">
+  <main class="pub-solo-main">
+    <div class="pub-card">
+      <div class="pub-solo-head">
+        <div class="pub-appicon" aria-hidden="true">
+<?php if ($favicon !== ''): ?>
+          <img src="<?php echo esc($favicon); ?>" alt="" width="64" height="64">
+<?php else: ?>
+          <i class="bi bi-box-seam"></i>
+<?php endif; ?>
+        </div>
+        <h1 class="pub-solo-title">Sign in</h1>
+        <p class="pub-solo-sub"><?php echo esc($appName); ?></p>
+      </div>
 
       <?php if ($error !== ''): ?>
-        <div class="pub-flash pub-flash-bad" role="alert"><?php echo esc($error); ?></div>
+        <div class="pub-flash pub-flash-bad" role="alert">
+          <i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>
+          <span><?php echo esc($error); ?></span>
+        </div>
       <?php endif; ?>
 
       <form method="post" action="login.php" autocomplete="on">
@@ -145,6 +155,7 @@ header('Content-Type: text/html; charset=utf-8');
         <label class="pub-field">
           <span class="pub-label">Username</span>
           <input class="pub-input" type="text" name="username" autocomplete="username"
+                 autocapitalize="none" spellcheck="false"
                  value="<?php echo esc($username); ?>" required autofocus>
         </label>
 
@@ -154,10 +165,9 @@ header('Content-Type: text/html; charset=utf-8');
                  autocomplete="current-password" required>
         </label>
 
-        <button class="pub-btn login-btn" type="submit">Sign in</button>
+        <button class="pub-btn pub-btn-primary pub-solo-submit" type="submit">Sign in</button>
       </form>
     </div>
   </main>
-</div>
 </body>
 </html>

@@ -68,54 +68,60 @@ if ($shown === null) {
     http_response_code(404);
 }
 
-$heading = 'Terms & conditions' . ($orgName !== '' ? ' · ' . $orgName : '');
+$heading = 'Terms & conditions';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
     <title>Terms &amp; conditions – <?php echo pub_e($orgName !== '' ? $orgName : $appName); ?></title>
-    <meta name="theme-color" content="<?php echo pub_e($brandColor); ?>">
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
     <meta name="robots" content="noindex, nofollow">
 <?php if ($favicon !== ''): ?>
     <link rel="icon" type="image/png" href="<?php echo pub_e($favicon); ?>">
 <?php endif; ?>
     <link rel="stylesheet" href="public.css">
+    <link rel="stylesheet" href="vendor/bootstrap-icons.css">
     <style>:root{--trax-brand:<?php echo pub_e($brandColor); ?>;}</style>
 </head>
 <body class="pub-page">
 
 <header class="pub-top">
-    <div class="pub-top-inner pub-main-wide">
+    <div class="pub-top-inner">
 <?php if ($favicon !== ''): ?>
         <img class="pub-mark" src="<?php echo pub_e($favicon); ?>" alt="" width="26" height="26">
 <?php endif; ?>
         <span class="pub-wordmark"><?php echo pub_e($appName); ?></span>
-        <span class="pub-top-tag">Terms</span>
     </div>
 </header>
 
-<main class="pub-main pub-main-wide">
+<main class="pub-main">
 <?php if ($shown === null): ?>
     <p class="pub-empty">
-        <?php echo $asked !== null ? 'There is no such version of the terms &amp; conditions.'
-            : 'No terms &amp; conditions are published.'; ?>
+        <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+        <?php echo $asked !== null ? 'No such version.'
+            : 'No terms are published.'; ?>
     </p>
 <?php else: ?>
     <section class="pub-card">
         <h1 class="pub-title"><?php echo pub_e($heading); ?></h1>
         <p class="pub-sub">
-            <span>Version <?php echo pub_e((string)$shown['version']); ?></span>
-            <span>published <?php echo pub_e(terms_date($shown['at'])); ?></span>
+<?php if ($orgName !== ''): ?>
+            <span><?php echo pub_e($orgName); ?></span>
+<?php endif; ?>
+            <span>Version <?php echo pub_e((string)$shown['version']); ?> · <?php echo pub_e(terms_date($shown['at'])); ?></span>
         </p>
 
     <?php if ($until !== null): ?>
-        <p class="pub-terms-old">
-            This is an earlier version. It applied until <?php echo pub_e(terms_date($until)); ?>.
+        <p class="pub-flash pub-flash-warn pub-terms-old">
+            <i class="bi bi-clock-history" aria-hidden="true"></i>
+            <span>Earlier version, valid until <?php echo pub_e(terms_date($until)); ?>.
             <?php if ($current !== null): ?>
-                <a href="terms.php">Read the current version</a>.
-            <?php endif; ?>
+                <a href="terms.php">Current version</a>
+            <?php endif; ?></span>
         </p>
     <?php endif; ?>
 

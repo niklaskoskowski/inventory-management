@@ -1,53 +1,104 @@
 /**
- * Public pages — index.php (the target of every printed QR label) and
- * view.php (the read-only inventory board).
+ * Public pages: index.php (the target of every printed QR label), view.php
+ * (read-only board), booking.php (customer link), terms.php, login.php and
+ * install.php.
  *
- * Self-contained on purpose. index.php used to pull Tailwind from
- * cdn.tailwindcss.com and Manrope from fonts.googleapis.com, which broke the
- * rule the rest of the folder keeps ("the folder must work as uploaded",
- * admin.php:53): every label scan hit two third parties, and the page rendered
- * unstyled if either was unreachable. Nothing here is fetched from anywhere but
- * this folder — the type is a system stack, and the only other asset the pages
- * load is vendor/bootstrap-icons.css, which is vendored with its own woff2.
- *
- * The tokens mirror app/app.css so the public side and the admin app read as
- * one product; the status colours are the same five the admin badges use.
+ * Self-contained on purpose: nothing is fetched from anywhere but this folder
+ * ("the folder must work as uploaded", admin.php). The type is the system
+ * stack with the bundled Inter as fallback; icons come from
+ * vendor/bootstrap-icons.css. No theme switch here: light and dark follow the
+ * system. Tokens mirror app/app.css so both sides read as one product.
  */
 
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('vendor/fonts/InterVariable.woff2') format('woff2');
+}
+
 :root {
-  --trax-bg: #0c0f12;
-  --trax-surface: #12171d;
-  --trax-surface-2: #171e26;
-  --trax-surface-3: #1e2731;
-  --trax-border: #263039;
-  --trax-border-strong: #33414e;
-  --trax-text: #e6edf3;
-  --trax-muted: #8b98a5;
-  --trax-accent: #3b82f6;
+  --trax-bg: #f2f2f7;
+  --trax-surface: #ffffff;
+  --trax-surface-2: #f7f7fa;
+  --trax-fill: rgba(118, 118, 128, 0.12);
+  --trax-fill-strong: rgba(118, 118, 128, 0.2);
+  --trax-border: rgba(60, 60, 67, 0.13);
+  --trax-border-strong: rgba(60, 60, 67, 0.22);
+  --trax-text: #1d1d1f;
+  --trax-muted: #6e6e73;
+  --trax-faint: #a1a1a6;
+  --trax-accent: #007aff;
+  --trax-accent-hover: #0069e0;
+  --trax-accent-soft: rgba(0, 122, 255, 0.11);
+  --trax-accent-text: #0066d6;
+  --trax-on-accent: #ffffff;
+  --trax-ring: rgba(0, 122, 255, 0.35);
 
-  /* settings.branding.brandColor; index.php and view.php override this inline
-     from the stored value, and #1F2937 is what that setting defaults to. This
-     copy is only what a page that forgets to inject it falls back to. */
+  --st-FREE: #1f7a35;    --st-FREE-bg: rgba(52, 199, 89, 0.14);
+  --st-RSVD: #9a5400;    --st-RSVD-bg: rgba(255, 159, 10, 0.16);
+  --st-UNAV: #c4271d;    --st-UNAV-bg: rgba(255, 59, 48, 0.11);
+  --st-LOCK: #636366;    --st-LOCK-bg: rgba(142, 142, 147, 0.16);
+  --st-PARTIAL: #0a6f88; --st-PARTIAL-bg: rgba(48, 176, 199, 0.14);
+
+  --trax-material: rgba(250, 250, 252, 0.8);
+  --trax-scrim: rgba(0, 0, 0, 0.28);
+  --trax-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --trax-shadow: 0 12px 32px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05);
+  --trax-shadow-pop: 0 18px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08);
+  /* The sign-in / installer canvas on a phone: no card, just the page. */
+  --trax-solo-bg: #ffffff;
+
+  /* settings.branding.brandColor; every page overrides it inline from the
+     stored value. Used for the app-icon tile only. */
   --trax-brand: #1F2937;
-  --trax-brand-ink: #ffffff;
-  --trax-brand-mark: #8fb6ff;
 
-  --trax-free: #2ea043;
-  --trax-rsvd: #d29922;
-  --trax-unav: #e5534b;
-  --trax-lock: #6e7681;
-  --trax-partial: #3fb0c9;
-
-  /* WhatsApp green, carrying near-black ink: 9.69:1. */
+  /* WhatsApp green, carrying near-black ink. */
   --trax-wa: #25d366;
-  --trax-wa-ink: #0c0f12;
+  --trax-wa-hover: #3ad978;
+  --trax-wa-ink: #0b1a10;
 
-  --trax-radius: 12px;
-  --trax-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
-  --trax-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --trax-radius: 14px;
+  --trax-radius-sm: 10px;
+  --trax-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI Variable Text',
+    'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --trax-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
 
-  color-scheme: dark;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --trax-bg: #000000;
+    --trax-surface: #1c1c1e;
+    --trax-surface-2: #232326;
+    --trax-fill: rgba(118, 118, 128, 0.24);
+    --trax-fill-strong: rgba(118, 118, 128, 0.34);
+    --trax-border: rgba(255, 255, 255, 0.09);
+    --trax-border-strong: rgba(255, 255, 255, 0.16);
+    --trax-text: #f5f5f7;
+    --trax-muted: #98989f;
+    --trax-faint: #636366;
+    --trax-accent: #0a84ff;
+    --trax-accent-hover: #3396ff;
+    --trax-accent-soft: rgba(10, 132, 255, 0.18);
+    --trax-accent-text: #5eaaff;
+    --trax-ring: rgba(10, 132, 255, 0.45);
+
+    --st-FREE: #4ade80;    --st-FREE-bg: rgba(48, 209, 88, 0.16);
+    --st-RSVD: #ffb340;    --st-RSVD-bg: rgba(255, 159, 10, 0.17);
+    --st-UNAV: #ff6961;    --st-UNAV-bg: rgba(255, 69, 58, 0.17);
+    --st-LOCK: #aeaeb2;    --st-LOCK-bg: rgba(142, 142, 147, 0.2);
+    --st-PARTIAL: #70d7ff; --st-PARTIAL-bg: rgba(100, 210, 255, 0.15);
+
+    --trax-material: rgba(22, 22, 24, 0.76);
+    --trax-scrim: rgba(0, 0, 0, 0.55);
+    --trax-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --trax-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+    --trax-shadow-pop: 0 18px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.35);
+    --trax-solo-bg: #000000;
+  }
 }
 
 /* ----------------------------------------------------------------- Base --- */
@@ -56,9 +107,7 @@
 *::before,
 *::after { box-sizing: border-box; }
 
-html {
-  -webkit-text-size-adjust: 100%;
-}
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
@@ -66,20 +115,38 @@ body {
   color: var(--trax-text);
   font-family: var(--trax-font);
   font-size: 1rem;
-  line-height: 1.5;
+  line-height: 1.47;
+  font-feature-settings: 'cv11', 'ss01';
+  letter-spacing: -0.008em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
   /* Kills the 300ms double-tap-to-zoom gesture without killing scrolling. */
   touch-action: manipulation;
 }
+
+h1, h2, h3, h4 { letter-spacing: -0.015em; }
 
 button,
 .pub-btn,
 [role='button'] { touch-action: manipulation; }
 
-/* A found item is handled outdoors on a phone: keyboard and switch users need
-   to see where they are, and the ring has to survive a dark surface. */
+a { color: var(--trax-accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code {
+  font-family: var(--trax-mono);
+  font-size: 0.88em;
+  padding: 0.05em 0.3em;
+  border-radius: 5px;
+  background: var(--trax-fill);
+  overflow-wrap: anywhere;
+}
+
+::selection { background: var(--trax-accent-soft); }
+
 :focus-visible {
-  outline: 2px solid var(--trax-accent);
+  outline: 3px solid var(--trax-ring);
   outline-offset: 2px;
 }
 
@@ -95,6 +162,8 @@ button,
   border: 0;
 }
 
+.d-none { display: none !important; }
+
 /* --------------------------------------------------------------- Shell --- */
 
 .pub-page {
@@ -104,317 +173,296 @@ button,
   flex-direction: column;
 }
 
+/* A slim translucent bar, like a navigation bar on iOS. */
 .pub-top {
-  background: var(--trax-brand);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--trax-material);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--trax-border-strong);
+  padding-top: env(safe-area-inset-top);
 }
 
 .pub-top-inner {
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
-  padding: 0.8rem 1rem;
+  min-height: 48px;
+  padding: 0.55rem max(1rem, env(safe-area-inset-right)) 0.55rem max(1rem, env(safe-area-inset-left));
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.55rem;
 }
 
 .pub-mark {
   width: 26px;
   height: 26px;
-  border-radius: 6px;
+  border-radius: 7px;
   display: block;
   flex: 0 0 auto;
 }
 
 .pub-wordmark {
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--trax-brand-ink);
+  color: var(--trax-text);
   text-decoration: none;
-}
-
-.pub-wordmark b {
-  color: var(--trax-brand-mark);
-  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pub-top-tag {
   margin-left: auto;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--trax-brand-mark);
+  flex: 0 0 auto;
+  font-size: 0.8125rem;
+  color: var(--trax-muted);
 }
 
 .pub-main {
   flex: 1 1 auto;
   width: 100%;
+  min-width: 0;
   max-width: 640px;
   margin: 0 auto;
-  padding: 1.15rem 1rem 2.5rem;
+  padding: 1.25rem max(1rem, env(safe-area-inset-right)) 2.5rem max(1rem, env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1.25rem;
 }
 
-/* The board is a list of many rows, so it gets more room than the single
-   asset page does. Still a cap, never a width: the element itself is 100%, so
-   320px never scrolls sideways. The compound selector keeps the header bar
-   aligned with the board under it without relying on source order. */
+/* The board is a list of many rows, so it gets more room. Still a cap, never
+   a width: 320px never scrolls sideways. */
 .pub-main-wide { max-width: 880px; }
 .pub-top-inner.pub-main-wide { max-width: 880px; }
 
 .pub-foot {
-  border-top: 1px solid var(--trax-border);
-  padding: 1rem;
+  padding: 1rem 1rem calc(1.25rem + env(safe-area-inset-bottom));
   text-align: center;
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   color: var(--trax-muted);
 }
 
-.pub-foot strong {
-  color: var(--trax-text);
-  font-weight: 600;
-}
-
-/* The terms link, on every public page once terms are published. */
-.pub-foot a {
-  color: var(--trax-muted);
-}
-
-.pub-foot a:hover,
-.pub-foot a:focus-visible {
-  color: var(--trax-text);
-}
-
-.pub-foot-sep {
-  margin: 0 0.4rem;
-}
-
-/* ---------------------------------------------------------------- Terms --- */
-
-/* Operator-written Markdown, rendered by lib/markdown.php: headings start at
-   h2 because the page owns the h1. Long words (URLs, compound nouns) break
-   rather than push a 320px screen sideways. */
-.pub-terms {
-  margin-top: 1.1rem;
-  font-size: 0.95rem;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.pub-terms h2,
-.pub-terms h3,
-.pub-terms h4 {
-  margin: 1.4rem 0 0.5rem;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.pub-terms h2 { font-size: 1.15rem; }
-.pub-terms h3 { font-size: 1.02rem; }
-.pub-terms h4 { font-size: 0.95rem; }
-.pub-terms > :first-child { margin-top: 0; }
-
-.pub-terms p,
-.pub-terms ul,
-.pub-terms ol,
-.pub-terms blockquote {
-  margin: 0 0 0.75rem;
-}
-
-.pub-terms ul,
-.pub-terms ol {
-  padding-left: 1.3rem;
-}
-
-.pub-terms blockquote {
-  border-left: 3px solid var(--trax-border-strong);
-  padding-left: 0.8rem;
-  color: var(--trax-muted);
-}
-
-.pub-terms hr {
-  border: 0;
-  border-top: 1px solid var(--trax-border);
-  margin: 1.2rem 0;
-}
-
-.pub-terms code {
-  font-family: var(--trax-mono);
-  font-size: 0.88em;
-}
-
-.pub-terms a,
-.pub-terms-old a {
-  color: var(--trax-brand-mark);
-}
-
-.pub-terms-old {
-  margin: 1rem 0 0;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--trax-rsvd);
-  border-radius: 10px;
-  font-size: 0.88rem;
-  color: var(--trax-text);
-}
+.pub-foot strong { color: var(--trax-text); font-weight: 600; }
+.pub-foot a { color: var(--trax-muted); text-decoration: underline; text-underline-offset: 2px; }
+.pub-foot a:hover, .pub-foot a:focus-visible { color: var(--trax-text); }
+.pub-foot-sep { margin: 0 0.4rem; }
 
 /* --------------------------------------------------------------- Cards --- */
 
 .pub-card {
   background: var(--trax-surface);
-  border: 1px solid var(--trax-border);
   border-radius: var(--trax-radius);
-  padding: 1.1rem;
+  box-shadow: var(--trax-shadow-sm);
+  padding: 1.25rem;
+  min-width: 0;
 }
 
-.pub-eyebrow,
-.pub-label {
-  margin: 0 0 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
+/* Small section caption above a card or grouped list. Sentence case. */
+.pub-eyebrow {
+  margin: 0 0 0.4rem;
+  padding: 0 1rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
   color: var(--trax-muted);
 }
 
-/* Operator-entered names run long and contain part numbers; break them
-   rather than let one push the page sideways on a 320px screen. */
+/* Field label. */
+.pub-label {
+  display: block;
+  margin: 0 0 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--trax-muted);
+}
+
+.pub-optional { font-weight: 400; color: var(--trax-faint); }
+
+/* Operator-entered names run long and contain part numbers; break them rather
+   than let one push the page sideways on a 320px screen. */
 .pub-title {
   margin: 0;
-  font-size: 1.55rem;
-  line-height: 1.2;
-  font-weight: 600;
+  font-size: 1.75rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.022em;
   color: var(--trax-text);
   overflow-wrap: anywhere;
 }
 
 .pub-sub {
   margin: 0.4rem 0 0;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--trax-muted);
   display: flex;
   flex-wrap: wrap;
-  gap: 0.15rem 0.6rem;
+  align-items: center;
+  gap: 0.2rem 0.75rem;
 }
 
-.pub-id { font-family: var(--trax-mono); }
+.pub-id { font-family: var(--trax-mono); font-size: 0.95em; }
 
 .pub-chip {
-  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--trax-muted);
-  border: 1px solid var(--trax-border-strong);
-  border-radius: 4px;
-  padding: 0 0.35rem;
+  background: var(--trax-fill);
+  border-radius: 6px;
+  padding: 0.05rem 0.45rem;
 }
 
-.pub-notes {
-  margin-top: 1rem;
+.pub-heading {
+  margin: 0 0 0.35rem;
+  font-size: 1.375rem;
+  line-height: 1.2;
+  font-weight: 700;
 }
+
+.pub-lead {
+  margin: 0 0 1.1rem;
+  font-size: 0.9375rem;
+  color: var(--trax-muted);
+}
+
+.pub-note {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--trax-muted);
+}
+
+.pub-note:empty { display: none; }
+.pub-note-bad { color: var(--st-UNAV); }
+
+.pub-notes { margin-top: 1rem; }
 
 .pub-notes-body {
-  background: var(--trax-surface-2);
-  border: 1px solid var(--trax-border);
-  border-radius: 10px;
-  padding: 0.7rem 0.8rem;
-  font-size: 0.95rem;
+  background: var(--trax-fill);
+  border-radius: var(--trax-radius-sm);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.9375rem;
   color: var(--trax-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+/* ------------------------------------------------------- Grouped lists --- */
+
+.pub-group {
+  background: var(--trax-surface);
+  border-radius: var(--trax-radius);
+  box-shadow: var(--trax-shadow-sm);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.pub-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 48px;
+  padding: 0.7rem 1rem;
+  min-width: 0;
+}
+
+/* Inset hairline, iOS style: starts where the text starts. */
+.pub-row + .pub-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--pub-row-inset, 1rem);
+  border-top: 0.5px solid var(--trax-border-strong);
+}
+
+.pub-row-main { flex: 1 1 auto; min-width: 0; }
+
+.pub-row-title {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.pub-row-meta {
+  margin-top: 0.1rem;
+  font-size: 0.8125rem;
+  color: var(--trax-muted);
+  overflow-wrap: anywhere;
+}
+
+.pub-row-end {
+  flex: 0 0 auto;
+  font-size: 0.875rem;
+  color: var(--trax-muted);
+  text-align: right;
+}
+
+/* Key / value row. */
+.pub-kv {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pub-kv > span { color: var(--trax-text); flex: 0 0 auto; }
+
+.pub-kv > strong {
+  font-weight: 400;
+  color: var(--trax-muted);
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* -------------------------------------------------------------- Status --- */
 
-/*
- * The old page pulsed a coloured box-shadow behind the status forever. It drew
- * the eye away from the one thing this page is for — reaching the owner — and
- * cost a repaint a second on a phone that is probably outdoors on battery. The
- * state is carried by the word, the colour and a dot instead.
- */
 .pub-status {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  margin-top: 0.9rem;
-  padding: 0.4rem 0.75rem;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
   border-radius: 999px;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  border: 1px solid transparent;
   white-space: nowrap;
+  color: var(--st-LOCK);
+  background: var(--st-LOCK-bg);
 }
 
 .pub-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: currentColor;
   flex: 0 0 auto;
 }
 
-.pub-status.status-FREE { color: #7ee2a0; background: rgba(46, 160, 67, 0.15); border-color: rgba(46, 160, 67, 0.35); }
-.pub-status.status-RSVD { color: #f0c674; background: rgba(210, 153, 34, 0.15); border-color: rgba(210, 153, 34, 0.35); }
-.pub-status.status-UNAV { color: #ff9a94; background: rgba(229, 83, 75, 0.15); border-color: rgba(229, 83, 75, 0.35); }
-.pub-status.status-LOCK { color: #b1bac4; background: rgba(110, 118, 129, 0.18); border-color: rgba(110, 118, 129, 0.4); }
-.pub-status.status-PARTIAL { color: #8fd8e8; background: rgba(63, 176, 201, 0.15); border-color: rgba(63, 176, 201, 0.35); }
+.pub-status.status-FREE { color: var(--st-FREE); background: var(--st-FREE-bg); }
+.pub-status.status-RSVD { color: var(--st-RSVD); background: var(--st-RSVD-bg); }
+.pub-status.status-UNAV { color: var(--st-UNAV); background: var(--st-UNAV-bg); }
+.pub-status.status-LOCK { color: var(--st-LOCK); background: var(--st-LOCK-bg); }
+.pub-status.status-PARTIAL { color: var(--st-PARTIAL); background: var(--st-PARTIAL-bg); }
+
+.pub-status-row {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
 
 .pub-status-note {
   margin: 0.75rem 0 0;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   color: var(--trax-muted);
 }
 
-/* ------------------------------------------------------------- Recovery --- */
+.pub-status-note:empty { display: none; }
 
-/*
- * The whole point of index.php. Server-rendered, so it is on screen before
- * public.php has answered: whoever is holding the item can act immediately.
- */
-.pub-found {
-  background: var(--trax-surface);
-  border: 1px solid var(--trax-border-strong);
-  border-radius: var(--trax-radius);
-  padding: 1.1rem;
-}
-
-.pub-found-title {
-  margin: 0 0 0.35rem;
-  font-size: 1.2rem;
-  font-weight: 600;
-}
-
-.pub-found-text {
-  margin: 0 0 1rem;
-  font-size: 0.95rem;
-  color: var(--trax-muted);
-}
-
-/* The lookup card: a heading, not the name of a thing, so it sits a size down
-   from .pub-title and carries its own lead paragraph. */
-.pub-heading {
-  margin: 0 0 0.4rem;
-  font-size: 1.3rem;
-  line-height: 1.25;
-  font-weight: 600;
-}
-
-.pub-lead {
-  margin: 0 0 1.1rem;
-  font-size: 0.95rem;
-  color: var(--trax-muted);
-}
-
-.pub-optional {
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-}
+/* ------------------------------------------------------------- Buttons --- */
 
 .pub-actions {
   display: grid;
@@ -428,87 +476,151 @@ button,
   justify-content: center;
   gap: 0.5rem;
   width: 100%;
-  min-height: 52px;
-  padding: 0.7rem 1rem;
-  border-radius: var(--trax-radius);
-  border: 1px solid transparent;
+  min-height: 50px;
+  padding: 0.7rem 1.1rem;
+  border-radius: 12px;
+  border: 0;
+  background: var(--trax-fill);
+  color: var(--trax-text);
   font: inherit;
+  font-size: 1.0625rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
   text-align: center;
   text-decoration: none;
   cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.12s ease, opacity 0.15s ease;
 }
 
-.pub-btn i { font-size: 1.15rem; line-height: 1; }
+.pub-btn:hover { text-decoration: none; background: var(--trax-fill-strong); }
+.pub-btn:active:not(:disabled) { transform: scale(0.98); }
+.pub-btn:disabled { opacity: 0.4; cursor: default; }
+.pub-btn i { font-size: 1.15em; line-height: 1; }
 
-.pub-btn-primary {
-  background: var(--trax-wa);
-  color: var(--trax-wa-ink);
+.pub-btn-primary { background: var(--trax-accent); color: var(--trax-on-accent); }
+.pub-btn-primary:hover { background: var(--trax-accent-hover); }
+.pub-btn-primary:disabled:hover { background: var(--trax-accent); }
+
+.pub-btn-wa { background: var(--trax-wa); color: var(--trax-wa-ink); }
+.pub-btn-wa:hover { background: var(--trax-wa-hover); }
+
+/* Grey fill: the default secondary button. */
+.pub-btn-ghost { background: var(--trax-fill); color: var(--trax-text); }
+
+/* Accent-tinted. */
+.pub-btn-tinted { background: var(--trax-accent-soft); color: var(--trax-accent-text); }
+.pub-btn-tinted:hover { background: var(--trax-accent-soft); filter: brightness(0.97); }
+
+/* Plain text button. */
+.pub-btn-quiet { background: transparent; color: var(--trax-accent-text); }
+.pub-btn-quiet:hover { background: var(--trax-accent-soft); }
+
+.pub-btn-sm {
+  width: auto;
+  min-height: 36px;
+  padding: 0.4rem 0.85rem;
+  border-radius: 9px;
+  font-size: 0.9375rem;
 }
-
-.pub-btn-primary:hover { background: #3ad978; }
-
-.pub-btn-ghost {
-  background: var(--trax-surface-3);
-  color: var(--trax-text);
-  border-color: var(--trax-border-strong);
-}
-
-.pub-btn-ghost:hover { background: #26313d; }
-
-.pub-btn-quiet {
-  background: transparent;
-  color: var(--trax-muted);
-  border-color: var(--trax-border-strong);
-}
-
-.pub-btn-quiet:hover { color: var(--trax-text); }
 
 /* --------------------------------------------------------------- Forms --- */
 
-.pub-field { display: block; margin-bottom: 0.85rem; }
-
+.pub-field { display: block; margin-bottom: 1rem; min-width: 0; }
 .pub-field:last-child { margin-bottom: 0; }
 
 .pub-input {
   display: block;
   width: 100%;
   min-height: 48px;
-  padding: 0.65rem 0.8rem;
-  background: var(--trax-surface-2);
-  border: 1px solid var(--trax-border-strong);
-  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  background: var(--trax-fill);
+  border: 0;
+  border-radius: var(--trax-radius-sm);
   color: var(--trax-text);
   font: inherit;
+  font-size: 1.0625rem;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+select.pub-input {
+  padding-right: 2.4rem;
+  background-image: linear-gradient(45deg, transparent 50%, var(--trax-muted) 50%),
+    linear-gradient(135deg, var(--trax-muted) 50%, transparent 50%);
+  background-position: calc(100% - 1.15rem) 52%, calc(100% - 0.8rem) 52%;
+  background-size: 0.35rem 0.35rem;
+  background-repeat: no-repeat;
+}
+
+input[type='file'].pub-input { padding: 0.6rem 0.75rem; font-size: 0.9375rem; }
+
+input[type='file'].pub-input::file-selector-button {
+  margin-right: 0.75rem;
+  padding: 0.35rem 0.8rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--trax-accent-soft);
+  color: var(--trax-accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 textarea.pub-input {
   min-height: 104px;
   resize: vertical;
+  line-height: 1.4;
 }
 
-.pub-input::placeholder { color: var(--trax-muted); opacity: 1; }
+.pub-input::placeholder { color: var(--trax-faint); opacity: 1; }
 
 .pub-input:focus {
-  border-color: var(--trax-accent);
-  outline: 2px solid var(--trax-accent);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--trax-ring);
 }
 
-/* Captcha — index.php's report form. The plate is drawn light by captcha.php
-   (dark ink on a light background reads better on a phone in daylight), so it
-   keeps its own white backing rather than the dark surface around it. */
+.pub-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--trax-muted);
+}
+
+/* iOS-style checkbox / radio row. */
+.pub-check {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  margin: 0.9rem 0;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.pub-check input {
+  flex: 0 0 auto;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin: 0.05rem 0 0;
+  accent-color: var(--trax-accent);
+}
+
+/* Captcha: captcha.php draws dark ink on a light plate, so it keeps its own
+   white backing in both themes. */
 .pub-captcha {
-  border-radius: 8px;
-  border: 1px solid var(--trax-border-strong);
+  display: block;
+  border-radius: 10px;
   background: #fff;
+  max-width: 100%;
+  height: auto;
 }
 
 .pub-captcha-row {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.6rem;
   align-items: center;
-  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
 }
 
 /* Off-screen rather than display:none: a bot reading the DOM fills it in, a
@@ -516,11 +628,13 @@ textarea.pub-input {
 .pub-hp {
   position: absolute;
   left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 .pub-search { position: relative; }
-
-.pub-search .pub-input { padding-left: 2.6rem; }
+.pub-search .pub-input { padding-left: 2.5rem; min-height: 44px; }
 
 .pub-search-icon {
   position: absolute;
@@ -531,39 +645,70 @@ textarea.pub-input {
   pointer-events: none;
 }
 
-/* -------------------------------------------------------------- Modal --- */
+/* --------------------------------------------------------------- Flash --- */
 
-.pub-modal {
-  /* Percentage-first so it can never be wider than a 320px screen. */
-  width: min(100% - 1.5rem, 440px);
-  max-width: 100%;
-  padding: 0;
-  border: 1px solid var(--trax-border-strong);
-  border-radius: 14px;
-  background: var(--trax-surface);
-  color: var(--trax-text);
+.pub-flash {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  font-size: 0.9375rem;
+  line-height: 1.4;
 }
 
-.pub-modal::backdrop { background: rgba(3, 5, 8, 0.72); }
+.pub-flash > i { font-size: 1.1rem; line-height: 1.3; flex: 0 0 auto; }
+
+.pub-flash-ok { color: var(--st-FREE); background: var(--st-FREE-bg); }
+.pub-flash-bad { color: var(--st-UNAV); background: var(--st-UNAV-bg); }
+.pub-flash-warn { color: var(--st-RSVD); background: var(--st-RSVD-bg); }
+.pub-flash-info { color: var(--trax-accent-text); background: var(--trax-accent-soft); }
+.pub-flash a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+
+/* -------------------------------------------------------------- Modal --- */
+
+/* A bottom sheet on a phone, a centred dialog from 600px up. */
+.pub-modal {
+  width: 100%;
+  max-width: 100%;
+  max-height: calc(100dvh - 1.5rem - env(safe-area-inset-top));
+  margin: auto 0 0;
+  padding: 0 0 env(safe-area-inset-bottom);
+  border: 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--trax-surface);
+  color: var(--trax-text);
+  box-shadow: var(--trax-shadow-pop);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pub-modal::backdrop {
+  background: var(--trax-scrim);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
 
 .pub-modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.9rem 1rem;
-  border-bottom: 1px solid var(--trax-border);
+  padding: 0.9rem 1rem 0.6rem;
+  background: var(--trax-surface);
 }
 
-.pub-modal-title { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.pub-modal-title { margin: 0; font-size: 1.125rem; font-weight: 650; }
 
-.pub-modal-body { padding: 1rem; }
-
-.pub-modal-body .pub-flash { margin-bottom: 0.85rem; }
+.pub-modal-body { padding: 0.25rem 1rem 1rem; }
+.pub-modal-body .pub-flash { margin-bottom: 1rem; }
 
 .pub-modal-foot {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.6rem;
+  gap: 0.5rem;
   padding: 0 1rem 1rem;
 }
 
@@ -572,42 +717,19 @@ textarea.pub-input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  border: 1px solid var(--trax-border-strong);
-  background: transparent;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--trax-fill);
   color: var(--trax-muted);
-  font-size: 1rem;
+  font-size: 0.8rem;
   cursor: pointer;
 }
 
-.pub-icon-btn:hover { color: var(--trax-text); }
+.pub-icon-btn:hover { color: var(--trax-text); background: var(--trax-fill-strong); }
 
-/* --------------------------------------------------------------- Flash --- */
-
-.pub-flash {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  padding: 0.85rem 1rem;
-  border-radius: var(--trax-radius);
-  border: 1px solid transparent;
-  font-size: 0.95rem;
-}
-
-.pub-flash-ok { color: #7ee2a0; background: rgba(46, 160, 67, 0.12); border-color: rgba(46, 160, 67, 0.35); }
-.pub-flash-bad { color: #ff9a94; background: rgba(229, 83, 75, 0.12); border-color: rgba(229, 83, 75, 0.35); }
-
-.pub-note {
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--trax-muted);
-}
-
-.pub-note-bad { color: #ff9a94; }
-
-/* ---------------------------------------------------------------- List --- */
+/* ---------------------------------------------------------------- Board --- */
 
 .pub-board-head {
   display: flex;
@@ -617,23 +739,39 @@ textarea.pub-input {
   flex-wrap: wrap;
 }
 
-.pub-board-title { margin: 0; font-size: 1.2rem; font-weight: 600; }
+.pub-board-title {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+}
 
-.pub-count { font-size: 0.85rem; color: var(--trax-muted); }
+.pub-count { font-size: 0.875rem; color: var(--trax-muted); }
 
+/* view.php renders <ul class="pub-list"><li class="pub-item">…: one grouped
+   list with inset hairlines. */
 .pub-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 0.55rem;
+  background: var(--trax-surface);
+  border-radius: var(--trax-radius);
+  box-shadow: var(--trax-shadow-sm);
+  overflow: hidden;
 }
 
 .pub-item {
-  background: var(--trax-surface);
-  border: 1px solid var(--trax-border);
-  border-radius: 10px;
-  padding: 0.75rem 0.85rem;
+  position: relative;
+  padding: 0.75rem 1rem;
+}
+
+.pub-item + .pub-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 1rem;
+  border-top: 0.5px solid var(--trax-border-strong);
 }
 
 .pub-item-head {
@@ -646,49 +784,56 @@ textarea.pub-input {
 .pub-item-name {
   margin: 0;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
 .pub-item-meta {
-  margin: 0.35rem 0 0;
-  font-size: 0.8rem;
+  margin: 0.2rem 0 0;
+  font-size: 0.8125rem;
   color: var(--trax-muted);
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.1rem 0.6rem;
 }
 
 .pub-item-notes {
-  margin: 0.4rem 0 0;
-  font-size: 0.85rem;
+  margin: 0.3rem 0 0;
+  font-size: 0.8125rem;
   color: var(--trax-muted);
   overflow-wrap: anywhere;
 }
 
-/* The list badge is the same five colours, one notch smaller than the one the
-   asset page shows. */
 .pub-item .pub-status {
-  margin-top: 0;
   font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
+  padding: 0.15rem 0.55rem;
   flex: 0 0 auto;
 }
 
 .pub-empty {
   margin: 0;
-  border: 1px dashed var(--trax-border-strong);
-  border-radius: 10px;
-  padding: 1.5rem 1rem;
+  border-radius: var(--trax-radius);
+  background: var(--trax-surface);
+  box-shadow: var(--trax-shadow-sm);
+  padding: 2rem 1rem;
   text-align: center;
   color: var(--trax-muted);
-  font-size: 0.95rem;
+  font-size: 0.9375rem;
 }
+
+.pub-empty > i {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 1.75rem;
+  color: var(--trax-faint);
+}
+
+.pub-list .pub-skeleton-row + .pub-skeleton-row { border-top: 0.5px solid var(--trax-border); }
 
 .pub-skeleton-row {
   height: 62px;
-  border-radius: 10px;
-  border: 1px solid var(--trax-border);
   background: var(--trax-surface);
   animation: pubFade 1.4s ease-in-out infinite;
 }
@@ -698,33 +843,544 @@ textarea.pub-input {
 
 @keyframes pubFade {
   0%, 100% { opacity: 0.45; }
-  50% { opacity: 0.8; }
+  50% { opacity: 0.9; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pub-skeleton-row { animation: none; opacity: 0.55; }
+  .pub-skeleton-row { animation: none; opacity: 0.6; }
+  .pub-btn { transition: none; }
+}
+
+/* ---------------------------------------------------------------- Terms --- */
+
+/* Operator-written Markdown, rendered by lib/markdown.php: headings start at
+   h2 because the page owns the h1. Long words break rather than push a 320px
+   screen sideways. */
+.pub-terms {
+  margin-top: 1.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.pub-terms h2,
+.pub-terms h3,
+.pub-terms h4 {
+  margin: 1.4rem 0 0.45rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.pub-terms h2 { font-size: 1.125rem; }
+.pub-terms h3 { font-size: 1rem; }
+.pub-terms h4 { font-size: 0.9375rem; }
+.pub-terms > :first-child { margin-top: 0; }
+
+.pub-terms p,
+.pub-terms ul,
+.pub-terms ol,
+.pub-terms blockquote { margin: 0 0 0.75rem; }
+
+.pub-terms ul,
+.pub-terms ol { padding-left: 1.3rem; }
+
+.pub-terms blockquote {
+  border-left: 3px solid var(--trax-border-strong);
+  padding-left: 0.8rem;
+  color: var(--trax-muted);
+}
+
+.pub-terms hr {
+  border: 0;
+  border-top: 0.5px solid var(--trax-border-strong);
+  margin: 1.2rem 0;
+}
+
+.pub-terms-old { margin: 1rem 0 0; }
+
+/* -------------------------------------------- Sign-in & installer (solo) --- */
+
+/* One centred card on a desktop; on a phone the card dissolves into the page
+   (full-bleed) and the page takes the card's colour. */
+.pub-solo { background: var(--trax-solo-bg); }
+
+.pub-solo-main {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: calc(2.5rem + env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right))
+    calc(2rem + env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
+}
+
+.pub-solo-wide { max-width: 720px; }
+
+.pub-solo .pub-card {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.pub-solo-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 1.75rem;
+}
+
+/* The app icon: the uploaded favicon when there is one, else a tile in the
+   brand colour. */
+.pub-appicon {
+  width: 64px;
+  height: 64px;
+  border-radius: 15px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--trax-brand);
+  color: #fff;
+  font-size: 1.75rem;
+  box-shadow: var(--trax-shadow-sm), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.pub-appicon img { width: 100%; height: 100%; display: block; }
+
+.pub-solo-title {
+  margin: 0;
+  font-size: 1.75rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+}
+
+.pub-solo-sub {
+  margin: 0.35rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--trax-muted);
+}
+
+.pub-solo .pub-flash { margin-bottom: 1.25rem; }
+.pub-solo-submit { margin-top: 1.5rem; }
+.pub-submit { margin-top: 1.25rem; }
+
+@media (min-width: 600px) {
+  .pub-solo { background: var(--trax-bg); }
+  .pub-solo-main {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: 3rem;
+    padding-bottom: 3rem;
+  }
+  .pub-solo .pub-card {
+    background: var(--trax-surface);
+    box-shadow: var(--trax-shadow);
+    border-radius: 20px;
+    padding: 2.25rem 2rem 2rem;
+  }
+}
+
+/* ------------------------------------------------------------ Installer --- */
+
+.ins-steps {
+  display: flex;
+  gap: 0.3rem;
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+}
+
+.ins-steps li {
+  flex: 1 1 0;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--trax-fill-strong);
+}
+
+.ins-steps li.is-past { background: var(--trax-accent); opacity: 0.45; }
+.ins-steps li.is-now { background: var(--trax-accent); }
+
+.ins-stepno {
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--trax-muted);
+}
+
+.ins-title {
+  margin: 0 0 0.3rem;
+  font-size: 1.625rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.ins-title + .pub-flash { margin-top: 0.9rem; }
+
+.ins-lead { margin: 0 0 1.25rem; color: var(--trax-muted); font-size: 0.9375rem; }
+
+.ins-section {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--trax-muted);
+}
+
+/* Requirement / done rows: a grouped list. overflow-wrap because rows carry
+   paths and shell commands the operator cannot shorten. */
+.ins-req {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  background: var(--trax-fill);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ins-req li {
+  position: relative;
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.7rem 0.9rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.9375rem;
+}
+
+.ins-req li + li::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 2.85rem;
+  border-top: 0.5px solid var(--trax-border-strong);
+}
+
+.ins-mark {
+  flex: 0 0 1.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.1rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.ins-ok { background: #34c759; }
+.ins-bad { background: #ff3b30; }
+.ins-warn { background: #ff9f0a; }
+
+.ins-detail { display: block; color: var(--trax-muted); font-size: 0.8125rem; }
+
+.ins-cols {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 1rem;
+}
+
+.ins-cols > .pub-field,
+.ins-cols > div { margin-bottom: 1rem; }
+
+.ins-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 1.75rem;
+}
+
+.ins-actions .pub-btn { flex: 1 1 0; }
+
+.ins-restart { margin-top: 0.5rem; }
+
+.ins-colour { display: flex; gap: 0.5rem; align-items: center; }
+
+.ins-colour input[type='color'] {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  padding: 0.3rem;
+  background: var(--trax-fill);
+  border: 0;
+  border-radius: var(--trax-radius-sm);
+  cursor: pointer;
+}
+
+.ins-pre {
+  display: block;
+  padding: 0.7rem 0.85rem;
+  margin: 0.35rem 0 0;
+  background: var(--trax-fill);
+  border-radius: var(--trax-radius-sm);
+  font-family: var(--trax-mono);
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--trax-text);
+}
+
+.ins-review {
+  margin: 0 0 1rem;
+  background: var(--trax-fill);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ins-review div {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.9375rem;
+}
+
+.ins-review div + div::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0.9rem;
+  border-top: 0.5px solid var(--trax-border-strong);
+}
+
+.ins-review dt { color: var(--trax-text); font-weight: 400; flex: 0 0 auto; }
+.ins-review dd { margin: 0; text-align: right; color: var(--trax-muted); min-width: 0; overflow-wrap: anywhere; }
+
+/* The external-auth block hangs off the radio above it. */
+.ins-auth-fields {
+  margin: 0 0 1rem 2rem;
+}
+
+@media (min-width: 600px) {
+  .ins-cols { grid-template-columns: 1fr 1fr; }
+  .ins-cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .ins-cols-4 { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (max-width: 599.98px) {
+  .ins-cols-4 { grid-template-columns: 1fr 1fr; }
+  /* Stacked: the primary action on top, as on iOS. */
+  .pub-modal-foot .pub-btn-primary { order: -1; }
+}
+
+/* -------------------------------------------------------------- Booking --- */
+
+.bk-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0 0.25rem;
+}
+
+.bk-head-text { flex: 1 1 auto; min-width: 0; }
+
+.bk-org {
+  margin: 0 0 0.15rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--trax-muted);
+}
+
+.bk-badge {
+  flex: 0 0 auto;
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+}
+
+.bk-badge.s-open { color: var(--st-RSVD); background: var(--st-RSVD-bg); }
+.bk-badge.s-done { color: var(--st-FREE); background: var(--st-FREE-bg); }
+.bk-badge.s-void { color: var(--st-LOCK); background: var(--st-LOCK-bg); }
+
+.bk-section > .pub-eyebrow { margin-bottom: 0.4rem; }
+
+.bk-thumb {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 9px;
+  background: var(--trax-fill);
+}
+
+.bk-thumb-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--trax-faint);
+  font-size: 1.1rem;
+}
+
+.bk-mark {
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  border-radius: 7px;
+  font-size: 0.85rem;
+  flex: 0 0 auto;
+}
+
+.bk-item { position: relative; }
+
+.bk-item + .bk-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: calc(1rem + 44px + 0.85rem);
+  border-top: 0.5px solid var(--trax-border-strong);
+}
+
+.bk-qty { white-space: nowrap; }
+
+.bk-shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.25rem 1rem 0.9rem calc(1rem + 44px + 0.85rem);
+}
+
+.bk-shots-loose { padding: 0.9rem 1rem; }
+
+.bk-shot { width: 112px; font-size: 0.75rem; color: var(--trax-muted); }
+
+.bk-shot img {
+  display: block;
+  width: 112px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--trax-fill);
+  margin-bottom: 0.3rem;
+}
+
+.bk-shot-note { color: var(--trax-text); overflow-wrap: anywhere; }
+
+.bk-sig {
+  padding: 1rem;
+}
+
+/* The signature itself: white because that is what the drawing is stored and
+   printed on — dark ink on white, in both themes. */
+.sig-shot {
+  display: block;
+  max-width: 100%;
+  max-height: 140px;
+  padding: 0.5rem;
+  border-radius: 10px;
+  border: 0.5px solid var(--trax-border-strong);
+  background: #fff;
+}
+
+.sig-name { margin-top: 0.6rem; font-weight: 600; }
+
+/* The pad. White for the same reason. */
+.sig-pad {
+  width: 100%;
+  height: 180px;
+  border-radius: 12px;
+  background: #fff;
+  border: 0.5px solid var(--trax-border-strong);
+  touch-action: none;
+  display: block;
+  cursor: crosshair;
+}
+
+.sig-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+.kit { font-size: 0.8125rem; color: var(--trax-muted); }
+.mt-1 { margin-top: 0.25rem; }
+.mt-2 { margin-top: 0.5rem; }
+.sig-ok { color: var(--st-FREE); font-weight: 600; }
+.sig-warn { color: var(--st-RSVD); font-weight: 600; }
+
+.bk-sign-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.bk-sign-actions .pub-btn-primary { flex: 1 1 auto; }
+.bk-sign-actions .pub-btn-ghost { flex: 0 0 auto; width: auto; padding-left: 1.25rem; padding-right: 1.25rem; }
+
+/* The terms, folded under the pad: readable in place on a phone, and
+   scrollable so they never push the pad off the screen. */
+.terms-box {
+  margin-top: 1rem;
+  border-radius: 12px;
+  background: var(--trax-fill);
+}
+
+.terms-box > summary {
+  cursor: pointer;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  list-style-position: inside;
+}
+
+.terms-body {
+  max-height: 45vh;
+  overflow-y: auto;
+  padding: 0 0.9rem 0.9rem;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.terms-body h2, .terms-body h3, .terms-body h4 { font-size: 0.9375rem; margin: 1rem 0 0.4rem; }
+.terms-body p, .terms-body ul, .terms-body ol, .terms-body blockquote { margin: 0 0 0.6rem; }
+.terms-body ul, .terms-body ol { padding-left: 1.2rem; }
+
+.bk-pdf { display: flex; justify-content: center; }
+.bk-pdf .pub-btn { width: 100%; }
+
+.bk-sign-note { margin-bottom: 0; text-align: center; }
+
+.bk-private {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--trax-muted);
 }
 
 /* --------------------------------------------------------- Wider screens --- */
 
 /* One thumb-width column on a phone; side by side once there is room for two
-   52px targets without either getting narrow. Nothing above is a fixed width,
-   so 320px never scrolls sideways. */
-@media (min-width: 560px) {
+   targets without either getting narrow. */
+@media (min-width: 600px) {
   .pub-actions { grid-template-columns: 1fr 1fr; }
+  .pub-actions > :only-child { grid-column: 1 / -1; }
+  .pub-modal {
+    width: min(100% - 2rem, 460px);
+    margin: auto;
+    padding-bottom: 0;
+    border-radius: 18px;
+    max-height: calc(100dvh - 4rem);
+  }
   .pub-modal-foot { grid-template-columns: 1fr 1fr; }
+  .bk-pdf .pub-btn { width: auto; min-width: 280px; }
 }
 
 @media (min-width: 768px) {
-  .pub-main { padding: 1.75rem 1.25rem 3rem; gap: 1.1rem; }
-  .pub-card, .pub-found { padding: 1.4rem; }
-  .pub-title { font-size: 1.75rem; }
+  .pub-main { padding-top: 2rem; padding-bottom: 3rem; gap: 1.5rem; }
+  .pub-card { padding: 1.5rem; }
+  .pub-title { font-size: 2rem; }
 }
 
 /*
  * iOS zooms the page when a field under 16px takes focus, and it ignores
- * user-scalable=no. Both public pages link this file, so both keep the fix.
- * Kept as an element-level rule, not just .pub-input, so a field added later
+ * user-scalable=no. Every public page links this file, so every one keeps the
+ * fix. An element-level rule, not just .pub-input, so a field added later
  * without the class is still covered.
  */
 @media (max-width: 991.98px) {
