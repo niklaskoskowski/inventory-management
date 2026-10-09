@@ -547,23 +547,21 @@ export default {
       const text = rawText(error);
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError'
         || /permission|denied|not allowed/i.test(text)) {
-        return 'Camera access was refused. In Safari open the "AA" menu in the address bar → '
-          + 'Website Settings → Camera → Allow, then try again.';
+        return 'Camera access refused. Safari: "AA" menu → Website Settings → Camera → Allow.';
       }
       if (name === 'NotFoundError' || name === 'DevicesNotFoundError'
         || /no camera|camera not found|requested device not found/i.test(text)) {
-        return 'No camera was found on this device. Type the asset ID below instead.';
+        return 'No camera found. Type the ID below.';
       }
       if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
-        return 'That camera could not be opened with the requested settings. '
-          + 'Choose "Automatic (rear)" in the camera picker and try again.';
+        return 'That camera could not be opened. Pick "Automatic (rear)" and try again.';
       }
       if (name === 'NotReadableError' || name === 'TrackStartError'
         || /in use|busy|could not start video source/i.test(text)) {
-        return 'The camera is being used by another app or tab. Close that one and try again.';
+        return 'The camera is in use by another app or tab.';
       }
       if (name === 'SecurityError') {
-        return `The browser blocked the camera for security reasons. ${appName()} has to be served over https://.`;
+        return `The browser blocked the camera. ${appName()} needs https://.`;
       }
       return text || 'The camera could not be started.';
     };
@@ -583,13 +581,10 @@ export default {
       const local = LOCAL_HOSTS.test(loc.hostname || '');
       const secure = window.isSecureContext === true || loc.protocol === 'https:' || local;
       if (!secure) {
-        return `${originLabel()} is not a secure context, so iOS Safari and Chrome refuse the `
-          + `camera. Serve ${appName()} over https:// (or open it on localhost) and the scanner `
-          + 'works. Until then, type the ID below.';
+        return `The camera needs https:// (${originLabel()} is not secure). Type the ID below.`;
       }
       if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-        return `This browser exposes no camera API at ${originLabel()} `
-          + '(navigator.mediaDevices is missing). Type the ID below instead.';
+        return 'This browser has no camera access. Type the ID below.';
       }
       return '';
     };
@@ -1156,17 +1151,12 @@ export default {
       return Object.assign({ result: last.paused ? 'paused' : 'stalled' }, last);
     };
 
-    const TAP_FIRST = 'The camera is open but iOS did not start the picture on its own. '
-      + 'Tap the preview to start it.';
-    const TAP_REFUSED = 'iOS refused to play the camera even on a tap. The usual cause is Low Power '
-      + 'Mode — turn it off in Settings → Battery, then try again. If it is already off, check this '
-      + 'site in Safari\'s "AA" menu → Website Settings, close any other app using the camera, and '
-      + 'reload. Or type the ID below.';
-    const INTERRUPTED = 'The camera stream was interrupted — another app took the camera, the screen '
-      + 'locked, or the device revoked it. Restart the scanner to get the picture back.';
-    const DECODER_DEAD = 'The camera is running but the decoder never started: no frame has been '
-      + `examined in the last ${Math.round((DECODE_TRIES * DECODE_WAIT_MS) / 1000)} seconds, so no `
-      + 'label can ever be read. Restart the scanner, or type the ID below.';
+    const TAP_FIRST = 'iOS needs a tap to show the picture.';
+    const TAP_REFUSED = 'iOS refused to play the camera. Turn off Low Power Mode, close other camera '
+      + 'apps and reload — or type the ID below.';
+    const INTERRUPTED = 'Another app, a screen lock or the device took the camera away.';
+    const DECODER_DEAD = `No frame read in ${Math.round((DECODE_TRIES * DECODE_WAIT_MS) / 1000)} s. `
+      + 'Restart, or type the ID below.';
 
     /**
      * The decode heartbeat.
@@ -1597,9 +1587,9 @@ export default {
         || Boolean(decoderText.value)));
 
     const modeHint = computed(() => ({
-      lookup: 'Scan a label to open that asset.',
-      collect: 'Keep scanning — each item is added to your selection.',
-      return: 'Keep scanning — each item is checked straight back in.',
+      lookup: 'Scan a label to open it.',
+      collect: 'Each scan adds to the selection.',
+      return: 'Each scan checks the item in.',
     }[mode.value]));
 
     /**
@@ -1661,21 +1651,21 @@ export default {
            two controls the drawer's own chrome provides on desktop and cannot
            provide from underneath a full-screen stage: the close button and
            the footer actions. -->
-      <div class="trax-scan-stage">
+      <div class="trax-scan-stage" :data-bs-theme="fullscreen ? 'dark' : null">
 
       <div class="trax-scan-bar trax-scan-bar-top">
         <div class="trax-scan-toprow">
-          <button type="button" class="trax-scan-close" aria-label="Close the scanner"
+          <button type="button" class="trax-close trax-scan-close" aria-label="Close the scanner"
                   @click="stop().then(() => emit('close'))">
             <i class="bi bi-x-lg" aria-hidden="true"></i>
           </button>
           <div class="btn-group btn-group-sm w-100 trax-scan-modes" role="group" aria-label="Scan mode">
             <button class="btn" :class="mode === 'lookup' ? 'btn-secondary' : 'btn-outline-secondary'"
-                    @click="mode = 'lookup'"><i class="bi bi-search"></i> Look up</button>
+                    :aria-pressed="mode === 'lookup'" @click="mode = 'lookup'"><i class="bi bi-search"></i> Look up</button>
             <button class="btn" :class="mode === 'collect' ? 'btn-secondary' : 'btn-outline-secondary'"
-                    @click="mode = 'collect'"><i class="bi bi-cart-plus"></i> Collect</button>
+                    :aria-pressed="mode === 'collect'" @click="mode = 'collect'"><i class="bi bi-cart-plus"></i> Collect</button>
             <button class="btn" :class="mode === 'return' ? 'btn-secondary' : 'btn-outline-secondary'"
-                    @click="mode = 'return'"><i class="bi bi-box-arrow-in-left"></i> Return</button>
+                    :aria-pressed="mode === 'return'" @click="mode = 'return'"><i class="bi bi-box-arrow-in-left"></i> Return</button>
           </div>
         </div>
         <p class="small text-secondary trax-scan-hint">{{ modeHint }}</p>
@@ -1696,7 +1686,7 @@ export default {
         </div>
         <button v-if="needsTap" type="button" class="btn btn-primary trax-scan-tap"
                 @click="onTapStart">
-          <span class="fs-5">▶ Tap to start the camera</span>
+          <span class="fs-5"><i class="bi bi-play-fill"></i> Tap to start</span>
           <span class="small" style="opacity:.9;max-width:34ch">{{ tapText }}</span>
         </button>
       </div>
@@ -1724,7 +1714,7 @@ export default {
         </div>
 
         <div v-if="status === 'starting'" class="small text-secondary">
-          <span class="spinner-border spinner-border-sm me-1"></span> Starting the camera…
+          <span class="spinner-border spinner-border-sm me-1"></span> Starting camera…
         </div>
 
         <div v-if="status === 'running'" class="small text-secondary">
@@ -1732,38 +1722,44 @@ export default {
             <i class="bi bi-record-circle text-success"></i> {{ liveText }}<span v-if="decodeAlive"> · {{ decodeNote }}</span>
           </template>
           <template v-else-if="needsTap">
-            <i class="bi bi-hand-index-thumb text-warning"></i> Waiting for a tap to start playback.
+            <i class="bi bi-hand-index-thumb text-warning"></i> Tap to start
           </template>
           <template v-else>
-            <span class="spinner-border spinner-border-sm me-1"></span> Waiting for the first frame…
+            <span class="spinner-border spinner-border-sm me-1"></span> Waiting for the camera…
           </template>
           <div v-if="playNote" class="mt-1">{{ playNote }}</div>
         </div>
 
         <div v-if="decoderText" class="alert alert-warning py-2 px-3 small mt-2">
-          <strong>Decoder not running.</strong>
+          <i class="bi bi-exclamation-triangle"></i><strong>Scanner stalled</strong>
           <div class="mt-1">{{ decoderText }}</div>
-          <button class="btn btn-sm btn-outline-light mt-2" @click="restart()">Restart the scanner</button>
+          <button class="btn btn-sm btn-outline-secondary mt-2" @click="restart()">
+            <i class="bi bi-arrow-clockwise"></i> Restart
+          </button>
         </div>
 
         <div v-if="status === 'error'" class="alert alert-warning py-2 px-3 small">
-          <strong>Camera unavailable.</strong>
+          <i class="bi bi-camera-video-off"></i><strong>Camera unavailable</strong>
           <div class="mt-1">{{ errorText }}</div>
-          <div v-if="errorDetail" class="mt-1 text-secondary">{{ errorDetail }}</div>
-          <button class="btn btn-sm btn-outline-light mt-2" @click="start()">Try again</button>
+          <div v-if="errorDetail" class="mt-1 text-secondary small">{{ errorDetail }}</div>
+          <button class="btn btn-sm btn-outline-secondary mt-2" @click="start()">
+            <i class="bi bi-arrow-clockwise"></i> Try again
+          </button>
         </div>
 
         <div v-if="status === 'interrupted'" class="alert alert-warning py-2 px-3 small">
-          <strong>Camera interrupted.</strong>
+          <i class="bi bi-pause-circle"></i><strong>Camera interrupted</strong>
           <div class="mt-1">{{ errorText }}</div>
-          <div v-if="errorDetail" class="mt-1 text-secondary">{{ errorDetail }}</div>
-          <button class="btn btn-sm btn-outline-light mt-2" @click="restart()">Restart</button>
+          <div v-if="errorDetail" class="mt-1 text-secondary small">{{ errorDetail }}</div>
+          <button class="btn btn-sm btn-outline-secondary mt-2" @click="restart()">
+            <i class="bi bi-arrow-clockwise"></i> Restart
+          </button>
         </div>
 
         <!-- Not part of normal operation any more; the remedy for the states
              above, next to their own Restart and Try again. -->
         <div v-if="cameraFix" class="mt-2">
-          <label class="form-label small" for="cam">Try another camera</label>
+          <label class="form-label small" for="cam">Camera</label>
           <div class="input-group input-group-sm">
             <select id="cam" class="form-select" v-model="cameraId">
               <option value="">Automatic (rear)</option>
@@ -1773,9 +1769,7 @@ export default {
           </div>
         </div>
 
-        <hr>
-
-        <label class="form-label small" for="manual-id">Or type an ID</label>
+        <label class="form-label small mt-3" for="manual-id">Or type an ID</label>
         <form class="input-group input-group-sm" @submit.prevent="submitManual">
           <input id="manual-id" class="form-control" v-model="manualId"
                  inputmode="decimal" placeholder="e.g. 12 or 12.1">
@@ -1783,21 +1777,22 @@ export default {
         </form>
 
         <div v-if="hits.length" class="mt-3">
-          <h3 class="trax-page-title mb-2">Scanned ({{ hits.length }})</h3>
-          <ul class="list-group list-group-flush trax-scan-hits">
-            <li v-for="hit in hits" :key="hit.at"
-                class="list-group-item bg-transparent d-flex align-items-center gap-2 py-1">
-              <span class="flex-grow-1 text-truncate">{{ hit.asset.name }}</span>
-              <span v-if="hit.unit" class="trax-kind-chip font-monospace">
-                {{ hit.asset.id }}.{{ hit.unit }}
+          <div class="trax-list-header">Scanned · {{ hits.length }}</div>
+          <div class="trax-list trax-scan-hits">
+            <div v-for="hit in hits" :key="hit.at" class="trax-row">
+              <div class="trax-row-main">
+                <div class="trax-row-title">
+                  <span>{{ hit.asset.name }}</span>
+                  <span v-if="hit.unit" class="trax-kind-chip font-monospace">{{ hit.asset.id }}.{{ hit.unit }}</span>
+                </div>
+              </div>
+              <span v-if="isSelected(hit.asset.id)" class="trax-kind-chip"
+                    :title="'In the selection ×' + getQuantity(hit.asset.id)">
+                <i class="bi bi-cart-check text-primary"></i> ×{{ getQuantity(hit.asset.id) }}
               </span>
               <StatusBadge :status="hit.asset.effectiveStatus" :kind="hit.asset.kind" />
-              <span v-if="isSelected(hit.asset.id)" class="trax-kind-chip">
-                ×{{ getQuantity(hit.asset.id) }}
-              </span>
-              <i v-if="isSelected(hit.asset.id)" class="bi bi-cart-check text-primary"></i>
-            </li>
-          </ul>
+            </div>
+          </div>
         </div>
 
         <!-- The drawer's own footer, again, for the layout that covers it. Both
@@ -1805,7 +1800,7 @@ export default {
              of them, so a phone can never end up with neither. -->
         <div class="trax-scan-actions">
           <span class="flex-grow-1 small text-secondary">
-            {{ state.selected.length }} selected · {{ selectedUnitCount }} unit(s)
+            {{ state.selected.length }} selected · {{ selectedUnitCount }} units
           </span>
           <button v-if="mode === 'collect' && state.selected.length" class="btn btn-sm btn-primary"
                   @click="stop().then(() => { emit('close'); emit('basket'); })">
@@ -1821,13 +1816,13 @@ export default {
 
       <template #footer>
         <span class="flex-grow-1 small text-secondary">
-          {{ state.selected.length }} selected · {{ selectedUnitCount }} unit(s)
+          {{ state.selected.length }} selected · {{ selectedUnitCount }} units
         </span>
-        <button v-if="mode === 'collect' && state.selected.length" class="btn btn-sm btn-primary"
+        <button v-if="mode === 'collect' && state.selected.length" class="btn btn-primary"
                 @click="stop().then(() => { emit('close'); emit('basket'); })">
           Review selection
         </button>
-        <button class="btn btn-sm btn-outline-secondary" @click="stop().then(() => emit('close'))">
+        <button class="btn btn-outline-secondary" @click="stop().then(() => emit('close'))">
           Done
         </button>
       </template>

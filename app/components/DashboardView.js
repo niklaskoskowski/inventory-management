@@ -4,7 +4,7 @@ import {
 } from '../store.js';
 import {
   formatDate, formatDateTime, daysOverdue, parseDate, isOverdue, formatMoney, formatTotals,
-  warrantyUntilOf,
+  warrantyUntilOf, relativeDays,
 } from '../lib/format.js';
 import { computeValue } from '../lib/insights.js';
 import {
@@ -15,6 +15,9 @@ import StatusBadge from './ui/StatusBadge.js';
 
 /** Worst first, so the failures are at the top of the card and not the bottom. */
 const ATTENTION = { FAIL: 0, OVERDUE: 1, DUE: 2, NONE: 3, OK: 4 };
+
+/** STATE_CLASS (Bootstrap contextual) → the status-dot colour it reads as. */
+const TEST_DOT = { danger: 'UNAV', warning: 'RSVD', secondary: 'LOCK', success: 'FREE' };
 
 /** At-a-glance view: what is out, what is late, what is coming up. */
 export default {
@@ -113,6 +116,15 @@ export default {
         .slice(0, 6),
     );
 
+    /** Units on a reservation: its lines' qty, or one per asset on old records. */
+    const upcomingUnits = (r) => (r.items || []).reduce((s, i) => s + i.qty, 0) || r.assetIds.length;
+
+    /** "checkout_extended" → "Checkout extended". */
+    const activityLabel = (type) => {
+      const text = String(type || '').replace(/_/g, ' ');
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    };
+
     const recent = computed(() =>
       [...state.history]
         .sort((a, b) => (parseDate(b.at) || 0) - (parseDate(a.at) || 0))
@@ -144,291 +156,269 @@ export default {
     return {
       state, byStatus, value, zeroLabel, unpricedTop, totalUnits, unitsOut,
       upcoming, dueSoon, warrantyExpiring, recent, inspectionDue,
-      STATE_CLASS, STATE_LABEL, formatDate,
+      STATE_CLASS, STATE_LABEL, TEST_DOT, formatDate, upcomingUnits, activityLabel,
       exportingInsurance, insurancePdf,
       overdueCheckouts, activeReservations, sets, items, getAsset,
-      formatDateTime, daysOverdue, isOverdue, formatTotals, warrantyUntilOf, emit,
+      formatDateTime, daysOverdue, isOverdue, formatTotals, warrantyUntilOf, relativeDays, emit,
     };
   },
   template: `
-    <!-- What the gear is worth. Internal only: nothing here reaches a customer
-         page, an email or a PDF. -->
-    <div class="row g-3 mb-3">
-      <div class="col-12 col-lg-6">
-        <div class="trax-kpi">
-          <div class="trax-kpi-label">Inventory value</div>
-          <div class="trax-kpi-value">{{ formatTotals(value.totals, zeroLabel) }}</div>
-          <div class="trax-kpi-note">
-            {{ value.pricedAssets }} of {{ items.length }} items priced · {{ totalUnits }} units
-            <span v-if="value.currencies.length > 1">· {{ value.currencies.join(' + ') }}, not added together</span>
+    <div class="trax-dash">
+      <!-- The day's numbers. -->
+      <div class="row g-2 g-md-3 mb-2 mb-md-3">
+        <div class="col-6 col-lg-3">
+          <div class="trax-kpi">
+            <div class="trax-kpi-label"><i class="bi bi-box-seam text-primary"></i>Items</div>
+            <div class="trax-kpi-value">{{ items.length }}</div>
+            <div class="trax-kpi-note">{{ totalUnits }} units · {{ sets.length }} kits</div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="trax-kpi">
+            <div class="trax-kpi-label"><i class="bi bi-check-circle text-success"></i>Available</div>
+            <div class="trax-kpi-value">{{ byStatus.FREE }}</div>
+            <div class="trax-kpi-note">{{ byStatus.RSVD }} reserved</div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="trax-kpi">
+            <div class="trax-kpi-label"><i class="bi bi-box-arrow-up-right text-warning"></i>Out</div>
+            <div class="trax-kpi-value">{{ unitsOut }}</div>
+            <div class="trax-kpi-note">{{ state.checkouts.length }} lines · {{ dueSoon.length }} due soon</div>
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="trax-kpi">
+            <div class="trax-kpi-label">
+              <i class="bi bi-exclamation-circle" :class="overdueCheckouts.length ? 'text-danger' : 'text-secondary'"></i>Overdue
+            </div>
+            <div class="trax-kpi-value" :class="overdueCheckouts.length ? 'text-danger' : ''">
+              {{ overdueCheckouts.length }}
+            </div>
+            <div class="trax-kpi-note">{{ activeReservations.length }} reservations</div>
           </div>
         </div>
       </div>
-      <div class="col-6 col-lg-3">
-        <div class="trax-kpi">
-          <div class="trax-kpi-label">Value out</div>
-          <div class="trax-kpi-value" :class="value.outTotals.length ? 'text-danger' : ''">
-            {{ formatTotals(value.outTotals, zeroLabel) }}
-          </div>
-          <div class="trax-kpi-note">
-            {{ value.outUnits }} unit(s) with customers
-            <span v-if="value.outUnpricedCount">· {{ value.outUnpricedCount }} unpriced</span>
-          </div>
-        </div>
-      </div>
-      <div class="col-6 col-lg-3">
-        <div class="trax-kpi">
-          <div class="trax-kpi-label">No price recorded</div>
-          <div class="trax-kpi-value" :class="value.unpricedCount ? 'text-warning' : 'text-success'">
-            {{ value.unpricedCount }}
-          </div>
-          <div class="trax-kpi-note">
-            <span v-if="value.unpricedCount">
-              {{ value.unpricedUnits }} unit(s) missing from the total above
-            </span>
-            <span v-else>Every item has a price.</span>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- A kit is worth its members, so its own price is not counted. Saying so
-         beats a total that quietly disagrees with the records. -->
-    <div v-if="value.pricedSets.length" class="alert alert-warning py-2 px-3 small">
-      <i class="bi bi-exclamation-triangle"></i>
-      {{ value.pricedSets.length }} kit(s) carry a price of their own. A kit is worth what its
-      members are worth, so those prices are NOT in the total:
-      <button v-for="kit in value.pricedSets" :key="kit.id" class="trax-name-btn ms-1"
-              @click="emit('open', kit.id)">{{ kit.name }}</button>
-    </div>
-
-    <div class="row g-3 mb-3">
-      <div class="col-6 col-lg-3">
-        <div class="trax-kpi">
-          <div class="trax-kpi-label">Items</div>
-          <div class="trax-kpi-value">{{ items.length }}</div>
-          <div class="trax-kpi-note">
-            {{ totalUnits }} units · {{ sets.length }} kits
+      <!-- What the gear is worth. Internal only: nothing here reaches a customer
+           page, an email or a PDF. -->
+      <div class="row g-2 g-md-3 mb-3">
+        <div class="col-12 col-lg-6">
+          <div class="trax-kpi">
+            <div class="trax-kpi-label"><i class="bi bi-cash-stack text-success"></i>Inventory value</div>
+            <div class="trax-kpi-value">{{ formatTotals(value.totals, zeroLabel) }}</div>
+            <div class="trax-kpi-note">
+              {{ value.pricedAssets }} of {{ items.length }} priced · {{ totalUnits }} units
+              <span v-if="value.currencies.length > 1"
+                    title="Different currencies are not added together">· {{ value.currencies.join(' + ') }}</span>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="col-6 col-lg-3">
-        <div class="trax-kpi">
-          <div class="trax-kpi-label">Available</div>
-          <div class="trax-kpi-value text-success">{{ byStatus.FREE }}</div>
-          <div class="trax-kpi-note">{{ byStatus.RSVD }} reserved</div>
-        </div>
-      </div>
-      <div class="col-6 col-lg-3">
-        <div class="trax-kpi">
-          <div class="trax-kpi-label">Units out</div>
-          <div class="trax-kpi-value">{{ unitsOut }}</div>
-          <div class="trax-kpi-note">
-            {{ state.checkouts.length }} line(s) · {{ dueSoon.length }} due in 3 days
+        <div class="col-6 col-lg-3">
+          <div class="trax-kpi">
+            <div class="trax-kpi-label"><i class="bi bi-person-up text-primary"></i>Value out</div>
+            <div class="trax-kpi-value is-sm">{{ formatTotals(value.outTotals, zeroLabel) }}</div>
+            <div class="trax-kpi-note">
+              {{ value.outUnits }} units<span v-if="value.outUnpricedCount"> · {{ value.outUnpricedCount }} unpriced</span>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="col-6 col-lg-3">
-        <div class="trax-kpi">
-          <div class="trax-kpi-label">Overdue</div>
-          <div class="trax-kpi-value" :class="overdueCheckouts.length ? 'text-danger' : ''">
-            {{ overdueCheckouts.length }}
-          </div>
-          <div class="trax-kpi-note">{{ activeReservations.length }} active reservations</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="row g-3">
-      <!-- Where the money sits, and what is missing from it -->
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad d-flex align-items-center">
-            <h2 class="trax-page-title flex-grow-1"><i class="bi bi-cash-stack"></i> Value by category</h2>
-            <!-- The insurer's copy of exactly these figures. Internal document:
-                 it prints prices and never leaves this side of the app. -->
-            <button class="btn btn-sm btn-outline-secondary" :disabled="exportingInsurance"
-                    @click="insurancePdf"
-                    aria-label="Insurance schedule PDF with photos, prices and serial numbers">
-              <span v-if="exportingInsurance" class="spinner-border spinner-border-sm me-1"></span>
-              <i v-else class="bi bi-filetype-pdf"></i>
-              {{ exportingInsurance ? 'Building…' : 'Overview PDF' }}
-            </button>
-          </div>
-          <ul class="list-group list-group-flush">
-            <li v-for="row in value.byCategory" :key="row.category"
-                class="list-group-item bg-transparent d-flex align-items-center gap-2">
-              <span class="flex-grow-1">{{ row.category }}</span>
-              <span class="small text-secondary">{{ row.units }} unit(s)</span>
-              <span v-if="row.unpricedCount" class="trax-kind-chip">{{ row.unpricedCount }} unpriced</span>
-              <strong>{{ formatTotals(row.totals, zeroLabel) }}</strong>
-            </li>
-            <li v-if="!value.byCategory.length" class="list-group-item bg-transparent text-secondary small">
-              No items yet.
-            </li>
-          </ul>
-
-          <div v-if="value.unpricedCount" class="trax-card-pad border-top border-secondary-subtle">
-            <h3 class="trax-page-title mb-2">
-              <i class="bi bi-tag"></i>
-              {{ value.unpricedCount }} asset(s) have no price
-            </h3>
-            <p class="small text-secondary mb-2">
-              They are worth nothing in the total above. Open one to record what it cost.
-            </p>
-            <div class="d-flex flex-wrap gap-1">
-              <button v-for="asset in unpricedTop" :key="asset.id"
-                      class="btn btn-sm btn-outline-secondary py-0 px-1" style="font-size:.7rem"
-                      @click="emit('open', asset.id)">
-                {{ asset.name }}
-              </button>
-              <span v-if="value.unpricedCount > unpricedTop.length" class="small text-secondary align-self-center">
-                + {{ value.unpricedCount - unpricedTop.length }} more
-              </span>
+        <div class="col-6 col-lg-3">
+          <div class="trax-kpi">
+            <div class="trax-kpi-label">
+              <i class="bi bi-tag" :class="value.unpricedCount ? 'text-warning' : 'text-secondary'"></i>No price
+            </div>
+            <div class="trax-kpi-value is-sm">{{ value.unpricedCount }}</div>
+            <div class="trax-kpi-note">
+              <span v-if="value.unpricedCount" title="Missing from the inventory value">{{ value.unpricedUnits }} units not counted</span>
+              <span v-else>All priced</span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Overdue -->
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad d-flex align-items-center">
-            <h2 class="trax-page-title flex-grow-1">
-              <i class="bi bi-exclamation-triangle text-danger"></i> Overdue
-            </h2>
-            <button class="btn btn-sm btn-outline-secondary" @click="emit('view', 'checkouts')">All checkouts</button>
-          </div>
-          <ul class="list-group list-group-flush">
+      <!-- A kit is worth its members, so its own price is not counted. -->
+      <div v-if="value.pricedSets.length" class="alert alert-warning py-2 px-3 small">
+        <i class="bi bi-exclamation-triangle"></i>
+        Kit prices are not counted:
+        <button v-for="kit in value.pricedSets" :key="kit.id" class="trax-name-btn ms-1"
+                @click="emit('open', kit.id)">{{ kit.name }}</button>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-12 col-xl-6 d-flex flex-column gap-3">
+          <!-- Overdue -->
+          <section class="trax-list">
+            <div class="trax-dash-head">
+              <h2 class="trax-dash-title">
+                <i class="bi bi-exclamation-triangle-fill" :class="overdueCheckouts.length ? 'text-danger' : ''"></i>Overdue
+                <span v-if="overdueCheckouts.length" class="trax-dash-count">{{ overdueCheckouts.length }}</span>
+              </h2>
+              <button class="trax-dash-link" @click="emit('view', 'checkouts')">Checkouts</button>
+            </div>
             <!-- keyed by lineId: an asset id collides across holders now -->
-            <li v-for="line in overdueCheckouts" :key="line.lineId"
-                class="list-group-item bg-transparent d-flex align-items-center gap-2">
-              <button class="trax-name-btn flex-grow-1" @click="emit('open', line.assetId)">
-                {{ line.name || ('#' + line.assetId) }}
-              </button>
-              <span v-if="line.qty > 1" class="trax-kind-chip">×{{ line.qty }}</span>
-              <span class="small text-secondary">{{ line.customerName }}</span>
-              <span class="trax-badge status-UNAV">
-                {{ daysOverdue(line.dueAt || line.returnDate) }}d late
-              </span>
-            </li>
-            <li v-if="!overdueCheckouts.length" class="list-group-item bg-transparent text-secondary small">
-              Nothing is overdue.
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- Due soon -->
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title"><i class="bi bi-clock-history"></i> Due in the next 3 days</h2>
-          </div>
-          <ul class="list-group list-group-flush">
-            <li v-for="line in dueSoon" :key="line.lineId"
-                class="list-group-item bg-transparent d-flex align-items-center gap-2">
-              <button class="trax-name-btn flex-grow-1" @click="emit('open', line.assetId)">
-                {{ line.name || ('#' + line.assetId) }}
-              </button>
-              <span v-if="line.qty > 1" class="trax-kind-chip">×{{ line.qty }}</span>
-              <span class="small text-secondary">{{ line.customerName }}</span>
-              <span class="small">{{ formatDateTime(line.dueAt || line.returnDate) }}</span>
-            </li>
-            <li v-if="!dueSoon.length" class="list-group-item bg-transparent text-secondary small">
-              Nothing due soon.
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- Upcoming reservations -->
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad d-flex align-items-center">
-            <h2 class="trax-page-title flex-grow-1"><i class="bi bi-calendar-check"></i> Upcoming</h2>
-            <button class="btn btn-sm btn-outline-secondary" @click="emit('view', 'calendar')">Calendar</button>
-          </div>
-          <ul class="list-group list-group-flush">
-            <li v-for="r in upcoming" :key="r.id" class="list-group-item bg-transparent">
-              <div class="d-flex align-items-center gap-2">
-                <strong class="flex-grow-1">{{ r.customerName }}</strong>
-                <span class="small text-secondary">
-                  {{ r.assetIds.length }} items ·
-                  {{ (r.items || []).reduce((s, i) => s + i.qty, 0) || r.assetIds.length }} units
-                </span>
+            <button v-for="line in overdueCheckouts" :key="line.lineId" type="button"
+                    class="trax-row is-tappable" @click="emit('open', line.assetId)">
+              <div class="trax-row-main">
+                <div class="trax-row-title">
+                  <span>{{ line.name || ('#' + line.assetId) }}</span>
+                  <span v-if="line.qty > 1" class="trax-kind-chip">×{{ line.qty }}</span>
+                </div>
+                <div class="trax-row-meta"><span>{{ line.customerName }}</span></div>
               </div>
-              <div class="small text-secondary">
-                {{ formatDateTime(r.startAt) }} → {{ formatDateTime(r.endAt) }}
-                <span v-if="r.notes">· {{ r.notes }}</span>
+              <span class="trax-badge status-UNAV">{{ daysOverdue(line.dueAt || line.returnDate) }}d late</span>
+            </button>
+            <div v-if="!overdueCheckouts.length" class="trax-row trax-row-empty">Nothing overdue</div>
+          </section>
+
+          <!-- Due soon -->
+          <section class="trax-list">
+            <div class="trax-dash-head">
+              <h2 class="trax-dash-title"><i class="bi bi-clock"></i>Due in 3 days</h2>
+            </div>
+            <button v-for="line in dueSoon" :key="line.lineId" type="button"
+                    class="trax-row is-tappable" @click="emit('open', line.assetId)">
+              <div class="trax-row-main">
+                <div class="trax-row-title">
+                  <span>{{ line.name || ('#' + line.assetId) }}</span>
+                  <span v-if="line.qty > 1" class="trax-kind-chip">×{{ line.qty }}</span>
+                </div>
+                <div class="trax-row-meta"><span>{{ line.customerName }}</span></div>
               </div>
-            </li>
-            <li v-if="!upcoming.length" class="list-group-item bg-transparent text-secondary small">
-              No reservations in the next two weeks.
-            </li>
-          </ul>
-        </div>
-      </div>
+              <span class="trax-row-end">{{ formatDateTime(line.dueAt || line.returnDate) }}</span>
+            </button>
+            <div v-if="!dueSoon.length" class="trax-row trax-row-empty">Nothing due</div>
+          </section>
 
-      <!-- Test records that are not in order. Only categories that ask for a
-           test appear here, so an install that tests nothing sees nothing. -->
-      <div v-if="inspectionDue.length" class="col-12">
-        <div class="trax-card">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">
-              <i class="bi bi-clipboard-x"></i> Tests needing attention
-              <span class="text-secondary small">({{ inspectionDue.length }})</span>
-            </h2>
-          </div>
-          <ul class="list-group list-group-flush">
-            <li v-for="row in inspectionDue" :key="row.asset.id"
-                class="list-group-item bg-transparent d-flex align-items-center gap-2">
-              <button class="trax-name-btn flex-grow-1" @click="emit('open', row.asset.id)">
-                {{ row.asset.name }}
-              </button>
-              <span v-if="row.nextAt" class="small text-secondary">{{ formatDate(row.nextAt) }}</span>
-              <span class="badge" :class="'bg-' + STATE_CLASS[row.state]">{{ STATE_LABEL[row.state] }}</span>
-            </li>
-          </ul>
-        </div>
-      </div>
+          <!-- Upcoming reservations -->
+          <section class="trax-list">
+            <div class="trax-dash-head">
+              <h2 class="trax-dash-title"><i class="bi bi-calendar-event"></i>Upcoming</h2>
+              <button class="trax-dash-link" @click="emit('view', 'calendar')">Calendar</button>
+            </div>
+            <div v-for="r in upcoming" :key="r.id" class="trax-row">
+              <div class="trax-row-main">
+                <div class="trax-row-title"><span>{{ r.customerName }}</span></div>
+                <div class="trax-row-meta">
+                  <span>{{ formatDateTime(r.startAt) }} → {{ formatDateTime(r.endAt) }}</span>
+                  <span v-if="r.notes" :title="r.notes">{{ r.notes }}</span>
+                </div>
+              </div>
+              <span class="trax-row-end" :title="r.assetIds.length + ' items'">{{ upcomingUnits(r) }} units</span>
+            </div>
+            <div v-if="!upcoming.length" class="trax-row trax-row-empty">Nothing in the next 2 weeks</div>
+          </section>
 
-      <!-- Warranty + activity -->
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title"><i class="bi bi-shield-check"></i> Warranty expiring (60 days)</h2>
-          </div>
-          <ul class="list-group list-group-flush">
-            <li v-for="asset in warrantyExpiring" :key="asset.id"
-                class="list-group-item bg-transparent d-flex align-items-center gap-2">
-              <button class="trax-name-btn flex-grow-1" @click="emit('open', asset.id)">{{ asset.name }}</button>
-              <span class="small text-secondary">
-                {{ formatDateTime(warrantyUntilOf(asset)) }}<span
-                  v-if="asset.warrantyNextUnit"> · unit {{ asset.id }}.{{ asset.warrantyNextUnit }}</span>
+          <!-- Test records that are not in order. Only categories that ask for a
+               test appear here, so an install that tests nothing sees nothing. -->
+          <section v-if="inspectionDue.length" class="trax-list">
+            <div class="trax-dash-head">
+              <h2 class="trax-dash-title">
+                <i class="bi bi-clipboard-check"></i>Tests
+                <span class="trax-dash-count">{{ inspectionDue.length }}</span>
+              </h2>
+            </div>
+            <button v-for="row in inspectionDue" :key="row.asset.id" type="button"
+                    class="trax-row is-tappable" @click="emit('open', row.asset.id)">
+              <div class="trax-row-main">
+                <div class="trax-row-title"><span>{{ row.asset.name }}</span></div>
+                <div v-if="row.nextAt" class="trax-row-meta"><span>{{ formatDate(row.nextAt) }}</span></div>
+              </div>
+              <span class="trax-status-dot small" :class="'status-' + (TEST_DOT[STATE_CLASS[row.state]] || 'LOCK')">
+                {{ STATE_LABEL[row.state] }}
               </span>
-            </li>
-            <li v-if="!warrantyExpiring.length" class="list-group-item bg-transparent text-secondary small">
-              Nothing expiring — add purchase dates to track this.
-            </li>
-          </ul>
+            </button>
+          </section>
+        </div>
 
-          <div class="trax-card-pad border-top border-secondary-subtle">
-            <h3 class="trax-page-title mb-2"><i class="bi bi-activity"></i> Recent activity</h3>
-            <ol class="list-unstyled mb-0 small">
-              <li v-for="entry in recent" :key="entry.id" class="d-flex gap-2 py-1">
-                <span class="text-secondary" style="min-width:9.5rem">{{ formatDateTime(entry.at) }}</span>
-                <span class="flex-grow-1">
-                  {{ entry.type.replace(/_/g, ' ') }}
-                  <button v-if="entry.assetId" class="trax-name-btn" @click="emit('open', entry.assetId)">
-                    {{ getAsset(entry.assetId)?.name || ('#' + entry.assetId) }}
-                  </button>
-                  <span v-if="entry.customerName" class="text-secondary">· {{ entry.customerName }}</span>
-                </span>
-              </li>
-              <li v-if="!recent.length" class="text-secondary">No activity recorded.</li>
-            </ol>
-          </div>
+        <div class="col-12 col-xl-6 d-flex flex-column gap-3">
+          <!-- Where the money sits -->
+          <section class="trax-list">
+            <div class="trax-dash-head">
+              <h2 class="trax-dash-title"><i class="bi bi-pie-chart"></i>Value by category</h2>
+              <!-- The insurer's copy of exactly these figures. Internal document:
+                   it prints prices and never leaves this side of the app. -->
+              <button class="trax-dash-link" :disabled="exportingInsurance" @click="insurancePdf"
+                      title="Insurance schedule with photos, prices and serial numbers"
+                      aria-label="Insurance schedule PDF with photos, prices and serial numbers">
+                <span v-if="exportingInsurance" class="spinner-border spinner-border-sm"></span>
+                <i v-else class="bi bi-filetype-pdf"></i>
+                {{ exportingInsurance ? 'Building…' : 'PDF' }}
+              </button>
+            </div>
+            <div v-for="row in value.byCategory" :key="row.category" class="trax-row">
+              <div class="trax-row-main">
+                <div class="trax-row-title"><span>{{ row.category }}</span></div>
+                <div class="trax-row-meta">
+                  <span>{{ row.units }} units</span>
+                  <span v-if="row.unpricedCount" class="trax-kind-chip">{{ row.unpricedCount }} unpriced</span>
+                </div>
+              </div>
+              <span class="trax-row-end"><strong>{{ formatTotals(row.totals, zeroLabel) }}</strong></span>
+            </div>
+            <div v-if="!value.byCategory.length" class="trax-row trax-row-empty">No items yet</div>
+          </section>
+
+          <!-- What is missing from the total, one tap from being fixed. -->
+          <section v-if="value.unpricedCount" class="trax-list">
+            <div class="trax-dash-head">
+              <h2 class="trax-dash-title">
+                <i class="bi bi-tag text-warning"></i>No price
+                <span class="trax-dash-count">{{ value.unpricedCount }}</span>
+              </h2>
+            </div>
+            <button v-for="asset in unpricedTop" :key="asset.id" type="button"
+                    class="trax-row is-tappable" @click="emit('open', asset.id)">
+              <div class="trax-row-main"><div class="trax-row-title"><span>{{ asset.name }}</span></div></div>
+              <i class="bi bi-chevron-right trax-row-chevron"></i>
+            </button>
+            <div v-if="value.unpricedCount > unpricedTop.length" class="trax-row trax-row-empty">
+              + {{ value.unpricedCount - unpricedTop.length }} more
+            </div>
+          </section>
+
+          <!-- Warranty -->
+          <section class="trax-list">
+            <div class="trax-dash-head">
+              <h2 class="trax-dash-title"><i class="bi bi-shield-check"></i>Warranty ends</h2>
+              <span class="small text-secondary">60 days</span>
+            </div>
+            <button v-for="asset in warrantyExpiring" :key="asset.id" type="button"
+                    class="trax-row is-tappable" @click="emit('open', asset.id)">
+              <div class="trax-row-main">
+                <div class="trax-row-title"><span>{{ asset.name }}</span></div>
+                <div v-if="asset.warrantyNextUnit" class="trax-row-meta">
+                  <span>Unit {{ asset.id }}.{{ asset.warrantyNextUnit }}</span>
+                </div>
+              </div>
+              <span class="trax-row-end" :title="formatDateTime(warrantyUntilOf(asset))">{{ formatDate(warrantyUntilOf(asset)) }}</span>
+            </button>
+            <div v-if="!warrantyExpiring.length" class="trax-row trax-row-empty"
+                 title="Add purchase dates to track warranties">Nothing ending</div>
+          </section>
+
+          <!-- Activity -->
+          <section class="trax-list">
+            <div class="trax-dash-head">
+              <h2 class="trax-dash-title"><i class="bi bi-activity"></i>Recent activity</h2>
+            </div>
+            <component :is="entry.assetId ? 'button' : 'div'" v-for="entry in recent" :key="entry.id"
+                       :type="entry.assetId ? 'button' : null"
+                       class="trax-row" :class="{ 'is-tappable': entry.assetId }"
+                       @click="entry.assetId && emit('open', entry.assetId)">
+              <div class="trax-row-main">
+                <div class="trax-row-title">
+                  <span>{{ entry.assetId ? (getAsset(entry.assetId)?.name || ('#' + entry.assetId)) : activityLabel(entry.type) }}</span>
+                </div>
+                <div class="trax-row-meta">
+                  <span v-if="entry.assetId">{{ activityLabel(entry.type) }}</span>
+                  <span v-if="entry.customerName">{{ entry.customerName }}</span>
+                </div>
+              </div>
+              <span class="trax-row-end" :title="formatDateTime(entry.at)">{{ relativeDays(entry.at) }}</span>
+            </component>
+            <div v-if="!recent.length" class="trax-row trax-row-empty">No activity yet</div>
+          </section>
         </div>
       </div>
     </div>

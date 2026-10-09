@@ -127,15 +127,17 @@ export default {
           <span v-if="hasGallery" class="trax-kind-chip">{{ preview.index + 1 }} / {{ count }}</span>
           <span class="flex-grow-1"></span>
           <a class="btn btn-sm btn-outline-secondary" :href="preview.downloadHref"
-             :download="downloadName" aria-label="Download this file">
-            <i class="bi bi-download"></i> Download
+             :download="downloadName" title="Download" aria-label="Download this file">
+            <i class="bi bi-download"></i><span class="d-none d-sm-inline">Download</span>
           </a>
           <a class="btn btn-sm btn-outline-secondary" :href="preview.src"
-             target="_blank" rel="noopener noreferrer" aria-label="Open in a new tab">
-            <i class="bi bi-box-arrow-up-right"></i> Open
+             target="_blank" rel="noopener noreferrer" title="Open in a new tab" aria-label="Open in a new tab">
+            <i class="bi bi-box-arrow-up-right"></i><span class="d-none d-sm-inline">Open</span>
           </a>
-          <button type="button" class="btn-close btn-close-white" data-autofocus
-                  aria-label="Close the preview" @click="closePreview()"></button>
+          <button type="button" class="trax-close" data-autofocus
+                  aria-label="Close the preview" @click="closePreview()">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+          </button>
         </header>
 
         <div class="trax-lightbox-stage" @click.self="closePreview()">
@@ -147,10 +149,11 @@ export default {
 
           <div v-else class="trax-card trax-lightbox-file">
             <div class="trax-card-pad text-center">
-              <i class="bi bi-file-earmark-text d-block mb-2" style="font-size:2.5rem"></i>
-              <div class="small text-truncate">{{ preview.title || 'File' }}</div>
-              <div v-if="preview.size" class="text-secondary small">{{ formatSize(preview.size) }}</div>
-              <p class="text-secondary small mt-2 mb-3">This type cannot be shown here.</p>
+              <i class="bi bi-file-earmark-text d-block mb-2 text-secondary" style="font-size:2.5rem"></i>
+              <div class="fw-semibold text-truncate">{{ preview.title || 'File' }}</div>
+              <div class="text-secondary small mb-3">
+                <span v-if="preview.size">{{ formatSize(preview.size) }} · </span>No preview
+              </div>
               <a class="btn btn-sm btn-primary" :href="preview.downloadHref"
                  :download="downloadName">
                 <i class="bi bi-download"></i> Download

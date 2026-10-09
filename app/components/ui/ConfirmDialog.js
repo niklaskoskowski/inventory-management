@@ -30,20 +30,21 @@ export default {
 
     return { box };
   },
+  // An iOS-style alert: centred title and message, slot content (forms,
+  // lists) left-aligned below, two full-width buttons side by side.
   template: `
-    <div class="trax-drawer-backdrop" @click="$emit('cancel')"></div>
-    <div class="position-fixed top-50 start-50 translate-middle trax-card"
-         style="z-index:1060; width:min(420px, calc(100vw - 2rem));"
-         role="alertdialog" aria-modal="true" ref="box">
-      <div class="trax-card-pad">
-        <h3 class="trax-page-title mb-2">{{ title }}</h3>
-        <p class="mb-0 small text-secondary" v-if="message">{{ message }}</p>
-        <slot></slot>
+    <div class="trax-alert-backdrop" @click="$emit('cancel')"></div>
+    <div class="trax-alert" role="alertdialog" aria-modal="true"
+         aria-labelledby="trax-alert-title" ref="box">
+      <div class="trax-alert-body">
+        <h3 id="trax-alert-title" class="trax-alert-title">{{ title }}</h3>
+        <p v-if="message" class="trax-alert-message">{{ message }}</p>
+        <div v-if="$slots.default" class="trax-alert-slot"><slot></slot></div>
       </div>
-      <div class="trax-drawer-footer justify-content-end">
-        <button type="button" class="btn btn-sm btn-outline-secondary" @click="$emit('cancel')">{{ cancelLabel }}</button>
+      <div class="trax-alert-actions">
+        <button type="button" class="trax-alert-btn" @click="$emit('cancel')">{{ cancelLabel }}</button>
         <button type="button" data-autofocus
-                class="btn btn-sm" :class="danger ? 'btn-danger' : 'btn-primary'"
+                class="trax-alert-btn is-primary" :class="{ 'is-danger': danger }"
                 @click="$emit('confirm')">{{ confirmLabel }}</button>
       </div>
     </div>

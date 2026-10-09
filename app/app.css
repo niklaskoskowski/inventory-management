@@ -2251,7 +2251,7 @@ kbd {
      a pure white ceiling, 0.62 of #05080b composites to about 13.2% relative
      luminance, which leaves (all computed, not measured on a device):
        #cbd5e1, the old muted text   3.89:1   fails the 4.5:1 floor
-       var(--trax-text) #e6edf3      4.89:1   passes, and is what is set below
+       var(--trax-text) #f5f5f7 (the stage is forced dark)  passes, and is what is set below
        #fff, buttons and icons       5.78:1
      Against a dark floor every one of those is over 13:1. The blur and the text
      shadow are belt and braces on a busy background; neither is counted above,
@@ -2710,3 +2710,251 @@ input.trax-set-ctl[type='number'],
 .trax-set-icon:disabled { opacity: 0.35; }
 .trax-set-icon.is-danger { color: var(--trax-unav); }
 .trax-set-icon.is-danger:hover:not(:disabled) { background: var(--st-UNAV-bg); color: var(--trax-unav); }
+
+/* ------------------------------------------------- Overview, insights, alert dialog, scanner list --- */
+
+/* ---------------------------------------------------------------- Alert --- */
+
+/* ConfirmDialog: the iOS alert. Above .trax-drawer (1055), so a dialog opened
+   from inside a sheet dims the sheet too; below the lightbox (1070). */
+.trax-alert-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--trax-scrim);
+  z-index: 1058;
+  animation: trax-fade-in 0.2s ease;
+}
+
+.trax-alert {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1060;
+  width: min(340px, calc(100vw - 2.5rem));
+  max-height: calc(100dvh - 2.5rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--trax-surface);
+  border-radius: var(--trax-radius);
+  box-shadow: var(--trax-shadow-pop);
+  overflow: hidden;
+  animation: trax-alert-in 0.24s var(--trax-ease);
+}
+
+[data-bs-theme='dark'] .trax-alert {
+  background: var(--trax-surface-3);
+}
+
+@keyframes trax-alert-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(1.08); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.trax-alert-body {
+  padding: 1.15rem 1.15rem 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+
+.trax-alert-title {
+  font-size: 1.0625rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  text-align: center;
+  margin: 0;
+}
+
+.trax-alert-message {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--trax-muted);
+  text-align: center;
+  margin: 0.35rem 0 0;
+}
+
+/* Forms and lists passed in read left to right like anywhere else. */
+.trax-alert-slot {
+  text-align: start;
+  font-size: 0.875rem;
+}
+
+.trax-alert-slot > :first-child { margin-top: 0.75rem !important; }
+.trax-alert-slot > :last-child { margin-bottom: 0 !important; }
+
+.trax-alert-actions {
+  display: flex;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--trax-border-strong);
+}
+
+.trax-alert-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 2.85rem;
+  padding: 0.55rem 0.6rem;
+  border: 0;
+  background: transparent;
+  color: var(--trax-accent-text);
+  font-size: 1rem;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  transition: background-color 0.12s ease;
+}
+
+.trax-alert-btn + .trax-alert-btn { border-left: 1px solid var(--trax-border-strong); }
+.trax-alert-btn:hover { background: var(--trax-fill); }
+.trax-alert-btn:active { background: var(--trax-fill-strong); }
+.trax-alert-btn:focus-visible { outline-offset: -3px; }
+.trax-alert-btn.is-primary { font-weight: 650; }
+.trax-alert-btn.is-danger { color: var(--trax-unav); }
+
+/* ------------------------------------------------------------ Overview --- */
+
+/* A dashboard section: one grouped list with its own header row. */
+.trax-dash-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.9rem 0.35rem;
+  min-height: 2.75rem;
+}
+
+.trax-dash-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.trax-dash-title .bi { color: var(--trax-accent); font-size: 1rem; }
+.trax-dash-title .trax-dash-count { color: var(--trax-muted); font-weight: 550; }
+
+/* The "See all" link in a section header. */
+.trax-dash-link {
+  border: 0;
+  background: none;
+  padding: 0.25rem 0;
+  min-height: 2rem;
+  color: var(--trax-accent-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.trax-dash-link:hover { color: var(--trax-accent); }
+.trax-dash-link:disabled { opacity: 0.45; }
+
+/* Tighter rows than a full list; a dashboard is glanced at. */
+.trax-dash .trax-row { min-height: 2.9rem; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.trax-dash .trax-row-title { font-size: 0.9rem; font-weight: 550; }
+.trax-dash .trax-row-meta { font-size: 0.78rem; margin-top: 0.05rem; }
+.trax-dash .trax-row-meta > span:not(.trax-kind-chip) { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The first row under a section header keeps a hairline, as on iOS. */
+.trax-dash-head + .trax-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--trax-row-inset, 0.9rem);
+  border-top: 1px solid var(--trax-border);
+}
+
+.trax-row-end {
+  flex: 0 0 auto;
+  font-size: 0.8125rem;
+  color: var(--trax-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  white-space: nowrap;
+}
+
+.trax-row-end strong { color: var(--trax-text); font-weight: 650; }
+
+/* A row that is a button: full width, no chrome of its own. */
+button.trax-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+button.trax-row:focus-visible { outline-offset: -3px; }
+
+.trax-row-empty {
+  min-height: 2.75rem;
+  color: var(--trax-muted);
+  font-size: 0.875rem;
+}
+
+/* KPI tile: icon + label on one line, the figure under it. */
+.trax-kpi-label .bi { margin-right: 0.3rem; }
+.trax-kpi-value.is-sm { font-size: 1.4rem; }
+
+.trax-kpi.is-tappable { cursor: pointer; transition: transform 0.12s ease, background-color 0.12s ease; }
+.trax-kpi.is-tappable:active { transform: scale(0.98); }
+
+/* Bars in Insights. */
+.trax-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--trax-fill);
+  overflow: hidden;
+  margin-top: 0.35rem;
+}
+
+.trax-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--trax-accent);
+}
+
+@media (max-width: 575.98px) {
+  .trax-kpi { padding: 0.8rem 0.9rem; }
+  .trax-kpi-value { font-size: 1.5rem; }
+  .trax-kpi-value.is-sm { font-size: 1.25rem; }
+}
+
+/* ------------------------------------------------------------ Lightbox --- */
+
+.trax-lightbox-bar .trax-close { color: var(--trax-text); }
+
+/* ------------------------------------------------------------- Scanner --- */
+
+/* The scanned list under the manual box. */
+.trax-scan-hits.trax-list { max-height: 220px; overflow-y: auto; }
+.trax-scan-hits .trax-row { min-height: 2.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; }
+
+/* Full-screen phone layout: the bars are forced dark (data-bs-theme on the
+   stage), so the drawer-surface list reads as a translucent card there. */
+@media (max-width: 991.98px) {
+  .trax-scan-stage .trax-list { background: var(--trax-fill); box-shadow: none; }
+  .trax-scan-stage .trax-scan-close { border: 0; background: var(--trax-fill-strong); }
+}
+
+/* "Checkout · Conv": a quiet dot between meta parts. */
+.trax-dash .trax-row-meta > span:not(.trax-kind-chip) + span:not(.trax-kind-chip)::before {
+  content: '·';
+  margin-right: 0.4rem;
+}
+
+/* Tables inside a dashboard section line up with its header. */
+.trax-dash .trax-list .trax-table th:first-child,
+.trax-dash .trax-list .trax-table td:first-child { padding-left: 0.9rem; }
+.trax-dash .trax-list .trax-table th:last-child,
+.trax-dash .trax-list .trax-table td:last-child { padding-right: 0.9rem; }
