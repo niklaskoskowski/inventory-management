@@ -112,6 +112,14 @@ if (!defined('TRAX_FROM_EMAIL')) define('TRAX_FROM_EMAIL', '');
 if (!defined('TRAX_REPORT_FROM_EMAIL')) define('TRAX_REPORT_FROM_EMAIL', '');
 
 /**
+ * Hand the From address to sendmail as the envelope sender (`-f`). Without it
+ * shared hosts put their own system user there (hosting123@host.example), which
+ * fails SPF and DMARC alignment and has no MX — mail lands in spam or nowhere.
+ * Set false in config.local.php only if the host refuses `-f`.
+ */
+if (!defined('TRAX_MAIL_ENVELOPE_FROM')) define('TRAX_MAIL_ENVELOPE_FROM', true);
+
+/**
  * The two address guards live here, not in lib/mailer.php, because both the
  * mailer AND the settings normaliser in lib/store.php need them. With them in
  * the mailer those two files had to require_once each other; the cycle was

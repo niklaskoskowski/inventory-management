@@ -8,6 +8,17 @@ only record. There is no git history to mine.
 
 ## 2026-10-09 — branch `UI-test`
 
+### Fixed
+
+- **Mail landed in spam or not at all (e.g. Gmail).** `mail()` was called without an envelope
+  sender, so shared hosts used their system user (`hosting…@….netcup.net`): SPF failed, From and
+  envelope domains differed, the bounce domain had no MX. The From address is now the envelope
+  sender (`-f`, switchable with `TRAX_MAIL_ENVELOPE_FROM`). The UTF-8 body is sent
+  quoted-printable with a matching `Content-Transfer-Encoding` (was scored `CTE_8BIT_MISMATCH`),
+  and every mail carries `From: <app name> <address>`, `Reply-To`, `Date` and a `Message-ID` on
+  the sender's domain.
+
+
 ### Changed
 
 - **Signature at the counter, asked for right after the checkout.** Checking out (or converting a

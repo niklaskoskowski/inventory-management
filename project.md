@@ -49,7 +49,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `lib/store.php` | The data layer: normalisers, derived status, atomic writes, `trax_mutate()`. |
 | `lib/auth.php` | Sessions, CSRF, built-in vs. external auth mode. Includes `TRAX_AUTH_INCLUDE` at **global scope** in external mode — never load it from a public page. |
 | `lib/public-session.php` | `trax_public_session()`, the auth-free session start for `index.php` and `captcha.php`. A standalone twin of `trax_ensure_session()`. |
-| `lib/mailer.php` | Transactional mail; addresses and headers validated and CR/LF-stripped. |
+| `lib/mailer.php` | Transactional mail; addresses and headers validated and CR/LF-stripped. Body quoted-printable (UTF-8, declared), `From: App name <from>`, own `Message-ID`/`Date`, and the From address as envelope sender (`mail(..., '-f' . $from)`, `TRAX_MAIL_ENVELOPE_FROM`) so SPF/DMARC align with the operator's domain instead of the host's system user. |
 | `lib/photo.php` | Photos re-encoded through GD (strips EXIF, neutralises payloads). |
 | `lib/markdown.php` | The one Markdown renderer (a safe subset), for the terms. `terms.php`, `booking.php` and `terms.preview` all use it. |
 | `lib/documents.php` | Documents are stored as uploaded — hence the separate, web-denied directory. |

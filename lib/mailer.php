@@ -110,25 +110,47 @@ function trax_send_mail(array $to, string $subject, string $body, ?string $from 
         return false;
     }
 
+    // The display name is the app's, encoded: "Trax <info@example.com>".
+    $fromName = trax_mail_header_safe((string)trax_setting('branding.appName', ''));
+    $fromHeader = $fromName !== ''
+        ? mb_encode_mimeheader($fromName, 'UTF-8', 'Q', "\r\n") . ' <' . $from . '>'
+        : $from;
+    $domain = substr(strrchr($from, '@') ?: '@localhost', 1);
+
     $headers = implode("\r\n", [
-        'From: ' . $from,
-        'Content-Type: text/plain; charset=UTF-8',
+        'From: ' . $fromHeader,
+        'Reply-To: ' . $from,
+        'Date: ' . date('r'),
+        'Message-ID: <' . bin2hex(random_bytes(12)) . '.' . time() . '@' . $domain . '>',
         'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        // Declared and true: the body is 7-bit clean quoted-printable. A bare
+        // UTF-8 body under an implied 7bit header is what spam filters score
+        // as CTE_8BIT_MISMATCH.
+        'Content-Transfer-Encoding: quoted-printable',
         'X-Mailer: AssetTool',
     ]);
 
     // Subject is header data: encode it so UTF-8 survives and CR/LF cannot escape.
     $subject = mb_encode_mimeheader(trax_mail_header_safe($subject), 'UTF-8', 'B', "\r\n");
 
-    // Body is not header data, but normalise line endings for broken MTAs.
-    $body = str_replace(["\r\n", "\r"], "\n", $body);
+    // Body is not header data. Encoded with CRLF line ends, which quoted-
+    // printable keeps as real line breaks (a bare \n would become =0A), then
+    // handed to sendmail with plain \n, which it expects.
+    $body = str_replace(["\r\n", "\r", "\n"], ["\n", "\n", "\r\n"], $body);
+    $body = str_replace("\r\n", "\n", quoted_printable_encode($body));
 
     $sink = trax_mail_sink_path();
     if ($sink !== null) {
         return trax_mail_sink_write($sink, $recipients, $subject, $body, $headers);
     }
 
-    return @mail(implode(', ', $recipients), $subject, $body, $headers);
+    // The envelope sender is the From address, so SPF, DMARC alignment and
+    // bounces all point at the operator's own domain instead of the host's
+    // system user. $from is a validated address; mail() shell-escapes it.
+    $params = TRAX_MAIL_ENVELOPE_FROM ? '-f' . $from : '';
+
+    return @mail(implode(', ', $recipients), $subject, $body, $headers, $params);
 }
 
 /**
