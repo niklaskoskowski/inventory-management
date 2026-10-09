@@ -2,7 +2,7 @@ import { computed } from 'vue';
 import {
   sortedAssets, toggleSelected, isSelected, soonestLine, getLines, openAssetPhoto,
 } from '../store.js';
-import { formatDateTime, isOverdue } from '../lib/format.js';
+import { formatDateTime, isOverdue, parseDate, statusLabel, getUiLocale } from '../lib/format.js';
 import StatusBadge from './ui/StatusBadge.js';
 
 /** Mobile inventory list. The table does not fit under ~600px. */
@@ -40,18 +40,31 @@ export default {
       ].filter(Boolean).join(' '))
       .join(' / ');
 
+    /** "Available", "2 of 8 free" — the status in the words a list row has room for. */
+    const statusText = (asset) => {
+      const detail = stockDetail(asset);
+      if (detail && asset.effectiveStatus !== 'LOCK' && asset.effectiveStatus !== 'FREE') return detail;
+      return statusLabel(asset.effectiveStatus, asset.kind);
+    };
+
+    /** "Oct 14" — the time is in the sheet. */
+    const formatShort = (value) => {
+      const date = parseDate(value);
+      return date ? date.toLocaleDateString(getUiLocale(), { month: 'short', day: 'numeric' }) : '';
+    };
+
     return {
+      statusText, formatShort,
       rows, toggleSelected, isSelected, dueFor, stockDetail, holderCount,
       oosCount, unitTitle, formatDateTime, isOverdue, emit, openAssetPhoto,
     };
   },
   template: `
-    <div class="d-flex flex-column gap-2">
-      <article v-for="asset in rows" :key="asset.id"
-               class="trax-asset-card" :class="{ 'is-selected': isSelected(asset.id) }">
-        <input class="form-check-input mt-1" type="checkbox"
-               :checked="isSelected(asset.id)" @change="toggleSelected(asset.id)"
-               :aria-label="'Select ' + asset.name">
+    <div v-if="rows.length" class="trax-list" style="--trax-row-inset: 6.6rem">
+      <div v-for="asset in rows" :key="asset.id" class="trax-row is-tappable"
+           :class="{ 'is-selected': isSelected(asset.id) }" @click="emit('open', asset.id)">
+        <input class="trax-check" type="checkbox" :checked="isSelected(asset.id)"
+               @click.stop @change="toggleSelected(asset.id)" :aria-label="'Select ' + asset.name">
 
         <button v-if="asset.photo" type="button" class="trax-thumb-btn"
                 :aria-label="'Show the photo of ' + asset.name"
@@ -62,47 +75,32 @@ export default {
           <i class="bi" :class="asset.kind === 'SET' ? 'bi-box-seam' : 'bi-camera'"></i>
         </span>
 
-        <div class="flex-grow-1 min-w-0" @click="emit('open', asset.id)" style="cursor:pointer">
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            <strong class="text-truncate">{{ asset.name }}</strong>
-            <span v-if="asset.kind === 'SET'" class="trax-kind-chip">kit · {{ asset.members.length }}</span>
-            <span v-if="asset.units?.length" class="trax-kind-chip" :title="unitTitle(asset)">
-              <i class="bi bi-list-ol"></i> {{ asset.units.length }} units
-            </span>
-            <span v-if="oosCount(asset)" class="trax-kind-chip text-warning" :title="unitTitle(asset)">
-              {{ oosCount(asset) }} out of service
+        <div class="trax-row-main">
+          <div class="trax-row-title">
+            <span>{{ asset.name }}</span>
+            <span v-if="asset.kind === 'SET'" class="trax-kind-chip">Kit · {{ asset.members.length }}</span>
+            <span v-else-if="asset.units?.length" class="trax-kind-chip" :title="unitTitle(asset)">
+              {{ asset.units.length }} units
             </span>
           </div>
-
-          <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-            <StatusBadge :status="asset.effectiveStatus" :kind="asset.kind"
-                         :detail="stockDetail(asset)" />
-            <span class="text-secondary small font-monospace">#{{ asset.id }}</span>
-            <span v-if="asset.quantity > 1 && asset.effectiveStatus !== 'LOCK'" class="text-secondary small">
-              {{ asset.availableQty }} of {{ asset.quantity }} free
+          <div class="trax-row-meta">
+            <span class="trax-status-dot" :class="'status-' + asset.effectiveStatus">
+              {{ statusText(asset) }}
             </span>
-            <span v-if="asset.category" class="text-secondary small">{{ asset.category }}</span>
+            <span v-if="dueFor(asset)" :class="{ 'text-danger': isOverdue(dueFor(asset)) }">
+              due {{ formatShort(dueFor(asset)) }}
+            </span>
+            <span v-else-if="asset.category">{{ asset.category }}</span>
+            <span v-if="oosCount(asset)" class="text-warning">{{ oosCount(asset) }} out of service</span>
           </div>
-
-          <div v-if="dueFor(asset)" class="small mt-1"
-               :class="isOverdue(dueFor(asset)) ? 'text-danger' : 'text-secondary'">
-            due {{ formatDateTime(dueFor(asset)) }}
-            <span v-if="holderCount(asset) > 1">· {{ holderCount(asset) }} holders</span>
-          </div>
-
-          <div v-if="asset.notes" class="text-secondary small mt-1 text-truncate">{{ asset.notes }}</div>
         </div>
-
-        <button class="btn btn-sm btn-outline-secondary" @click.stop="emit('label', asset.id)"
-                :aria-label="'Print label for ' + asset.name">
-          <i class="bi bi-printer"></i>
-        </button>
-      </article>
-
-      <div v-if="!rows.length" class="trax-empty">
-        <i class="bi bi-inbox"></i>
-        Nothing matches these filters.
+        <i class="bi bi-chevron-right trax-row-chevron"></i>
       </div>
+    </div>
+
+    <div v-else class="trax-empty">
+      <i class="bi bi-search"></i>
+      No matches
     </div>
   `,
 };

@@ -4,7 +4,10 @@ import {
   selectedItemIds, selectedUnitCount, sets, toast,
 } from '../store.js';
 import * as api from '../api.js';
+import { theme, setThemePref, THEME_OPTIONS } from '../lib/theme.js';
 import ToastHost from './ui/ToastHost.js';
+import Menu from './ui/Menu.js';
+import Drawer from './ui/Drawer.js';
 import Lightbox from './ui/Lightbox.js';
 import FilterBar from './FilterBar.js';
 import AssetTable from './AssetTable.js';
@@ -25,25 +28,38 @@ import ScanDrawer from './ScanDrawer.js';
 import BulkEditDrawer from './BulkEditDrawer.js';
 
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'bi-speedometer2' },
-  { id: 'inventory', label: 'Inventory', icon: 'bi-grid-3x3-gap' },
-  { id: 'kits', label: 'Kits', icon: 'bi-box-seam' },
-  { id: 'checkouts', label: 'Checkouts', icon: 'bi-box-arrow-right' },
-  { id: 'reservations', label: 'Reservations', icon: 'bi-calendar-check' },
-  { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
-  { id: 'calendar', label: 'Calendar', icon: 'bi-calendar3' },
-  { id: 'insights', label: 'Insights', icon: 'bi-graph-up-arrow' },
-  { id: 'settings', label: 'Settings', icon: 'bi-gear' },
+  { id: 'dashboard', label: 'Overview', icon: 'bi-house', section: '' },
+  { id: 'inventory', label: 'Inventory', icon: 'bi-grid', section: 'Gear' },
+  { id: 'kits', label: 'Kits', icon: 'bi-box-seam', section: 'Gear' },
+  { id: 'checkouts', label: 'Checkouts', icon: 'bi-box-arrow-up-right', section: 'Rentals' },
+  { id: 'reservations', label: 'Reservations', icon: 'bi-calendar-check', section: 'Rentals' },
+  { id: 'events', label: 'Events', icon: 'bi-flag', section: 'Rentals' },
+  { id: 'calendar', label: 'Calendar', icon: 'bi-calendar3', section: 'Rentals' },
+  { id: 'insights', label: 'Insights', icon: 'bi-bar-chart', section: 'Rentals' },
+  { id: 'settings', label: 'Settings', icon: 'bi-gear', section: 'end' },
 ];
 
-// The sidebar is display:none below 992px, so anything not listed here (or on
-// the topbar, as Settings is) cannot be reached on a phone at all.
-const MOBILE_NAV = ['inventory', 'checkouts', 'reservations', 'scan', 'calendar', 'dashboard'];
+/** The sidebar, grouped: [{title, items}]. Settings sits at the bottom. */
+const NAV_SECTIONS = ['', 'Gear', 'Rentals'].map((title) => ({
+  title,
+  items: NAV.filter((item) => item.section === title),
+}));
+
+// The phone's tab bar: four places and "More". Everything else is in the More
+// sheet, so every view stays reachable without the sidebar.
+const TABS = [
+  { id: 'inventory', label: 'Inventory', icon: 'bi-grid', active: 'bi-grid-fill' },
+  { id: 'checkouts', label: 'Checkouts', icon: 'bi-box-arrow-up-right', active: 'bi-box-arrow-up-right' },
+  { id: 'scan', label: 'Scan', icon: 'bi-qr-code-scan', active: 'bi-qr-code-scan' },
+  { id: 'reservations', label: 'Reservations', icon: 'bi-calendar-check', active: 'bi-calendar-check-fill' },
+  { id: 'more', label: 'More', icon: 'bi-three-dots', active: 'bi-three-dots' },
+];
+const MORE = ['dashboard', 'kits', 'events', 'calendar', 'insights', 'settings'];
 
 export default {
   name: 'AppShell',
   components: {
-    ToastHost, Lightbox, FilterBar, AssetTable, AssetCards, AssetSheet,
+    ToastHost, Lightbox, Menu, Drawer, FilterBar, AssetTable, AssetCards, AssetSheet,
     DashboardView, CheckoutsView, ReservationsView, EventsView, EventSheet,
     CalendarView, InsightsView,
     SettingsView, SetEditor, BasketDrawer, LabelDrawer, ScanDrawer, BulkEditDrawer,
@@ -63,6 +79,47 @@ export default {
     const showEventSheet = ref(false);
     const eventSheetId = ref(null);
     const isNarrow = ref(window.matchMedia('(max-width: 991.98px)').matches);
+    const showMore = ref(false);
+
+    // The bar gets its hairline, and on a phone the page title, once the
+    // large title has scrolled under it.
+    const scrolled = ref(false);
+    const onScroll = () => { scrolled.value = window.scrollY > 24; };
+
+    const tabActive = (id) => {
+      if (id === 'scan') return showScanner.value;
+      if (id === 'more') return showMore.value || MORE.includes(state.view);
+      return state.view === id;
+    };
+
+    const onTab = (id) => {
+      if (id === 'scan') showScanner.value = true;
+      else if (id === 'more') showMore.value = true;
+      else {
+        setView(id);
+        window.scrollTo({ top: 0 });
+      }
+    };
+
+    const go = (id) => {
+      showMore.value = false;
+      setView(id);
+      window.scrollTo({ top: 0 });
+    };
+
+    const navItem = (id) => NAV.find((item) => item.id === id);
+
+    /** One line under the title: what this view holds, said briefly. */
+    const subtitle = computed(() => {
+      const c = counts.value;
+      switch (state.view) {
+        case 'inventory': return `${state.assets.length} assets`;
+        case 'kits': return `${c.kits} kits`;
+        case 'checkouts': return c.overdue ? `${c.checkoutUnits} out · ${c.overdue} overdue` : `${c.checkoutUnits} out`;
+        case 'reservations': return `${c.reservations} active`;
+        default: return '';
+      }
+    });
 
     const currentNav = computed(() => NAV.find((n) => n.id === state.view) || NAV[1]);
 
@@ -216,6 +273,7 @@ export default {
 
     onMounted(() => {
       document.addEventListener('keydown', onKeydown);
+      window.addEventListener('scroll', onScroll, { passive: true });
       mql.addEventListener('change', onResize);
       load().then(() => {
         // Deep link from a scanned label: admin.php?id=3
@@ -227,11 +285,14 @@ export default {
 
     onBeforeUnmount(() => {
       document.removeEventListener('keydown', onKeydown);
+      window.removeEventListener('scroll', onScroll);
       mql.removeEventListener('change', onResize);
     });
 
     return {
-      state, NAV, MOBILE_NAV, setView, load, clearSelection,
+      state, NAV, NAV_SECTIONS, TABS, MORE, setView, load, clearSelection,
+      showMore, scrolled, tabActive, onTab, go, navItem, subtitle,
+      theme, setThemePref, THEME_OPTIONS,
       sheetId, sheetOpen, labelId, showBasket, showScanner, showBulk,
       showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName,
       selectedItemIds, selectedUnitCount, account, loadAccount, csrf: api.csrf,
@@ -247,110 +308,120 @@ export default {
       <!-- Sidebar -->
       <nav class="trax-sidebar" aria-label="Main">
         <a class="trax-brand" href="admin.php">
-          <i class="bi bi-upc-scan"></i> {{ appName }}
+          <img v-if="state.settings?.branding?.faviconFile" class="trax-app-icon"
+               :src="state.settings.branding.faviconFile" alt="">
+          <span v-else class="trax-app-icon"><i class="bi bi-box-seam"></i></span>
+          <span class="text-truncate">{{ appName }}</span>
         </a>
 
-        <button v-for="item in NAV" :key="item.id" type="button"
-                class="trax-nav-link" :class="{ active: state.view === item.id }"
-                :aria-current="state.view === item.id ? 'page' : undefined"
-                @click="setView(item.id)">
-          <i class="bi" :class="item.icon"></i>
-          <span>{{ item.label }}</span>
-          <span v-if="item.id === 'checkouts' && counts.checkoutUnits"
-                class="trax-nav-count" :class="{ 'alert-count': counts.overdue }">
-            {{ counts.checkoutUnits }}
-          </span>
-          <span v-else-if="item.id === 'reservations' && counts.reservations" class="trax-nav-count">
-            {{ counts.reservations }}
-          </span>
-          <span v-else-if="item.id === 'kits' && counts.kits" class="trax-nav-count">
-            {{ counts.kits }}
-          </span>
-        </button>
-
-        <div class="mt-auto pt-3 small text-secondary px-2" style="font-size:.7rem">
-          <!-- Signing out is a state change, so it is a POST carrying the same
-               CSRF token every write does; logout.php refuses one without it. -->
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <span v-if="account" class="text-truncate flex-grow-1">
-              <i class="bi bi-person-circle"></i> {{ account }}
+        <template v-for="section in NAV_SECTIONS" :key="section.title">
+          <div v-if="section.title" class="trax-nav-section">{{ section.title }}</div>
+          <button v-for="item in section.items" :key="item.id" type="button"
+                  class="trax-nav-link" :class="{ active: state.view === item.id }"
+                  :aria-current="state.view === item.id ? 'page' : undefined"
+                  @click="setView(item.id)">
+            <i class="bi" :class="item.icon"></i>
+            <span>{{ item.label }}</span>
+            <span v-if="item.id === 'checkouts' && counts.overdue" class="trax-nav-count alert-count"
+                  :title="counts.overdue + ' overdue'">{{ counts.overdue }}</span>
+            <span v-else-if="item.id === 'checkouts' && counts.checkoutUnits" class="trax-nav-count">
+              {{ counts.checkoutUnits }}
             </span>
-            <span v-else class="flex-grow-1"></span>
+            <span v-else-if="item.id === 'reservations' && counts.reservations" class="trax-nav-count">
+              {{ counts.reservations }}
+            </span>
+            <span v-else-if="item.id === 'kits' && counts.kits" class="trax-nav-count">
+              {{ counts.kits }}
+            </span>
+          </button>
+        </template>
+
+        <div class="trax-sidebar-foot">
+          <button type="button" class="trax-nav-link flex-grow-1"
+                  :class="{ active: state.view === 'settings' }" @click="setView('settings')">
+            <i class="bi bi-gear"></i><span>Settings</span>
+          </button>
+        </div>
+        <div class="d-flex align-items-center gap-1">
+          <div class="trax-account">
+            <span class="trax-avatar">{{ (account || '?').slice(0, 1) }}</span>
+            <span class="text-truncate">{{ account || 'Signed in' }}</span>
+          </div>
+          <Menu label="Account" icon="bi-three-dots" up align="end" button-class="trax-close">
+            <div class="trax-menu-label">Appearance</div>
+            <button v-for="option in THEME_OPTIONS" :key="option.id" type="button" class="trax-menu-item"
+                    @click="setThemePref(option.id)">
+              <i class="bi" :class="option.icon"></i> {{ option.label }}
+              <i v-if="theme.pref === option.id" class="bi bi-check2 trax-menu-check"></i>
+            </button>
+            <div class="trax-menu-sep"></div>
+            <div class="trax-menu-label">Shortcuts: s search · n new · q scan · b selection</div>
+            <div class="trax-menu-sep"></div>
+            <!-- Signing out is a state change, so it is a POST carrying the same
+                 CSRF token every write does; logout.php refuses one without it. -->
             <form method="post" action="logout.php">
               <input type="hidden" name="csrf" :value="csrf">
-              <button class="btn btn-sm btn-outline-secondary py-0 px-2" type="submit"
-                      title="Sign out" aria-label="Sign out">
+              <button class="trax-menu-item is-danger" type="submit">
                 <i class="bi bi-box-arrow-right"></i> Sign out
               </button>
             </form>
-          </div>
-          <div>
-            <kbd>s</kbd> search · <kbd>n</kbd> new · <kbd>q</kbd> scan ·
-            <kbd>l</kbd> label · <kbd>b</kbd> basket
-          </div>
+          </Menu>
         </div>
       </nav>
 
       <!-- Main -->
       <div class="trax-main">
-        <header class="trax-topbar">
-          <div class="flex-grow-1 min-w-0">
-            <h1 class="trax-page-title">{{ currentNav.label }}</h1>
-            <p class="trax-page-sub">
-              {{ state.assets.length }} assets · {{ counts.checkoutUnits }} units out
-              <span v-if="counts.overdue" class="text-danger">· {{ counts.overdue }} overdue</span>
-            </p>
+        <header class="trax-topbar" :class="{ 'is-scrolled': scrolled }">
+          <div class="trax-topbar-heading flex-grow-1 min-w-0">
+            <h1 class="trax-topbar-title">{{ currentNav.label }}</h1>
+            <p v-if="subtitle" class="trax-topbar-sub">{{ subtitle }}</p>
           </div>
+          <span class="trax-topbar-compact" aria-hidden="true">{{ currentNav.label }}</span>
+          <span class="flex-grow-1 d-lg-none"></span>
 
-          <button class="btn btn-sm btn-outline-secondary" @click="load()"
+          <button class="trax-icon-btn d-none d-lg-inline-flex" @click="load()"
                   :disabled="state.loading" title="Reload" aria-label="Reload data">
             <span v-if="state.loading" class="spinner-border spinner-border-sm"></span>
             <i v-else class="bi bi-arrow-clockwise"></i>
           </button>
 
-          <button class="btn btn-sm btn-outline-secondary" @click="showScanner = true"
-                  title="Scan a QR label (q)" aria-label="Scan a QR label">
+          <button class="trax-icon-btn d-none d-lg-inline-flex" @click="showScanner = true"
+                  title="Scan (q)" aria-label="Scan a QR label">
             <i class="bi bi-qr-code-scan"></i>
-          </button>
-
-          <!-- The sidebar is hidden below 992px and the mobile nav holds five
-               entries, so this is the only way to reach Settings on a phone. -->
-          <button class="btn btn-sm btn-outline-secondary d-lg-none"
-                  :class="{ active: state.view === 'settings' }"
-                  :aria-current="state.view === 'settings' ? 'page' : undefined"
-                  @click="setView('settings')"
-                  title="Settings" aria-label="Settings">
-            <i class="bi bi-gear"></i>
           </button>
 
           <!-- While a reservation is being edited the tray is that reservation,
                and it must stay reachable even with nothing in it. -->
-          <button class="btn btn-sm btn-primary position-relative" @click="showBasket = true"
-                  :disabled="!selectedItemIds.length && !state.reservationEdit"
+          <button v-if="selectedItemIds.length || state.reservationEdit"
+                  class="btn btn-sm btn-primary rounded-pill" @click="showBasket = true"
                   :title="state.reservationEdit
                     ? 'Editing reservation #' + state.reservationEdit.id
                     : selectedUnitCount + ' unit(s) selected'"
                   :aria-label="state.reservationEdit ? 'Open the reservation being edited' : 'Open selection'">
-            <i class="bi" :class="state.reservationEdit ? 'bi-pencil-square' : 'bi-cart2'"></i>
-            <span class="ms-1">{{ selectedUnitCount }}</span>
+            <i class="bi" :class="state.reservationEdit ? 'bi-pencil-square' : 'bi-bag'"></i>
+            <span class="trax-count-pill">{{ selectedUnitCount }}</span>
           </button>
 
-          <button class="btn btn-sm btn-success" @click="openNewAsset()"
-                  title="Add an asset" aria-label="Add an asset">
-            <i class="bi bi-plus-lg"></i><span class="d-none d-md-inline ms-1">Add</span>
+          <button class="trax-icon-btn is-accent" @click="openNewAsset()"
+                  title="New asset (n)" aria-label="Add an asset">
+            <i class="bi bi-plus-lg"></i>
           </button>
         </header>
 
         <main class="trax-content">
+          <div class="trax-large-title">
+            <h1>{{ currentNav.label }}</h1>
+            <p v-if="subtitle">{{ subtitle }}</p>
+          </div>
+
           <div v-if="state.booting" class="trax-empty">
             <div class="spinner-border spinner-border-sm"></div>
-            <p class="mt-2 mb-0">Loading inventory…</p>
           </div>
 
           <div v-else-if="state.error" class="alert alert-danger">
             <h2 class="h6">Could not load {{ appName }}</h2>
             <p class="mb-2 small">{{ state.error }}</p>
-            <button class="btn btn-sm btn-outline-light" @click="load()">Try again</button>
+            <button class="btn btn-sm btn-outline-secondary" @click="load()">Try again</button>
           </div>
 
           <template v-else>
@@ -359,57 +430,51 @@ export default {
 
             <template v-else-if="state.view === 'inventory' || state.view === 'kits'">
               <!-- Nothing to filter and nothing to list until the first kit
-                   exists, so the view invites making one instead of showing an
-                   empty table under a full filter bar. -->
+                   exists, so the view invites making one instead. -->
               <div v-if="noKitsYet" class="trax-empty">
                 <i class="bi bi-box-seam"></i>
                 <p class="mb-1"><strong>No kits yet</strong></p>
-                <p class="small mb-3">
-                  A kit bundles items that always go out together — a camera, its lens and the
-                  tripod — so the whole set is checked out, reserved and tracked as one.
-                </p>
-                <button class="btn btn-sm btn-primary" @click="openSetEditor(null)">
+                <p class="small mb-3">Bundle gear that always goes out together.</p>
+                <button class="btn btn-primary" @click="openSetEditor(null)">
                   <i class="bi bi-plus-lg"></i> New kit
                 </button>
               </div>
 
               <template v-else>
-                <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
-                  <FilterBar class="flex-grow-1" />
+                <FilterBar>
                   <button v-if="state.view === 'kits'" class="btn btn-sm btn-outline-primary"
                           @click="openSetEditor(null)">
                     <i class="bi bi-plus-lg"></i> New kit
                   </button>
-                </div>
+                </FilterBar>
 
                 <AssetCards v-if="isNarrow" @open="openAsset" @label="labelId = $event" />
                 <AssetTable v-else @open="openAsset" @label="labelId = $event" />
               </template>
 
               <div v-if="state.selected.length" class="trax-selection-bar">
-                <strong>{{ state.selected.length }}</strong> selected
-                <span class="text-secondary small" v-if="selectedItemIds.length !== state.selected.length">
-                  ({{ selectedItemIds.length }} items after expanding kits)
-                </span>
-                <span class="flex-grow-1"></span>
-                <button class="btn btn-sm btn-outline-secondary" @click="showBulk = true">
-                  <i class="bi bi-pencil-square"></i> Edit
+                <span class="trax-sel-count">{{ state.selected.length }} selected</span>
+                <button class="btn btn-sm btn-outline-secondary" @click="showBulk = true" title="Edit">
+                  <i class="bi bi-pencil"></i><span class="btn-label">Edit</span>
                 </button>
                 <button class="btn btn-sm btn-outline-secondary" :disabled="!labelTarget"
-                        :title="labelTarget ? 'Print label (l)' : 'Select a single asset to print its label'"
+                        :title="labelTarget ? 'Label (l)' : 'Select one asset to print its label'"
                         @click="openLabel()">
-                  <i class="bi bi-printer"></i> Label
+                  <i class="bi bi-printer"></i><span class="btn-label">Label</span>
                 </button>
-                <button class="btn btn-sm btn-outline-primary" @click="openSetEditor(null)">
-                  <i class="bi bi-box-seam"></i> Make kit
+                <button class="btn btn-sm btn-outline-secondary" @click="openSetEditor(null)" title="Make kit">
+                  <i class="bi bi-box-seam"></i><span class="btn-label">Kit</span>
                 </button>
+                <span class="flex-grow-1"></span>
                 <button class="btn btn-sm btn-primary" @click="showBasket = true">
                   <template v-if="state.reservationEdit">
-                    <i class="bi bi-pencil-square"></i> Reservation #{{ state.reservationEdit.id }}
+                    <i class="bi bi-pencil-square"></i> #{{ state.reservationEdit.id }}
                   </template>
-                  <template v-else><i class="bi bi-cart2"></i> Check out</template>
+                  <template v-else><i class="bi bi-bag"></i> Check out</template>
                 </button>
-                <button class="btn btn-sm btn-outline-secondary" @click="clearSelection()">Clear</button>
+                <button class="trax-close" @click="clearSelection()" title="Clear" aria-label="Clear selection">
+                  <i class="bi bi-x-lg"></i>
+                </button>
               </div>
             </template>
 
@@ -427,19 +492,53 @@ export default {
       </div>
     </div>
 
-    <!-- Mobile navigation -->
-    <nav class="trax-mobile-nav" aria-label="Main">
-      <button v-for="id in MOBILE_NAV" :key="id"
-              :class="{ active: id === 'scan' ? showScanner : state.view === id }"
-              @click="id === 'scan' ? (showScanner = true) : setView(id)">
-        <i class="bi" :class="{
-          inventory: 'bi-grid-3x3-gap', checkouts: 'bi-box-arrow-right',
-          reservations: 'bi-calendar-check', scan: 'bi-qr-code-scan',
-          calendar: 'bi-calendar3', dashboard: 'bi-speedometer2',
-        }[id]"></i>
-        <span>{{ id === 'scan' ? 'Scan' : (NAV.find(n => n.id === id)?.label || id) }}</span>
+    <!-- Phone tab bar -->
+    <nav class="trax-tabbar" aria-label="Main">
+      <button v-for="tab in TABS" :key="tab.id" type="button"
+              :class="{ active: tabActive(tab.id) }"
+              :aria-current="tabActive(tab.id) ? 'page' : undefined"
+              @click="onTab(tab.id)">
+        <i class="bi" :class="tabActive(tab.id) ? tab.active : tab.icon"></i>
+        <span>{{ tab.label }}</span>
+        <span v-if="tab.id === 'checkouts' && counts.overdue" class="trax-tabbar-badge">{{ counts.overdue }}</span>
       </button>
     </nav>
+
+    <!-- Phone: everything the tab bar has no room for -->
+    <Drawer v-if="showMore" title="More" @close="showMore = false">
+      <div class="trax-list">
+        <div v-for="id in MORE" :key="id" class="trax-row is-tappable" role="button" tabindex="0"
+             @click="go(id)" @keydown.enter="go(id)">
+          <span class="trax-app-icon" style="width:28px;height:28px;font-size:.85rem">
+            <i class="bi" :class="navItem(id).icon"></i>
+          </span>
+          <span class="trax-row-main fw-semibold">{{ navItem(id).label }}</span>
+          <span v-if="id === 'kits' && counts.kits" class="text-secondary small">{{ counts.kits }}</span>
+          <i class="bi bi-chevron-right trax-row-chevron"></i>
+        </div>
+      </div>
+
+      <div class="trax-list-header">Appearance</div>
+      <div class="btn-group trax-segmented w-100" role="group" aria-label="Appearance">
+        <button v-for="option in THEME_OPTIONS" :key="option.id" type="button"
+                class="btn btn-sm flex-fill" :class="theme.pref === option.id ? 'btn-secondary' : 'btn-outline-secondary'"
+                @click="setThemePref(option.id)">
+          <i class="bi" :class="option.icon"></i> {{ option.label }}
+        </button>
+      </div>
+
+      <div class="trax-list-header">Account</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <span class="trax-avatar">{{ (account || '?').slice(0, 1) }}</span>
+          <span class="trax-row-main fw-semibold">{{ account || 'Signed in' }}</span>
+          <form method="post" action="logout.php">
+            <input type="hidden" name="csrf" :value="csrf">
+            <button class="btn btn-sm btn-outline-danger" type="submit">Sign out</button>
+          </form>
+        </div>
+      </div>
+    </Drawer>
 
     <!-- Drawers -->
     <AssetSheet v-if="sheetOpen" :asset-id="sheetId"

@@ -18,8 +18,9 @@ export default {
       <div v-for="t in state.toasts" :key="t.id" class="trax-toast" :class="'kind-' + t.kind">
         <i class="bi" :class="icon(t.kind)"></i>
         <span class="flex-grow-1">{{ t.message }}</span>
-        <button type="button" class="btn-close btn-close-white btn-sm"
-                aria-label="Dismiss" @click="dismissToast(t.id)"></button>
+        <button type="button" class="trax-close" aria-label="Dismiss" @click="dismissToast(t.id)">
+          <i class="bi bi-x-lg"></i>
+        </button>
       </div>
     </div>
   `,

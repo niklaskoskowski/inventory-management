@@ -127,7 +127,7 @@ function import_map_json(): string
 }
 ?>
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -141,7 +141,7 @@ function import_map_json(): string
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-touch-fullscreen" content="yes">
     <meta name="apple-mobile-web-app-title" content="<?php echo admin_e($appName); ?>">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="theme-color" content="<?php echo admin_e($brandColor); ?>">
 
 <?php if ($favicon !== ''): ?>
@@ -149,7 +149,22 @@ function import_map_json(): string
     <link rel="icon" type="image/png" href="<?php echo admin_e($favicon); ?>">
 <?php endif; ?>
 
+    <!-- Light, dark or the system's choice — set before the first paint so the
+         page never flashes the wrong one. app/lib/theme.js owns it after that. -->
+    <script>
+        (function () {
+            var pref = 'auto';
+            try { pref = localStorage.getItem('traxTheme') || 'auto'; } catch (e) {}
+            var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia
+                && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', dark ? '#000000' : '#f2f2f7');
+        })();
+    </script>
+
     <!-- Vendored, not CDN: the folder must work as uploaded. -->
+    <link rel="preload" href="vendor/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="vendor/bootstrap.min.css">
     <link rel="stylesheet" href="vendor/bootstrap-icons.css">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(asset_version('app/app.css'), ENT_QUOTES, 'UTF-8'); ?>">

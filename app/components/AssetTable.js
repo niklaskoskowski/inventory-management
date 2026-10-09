@@ -5,7 +5,7 @@ import {
   openAssetPhoto,
 } from '../store.js';
 import {
-  CONDITION_LABEL, conditionSummary, formatDateTime, formatMoney, isOverdue, totalPriceOf,
+  CONDITION_LABEL, conditionSummary, formatDateTime, formatMoney, isOverdue, totalPriceOf, parseDate, getUiLocale,
 } from '../lib/format.js';
 import StatusBadge from './ui/StatusBadge.js';
 
@@ -87,7 +87,14 @@ export default {
       () => 5 + ['quantity', 'category', 'location', 'notes', 'serial', 'condition', 'value'].filter(shows).length,
     );
 
+    /** "Oct 14" — the full date and time is in the tooltip and the sheet. */
+    const formatShort = (value) => {
+      const date = parseDate(value);
+      return date ? date.toLocaleDateString(getUiLocale(), { month: 'short', day: 'numeric' }) : '';
+    };
+
     return {
+      formatShort,
       state, rows, allSelected, toggleAll, toggleSort, toggleSelected, isSelected,
       toggleSetExpanded, membersOf, shows, sortIcon, ariaSort,
       formatDateTime, formatMoney, isOverdue, dueFor, stockDetail, holderCount,
@@ -122,7 +129,7 @@ export default {
             <th v-if="shows('serial')">Serial</th>
             <th v-if="shows('condition')">Condition</th>
             <th v-if="shows('value')" class="text-end">Value</th>
-            <th v-if="shows('quantity')" class="text-end" style="width:7rem">Qty free</th>
+            <th v-if="shows('quantity')" class="text-end" style="width:7rem">Free</th>
             <th v-if="shows('notes')">Notes</th>
             <th :aria-sort="ariaSort('id')" style="width:4.5rem">
               <button class="sort-btn" @click="toggleSort('id')">ID <i class="bi" :class="sortIcon('id')"></i></button>
@@ -155,7 +162,7 @@ export default {
                 </span>
               </td>
 
-              <td>
+              <td class="trax-name-cell">
                 <div class="d-flex align-items-center gap-2">
                   <button v-if="asset.kind === 'SET'" class="btn btn-sm btn-link p-0 text-secondary"
                           @click="toggleSetExpanded(asset.id)"
@@ -165,10 +172,10 @@ export default {
                   </button>
                   <button class="trax-name-btn" @click="emit('open', asset.id)">{{ asset.name }}</button>
                   <span v-if="asset.kind === 'SET'" class="trax-kind-chip">
-                    kit · {{ asset.members.length }}
+                    Kit · {{ asset.members.length }}
                   </span>
                   <span v-if="asset.units?.length" class="trax-kind-chip" :title="unitTitle(asset)">
-                    <i class="bi bi-list-ol"></i> {{ asset.units.length }} units
+                    {{ asset.units.length }} units
                   </span>
                   <span v-if="oosCount(asset)" class="trax-kind-chip text-warning" :title="unitTitle(asset)">
                     {{ oosCount(asset) }} out of service
@@ -181,15 +188,15 @@ export default {
               <td>
                 <StatusBadge :status="asset.effectiveStatus" :kind="asset.kind"
                              :detail="stockDetail(asset)" />
-                <div v-if="dueFor(asset)" class="small mt-1"
-                     :class="isOverdue(dueFor(asset)) ? 'text-danger' : 'text-secondary'">
-                  due {{ formatDateTime(dueFor(asset)) }}
-                  <span v-if="holderCount(asset) > 1">· {{ holderCount(asset) }} holders</span>
+                <div v-if="dueFor(asset)" class="small mt-1 text-nowrap"
+                     :class="isOverdue(dueFor(asset)) ? 'text-danger' : 'text-secondary'"
+                     :title="formatDateTime(dueFor(asset)) + (holderCount(asset) > 1 ? ' · ' + holderCount(asset) + ' holders' : '')">
+                  due {{ formatShort(dueFor(asset)) }}
                 </div>
               </td>
 
-              <td v-if="shows('category')" class="text-secondary">{{ asset.category || '—' }}</td>
-              <td v-if="shows('location')" class="text-secondary">{{ asset.location || '—' }}</td>
+              <td v-if="shows('category')" class="text-secondary trax-nowrap">{{ asset.category || '—' }}</td>
+              <td v-if="shows('location')" class="text-secondary trax-nowrap">{{ asset.location || '—' }}</td>
               <td v-if="shows('serial')" class="text-secondary font-monospace small">{{ asset.serial || '—' }}</td>
               <td v-if="shows('condition')" class="text-secondary">{{ conditionText(asset) }}</td>
               <td v-if="shows('value')" class="text-secondary text-end" :title="valueTitle(asset)">{{ formatMoney(totalPriceOf(asset), asset.currency) || '—' }}</td>
@@ -197,17 +204,17 @@ export default {
                 <span v-if="asset.quantity > 1">{{ asset.availableQty }} of {{ asset.quantity }}</span>
                 <span v-else>{{ asset.availableQty }}</span>
               </td>
-              <td v-if="shows('notes')" class="text-secondary small">{{ asset.notes || '' }}</td>
+              <td v-if="shows('notes')" class="text-secondary small"><span class="trax-clamp" :title="asset.notes || ''">{{ asset.notes || '' }}</span></td>
 
               <td class="text-secondary font-monospace">{{ asset.id }}</td>
 
               <td>
-                <div class="d-flex justify-content-end gap-1">
-                  <button class="btn btn-sm btn-outline-secondary" @click="emit('label', asset.id)"
+                <div class="d-flex justify-content-end gap-1 trax-row-actions">
+                  <button class="trax-close" @click="emit('label', asset.id)"
                           :aria-label="'Print label for ' + asset.name" title="Label">
                     <i class="bi bi-printer"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-secondary" @click="emit('open', asset.id)"
+                  <button class="trax-close" @click="emit('open', asset.id)"
                           :aria-label="'Open ' + asset.name" title="Details">
                     <i class="bi bi-chevron-right"></i>
                   </button>

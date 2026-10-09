@@ -13,6 +13,7 @@ import { byStart, eventSettings, isClosed } from '../lib/events.js';
 import { exportBasketPdf, exportRentalPdf } from '../lib/pdf.js';
 import { parseDate, toLocalInput, formatTotals } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
+import Menu from './ui/Menu.js';
 import StatusBadge from './ui/StatusBadge.js';
 
 /**
@@ -27,7 +28,7 @@ import StatusBadge from './ui/StatusBadge.js';
  */
 export default {
   name: 'BasketDrawer',
-  components: { Drawer, StatusBadge },
+  components: { Drawer, Menu, StatusBadge },
   emits: ['close', 'open'],
   setup(props, { emit }) {
     const mode = ref('checkout');
@@ -410,10 +411,10 @@ export default {
   },
   template: `
     <Drawer :title="editing ? 'Reservation #' + editing.id : 'Selection'"
-            :icon="editing ? 'bi-pencil-square' : 'bi-cart2'" @close="emit('close')">
+            :icon="editing ? 'bi-pencil-square' : 'bi-bag'" @close="emit('close')">
       <template #header-actions>
-        <span class="text-secondary small">
-          {{ selectedItemIds.length }} items · {{ selectedUnitCount }} units
+        <span class="text-secondary small text-nowrap">
+          {{ selectedUnitCount }} {{ selectedUnitCount === 1 ? 'unit' : 'units' }}
         </span>
       </template>
 
@@ -422,253 +423,207 @@ export default {
       <div v-if="editing" class="alert py-2 px-3 small mb-3"
            :class="editGone ? 'alert-danger' : 'alert-info'">
         <template v-if="editGone">
-          <i class="bi bi-exclamation-triangle"></i>
-          Reservation #{{ editing.id }} is no longer active, so it cannot be saved.
-          Discard to get your previous selection back.
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          #{{ editing.id }} is no longer active. Discard to restore your selection.
         </template>
         <template v-else>
           <i class="bi bi-pencil-square"></i>
-          Editing reservation #{{ editing.id }}. Add or remove items, change the
-          window or the customer, then save. Close this tray to add more items
-          from the inventory — the edit waits here.
+          Editing — close to add items from Inventory.
         </template>
       </div>
 
-      <ul v-else class="nav nav-pills nav-fill mb-3">
-        <li class="nav-item">
-          <button class="nav-link" :class="{ active: mode === 'checkout' }" @click="mode = 'checkout'">
-            <i class="bi bi-box-arrow-right"></i> Check out now
-          </button>
-        </li>
-        <li class="nav-item">
-          <button class="nav-link" :class="{ active: mode === 'reserve' }" @click="mode = 'reserve'">
-            <i class="bi bi-calendar-plus"></i> Reserve
-          </button>
-        </li>
-      </ul>
+      <div v-else class="btn-group w-100 mb-3" role="group" aria-label="Check out or reserve">
+        <button type="button" class="btn btn-sm" :class="mode === 'checkout' ? 'btn-secondary' : 'btn-outline-secondary'"
+                @click="mode = 'checkout'">Check out now</button>
+        <button type="button" class="btn btn-sm" :class="mode === 'reserve' ? 'btn-secondary' : 'btn-outline-secondary'"
+                @click="mode = 'reserve'">Reserve</button>
+      </div>
 
       <!-- What is in the basket -->
-      <div v-for="(group, i) in groups" :key="i" class="mb-3">
-        <div v-if="group.kind === 'set'" class="d-flex align-items-center gap-2 mb-1">
-          <i class="bi bi-box-seam"></i>
-          <strong>{{ group.asset.name }}</strong>
-          <StatusBadge :status="group.asset.effectiveStatus" :kind="group.asset.kind" />
-          <div class="input-group input-group-sm" style="width:7.5rem">
-            <button class="btn btn-outline-secondary py-0 px-2"
-                    @click="setQuantity(group.asset.id, getQuantity(group.asset.id) - 1)"
-                    :aria-label="'One fewer ' + group.asset.name">−</button>
-            <input class="form-control text-center px-0" type="number" min="1"
-                   :value="getQuantity(group.asset.id)"
-                   @input="setQuantity(group.asset.id, $event.target.value)"
-                   :aria-label="'Quantity of ' + group.asset.name">
-            <button class="btn btn-outline-secondary py-0 px-2"
-                    @click="setQuantity(group.asset.id, getQuantity(group.asset.id) + 1)"
-                    :aria-label="'One more ' + group.asset.name">+</button>
-          </div>
-          <span class="flex-grow-1"></span>
-          <button class="btn btn-sm btn-outline-danger py-0 px-1"
-                  @click="toggleSelected(group.asset.id)"
-                  :aria-label="'Remove ' + group.asset.name">
-            <i class="bi bi-x"></i>
-          </button>
+      <template v-for="(group, i) in groups" :key="i">
+        <div class="trax-list-header">
+          <template v-if="group.kind === 'set'">
+            <i class="bi bi-box-seam"></i>
+            <span class="text-truncate">{{ group.asset.name }}</span>
+            <span class="flex-grow-1"></span>
+            <div class="input-group input-group-sm" style="width:6.75rem">
+              <button class="btn btn-outline-secondary px-2"
+                      @click="setQuantity(group.asset.id, getQuantity(group.asset.id) - 1)"
+                      :aria-label="'One fewer ' + group.asset.name">−</button>
+              <input class="form-control text-center px-0" type="number" min="1"
+                     :value="getQuantity(group.asset.id)"
+                     @input="setQuantity(group.asset.id, $event.target.value)"
+                     :aria-label="'Quantity of ' + group.asset.name">
+              <button class="btn btn-outline-secondary px-2"
+                      @click="setQuantity(group.asset.id, getQuantity(group.asset.id) + 1)"
+                      :aria-label="'One more ' + group.asset.name">+</button>
+            </div>
+            <button class="trax-close" @click="toggleSelected(group.asset.id)"
+                    :aria-label="'Remove ' + group.asset.name"><i class="bi bi-x-lg"></i></button>
+          </template>
+          <template v-else>Items</template>
         </div>
-        <div v-else class="small text-secondary mb-1">Loose items</div>
 
-        <ul class="list-group list-group-flush">
-          <li v-for="member in group.members" :key="member.id"
-              class="list-group-item bg-transparent d-flex flex-wrap align-items-center gap-2 py-1"
-              :class="{ 'opacity-50': member.availableQty <= 0 }">
-            <span v-if="group.kind === 'set'" class="text-secondary"><i class="bi bi-arrow-return-right"></i></span>
-            <button class="trax-name-btn flex-grow-1" @click="emit('open', member.id)">{{ member.name }}</button>
+        <div class="trax-list">
+          <div v-for="member in group.members" :key="member.id" class="trax-row flex-wrap"
+               :class="{ 'opacity-50': member.availableQty <= 0 }">
+            <div class="trax-row-main">
+              <button class="trax-name-btn d-block text-truncate mw-100" @click="emit('open', member.id)">{{ member.name }}</button>
+              <div class="trax-row-meta">
+                <span class="trax-status-dot" :class="'status-' + member.effectiveStatus">
+                  {{ member.quantity > 1 ? member.availableQty + ' of ' + member.quantity + ' free' : (member.availableQty > 0 ? 'Available' : 'Not available') }}
+                </span>
+              </div>
+            </div>
 
             <!-- Kit members carry a fixed required qty; loose items get a stepper. -->
             <span v-if="group.kind === 'set'" class="trax-kind-chip">
               ×{{ member.reqQty * getQuantity(group.asset.id) }}
             </span>
-            <div v-else class="input-group input-group-sm" style="width:7.5rem">
-              <button class="btn btn-outline-secondary py-0 px-2"
-                      @click="setQuantity(member.id, getQuantity(member.id) - 1)"
-                      :aria-label="'One fewer ' + member.name">−</button>
-              <input class="form-control text-center px-0" type="number" min="1"
-                     :max="member.availableQty || 1"
-                     :value="getQuantity(member.id)"
-                     @input="setQuantity(member.id, $event.target.value)"
-                     :aria-label="'Quantity of ' + member.name">
-              <button class="btn btn-outline-secondary py-0 px-2"
-                      @click="setQuantity(member.id, getQuantity(member.id) + 1)"
-                      :aria-label="'One more ' + member.name">+</button>
-            </div>
+            <template v-else>
+              <div class="input-group input-group-sm" style="width:6.75rem">
+                <button class="btn btn-outline-secondary px-2"
+                        @click="setQuantity(member.id, getQuantity(member.id) - 1)"
+                        :aria-label="'One fewer ' + member.name">−</button>
+                <input class="form-control text-center px-0" type="number" min="1"
+                       :max="member.availableQty || 1"
+                       :value="getQuantity(member.id)"
+                       @input="setQuantity(member.id, $event.target.value)"
+                       :aria-label="'Quantity of ' + member.name">
+                <button class="btn btn-outline-secondary px-2"
+                        @click="setQuantity(member.id, getQuantity(member.id) + 1)"
+                        :aria-label="'One more ' + member.name">+</button>
+              </div>
+              <button class="trax-close" @click="toggleSelected(member.id)" :aria-label="'Remove ' + member.name">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </template>
 
-            <StatusBadge :status="member.effectiveStatus" :kind="member.kind"
-                         :detail="member.quantity > 1 ? (member.availableQty + ' of ' + member.quantity + ' free') : ''" />
-            <button v-if="group.kind === 'loose'" class="btn btn-sm btn-outline-danger py-0 px-1"
-                    @click="toggleSelected(member.id)" :aria-label="'Remove ' + member.name">
-              <i class="bi bi-x"></i>
-            </button>
-
-            <!-- Which physical units leave. Whatever is not picked here the
-                 server assigns itself, lowest free number first. -->
+            <!-- Which physical units leave; the rest the server assigns. -->
             <div v-if="showUnits(group, member)" class="w-100">
               <div class="d-flex flex-wrap gap-1">
                 <button v-for="unit in unitsOf(member)" :key="unit.no" type="button"
-                        class="btn btn-sm py-0 px-1"
-                        :class="unitChosen(member, unit) ? 'btn-secondary active' : 'btn-outline-secondary'"
+                        class="btn btn-sm py-0 px-2"
+                        :class="unitChosen(member, unit) ? 'btn-primary' : 'btn-outline-secondary'"
                         :disabled="unitDisabled(member, unit)"
                         :title="unitTitle(member, unit)"
                         @click="toggleUnitChoice(member.id, unit.no)">
-                  {{ unitCode(member, unit) }}<span v-if="unit.label" class="ms-1">{{ unit.label }}</span>
+                  {{ unitCode(member, unit) }}<span v-if="unit.label" class="ms-1 opacity-75">{{ unit.label }}</span>
                 </button>
               </div>
-              <div class="small text-secondary">{{ unitHint(member) }}</div>
+              <div class="small text-secondary mt-1">{{ unitHint(member) }}</div>
             </div>
-          </li>
-        </ul>
-      </div>
-
-      <!-- What is in the tray is worth this much. Internal figure: it is not
-           part of any payload, email or PDF. -->
-      <div v-if="selectedItemIds.length"
-           class="border-top border-secondary-subtle pt-2 mb-3">
-        <div class="d-flex align-items-center gap-2 small">
-          <span class="text-secondary flex-grow-1">Selection value</span>
-          <span v-if="selectionValue.unpricedCount" class="trax-kind-chip">
-            {{ selectionValue.unpricedCount }} without a price
-          </span>
-          <strong>{{ formatTotals(selectionValue.totals) }}</strong>
-        </div>
-
-        <!-- Dry hire or a serviced job. The rates ARE the dry-hire rates; full
-             service multiplies them by the category's factor, because the
-             crew's time is invoiced separately. -->
-        <div class="d-flex flex-wrap align-items-center gap-2 small mt-2">
-          <span class="text-secondary flex-grow-1">Hire type</span>
-          <div class="btn-group btn-group-sm" role="group" aria-label="Dry hire, full service or free of charge">
-            <button type="button" class="btn"
-                    :class="hire === 'DRY' ? 'btn-secondary active' : 'btn-outline-secondary'"
-                    :aria-pressed="hire === 'DRY' ? 'true' : 'false'"
-                    @click="hire = 'DRY'">
-              <i class="bi bi-box"></i> {{ HIRE_LABEL.DRY }}
-            </button>
-            <button type="button" class="btn"
-                    :class="hire === 'SERVICE' ? 'btn-secondary active' : 'btn-outline-secondary'"
-                    :aria-pressed="hire === 'SERVICE' ? 'true' : 'false'"
-                    @click="hire = 'SERVICE'">
-              <i class="bi bi-person-gear"></i> {{ HIRE_LABEL.SERVICE }}
-            </button>
-            <button type="button" class="btn"
-                    :class="hire === 'FREE' ? 'btn-secondary active' : 'btn-outline-secondary'"
-                    :aria-pressed="hire === 'FREE' ? 'true' : 'false'"
-                    :title="HIRE_LABEL.FREE"
-                    @click="hire = 'FREE'">
-              <i class="bi bi-gift"></i> Free
-            </button>
           </div>
         </div>
+      </template>
 
-        <!-- What the hire costs over the window above. Also internal until it
-             is printed: the rental PDF is the customer's copy. -->
-        <div class="d-flex align-items-center gap-2 small mt-1">
-          <span class="text-secondary flex-grow-1">
-            Rental price · {{ daysLabel(hireLength) }}
-          </span>
-          <span v-if="rentalQuote.unratedCount" class="trax-kind-chip"
-                title="No rental rate is set for these — set one in Settings → Rental rates, or on the asset's Rental tab.">
-            {{ rentalQuote.unratedCount }} without a rate
-          </span>
-          <span v-if="rentalQuote.unpricedCount" class="trax-kind-chip"
-                title="Charged by a percentage of a value that is not recorded.">
-            {{ rentalQuote.unpricedCount }} without a value
-          </span>
-          <strong>{{ formatTotals(rentalQuote.totals) }}</strong>
+      <div v-if="unavailable.length" class="alert alert-warning py-2 px-3 small mt-3 mb-0">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        Not enough free:
+        <span v-for="(row, ri) in unavailable" :key="row.asset.id">
+          {{ row.asset.name }} ({{ row.asset.availableQty }}/{{ row.qty }})<span v-if="ri < unavailable.length - 1">, </span>
+        </span>
+      </div>
+
+      <!-- Price: hire type, rental for the window, and what it is worth.
+           Internal until the rental PDF is printed. -->
+      <template v-if="selectedItemIds.length">
+        <div class="trax-list-header">Price</div>
+        <div class="btn-group w-100 mb-2" role="group" aria-label="Hire type">
+          <button type="button" class="btn btn-sm" :class="hire === 'DRY' ? 'btn-secondary' : 'btn-outline-secondary'"
+                  :aria-pressed="hire === 'DRY' ? 'true' : 'false'" @click="hire = 'DRY'">
+            {{ HIRE_LABEL.DRY }}
+          </button>
+          <button type="button" class="btn btn-sm" :class="hire === 'SERVICE' ? 'btn-secondary' : 'btn-outline-secondary'"
+                  :aria-pressed="hire === 'SERVICE' ? 'true' : 'false'" @click="hire = 'SERVICE'">
+            {{ HIRE_LABEL.SERVICE }}
+          </button>
+          <button type="button" class="btn btn-sm" :class="hire === 'FREE' ? 'btn-secondary' : 'btn-outline-secondary'"
+                  :aria-pressed="hire === 'FREE' ? 'true' : 'false'" :title="HIRE_LABEL.FREE" @click="hire = 'FREE'">
+            Free
+          </button>
         </div>
-
-        <!-- Only on full service, and only when it actually changes the price:
-             the factor is the whole reason the two numbers differ. -->
-        <div v-if="hire === 'SERVICE'" class="small text-secondary">
+        <div class="trax-list">
+          <div class="trax-kv">
+            <span>Rental · {{ daysLabel(hireLength) }}</span>
+            <span v-if="rentalQuote.unratedCount" class="trax-kind-chip"
+                  title="No rental rate set — Settings → Rental rates, or the asset's Rental tab.">
+              {{ rentalQuote.unratedCount }} no rate
+            </span>
+            <span v-if="rentalQuote.unpricedCount" class="trax-kind-chip" title="Priced by a value that is not recorded.">
+              {{ rentalQuote.unpricedCount }} no value
+            </span>
+            <strong>{{ formatTotals(rentalQuote.totals) }}</strong>
+          </div>
+          <div class="trax-kv">
+            <span>Value</span>
+            <span v-if="selectionValue.unpricedCount" class="trax-kind-chip">
+              {{ selectionValue.unpricedCount }} no price
+            </span>
+            <strong>{{ formatTotals(selectionValue.totals) }}</strong>
+          </div>
+        </div>
+        <div v-if="hire === 'SERVICE'" class="form-text ms-1">
           Gear at
-          <span v-for="(factor, fi) in serviceFactors" :key="factor">
-            {{ Math.round(factor * 1000) / 10 }} %<span v-if="fi < serviceFactors.length - 1">, </span>
-          </span>
-          of dry hire ({{ formatTotals(dryQuote.totals) }}). The crew is invoiced separately.
+          <span v-for="(factor, fi) in serviceFactors" :key="factor">{{ Math.round(factor * 1000) / 10 }} %<span v-if="fi < serviceFactors.length - 1">, </span></span>
+          of dry hire ({{ formatTotals(dryQuote.totals) }}).
         </div>
-        <div v-else-if="hire === 'FREE'" class="small text-secondary">
-          Lent free of charge — dry hire would be {{ formatTotals(dryQuote.totals) }}.
+        <div v-else-if="hire === 'FREE'" class="form-text ms-1">
+          Dry hire would be {{ formatTotals(dryQuote.totals) }}.
         </div>
-      </div>
+      </template>
 
-      <div v-if="unavailable.length" class="alert alert-warning py-2 px-3 small">
-        <i class="bi bi-exclamation-triangle"></i>
-        {{ unavailable.length }} selected item(s) have fewer free units than asked for:
-        <ul class="mb-0 mt-1 ps-3">
-          <li v-for="row in unavailable" :key="row.asset.id">
-            {{ row.asset.name }} — {{ row.qty }} wanted, {{ row.asset.availableQty }} free
-          </li>
-        </ul>
-      </div>
-
-      <hr>
-
-      <!-- Which job this belongs to. Optional: plenty of gear leaves the
-           building without a project behind it. -->
-      <div v-if="eventsEnabled" class="mb-2">
-        <label class="form-label small" for="b-event">Event</label>
-        <div class="input-group input-group-sm">
-          <span class="input-group-text"><i class="bi bi-calendar-event"></i></span>
-          <select id="b-event" class="form-select" v-model="eventId">
-            <option value="">— no event —</option>
-            <option v-for="event in eventOptions" :key="event.id" :value="String(event.id)">
-              {{ event.name }}<span v-if="event.client"> · {{ event.client }}</span>
-            </option>
-          </select>
-        </div>
-        <div v-if="!eventOptions.length" class="form-text small">
-          No open events yet — create one under Events.
-        </div>
-      </div>
-
-      <!-- Customer -->
+      <!-- Customer & dates -->
+      <div class="trax-list-header">Customer</div>
       <div class="row g-2">
         <div class="col-12 col-md-6">
-          <label class="form-label small" for="b-name">Customer name</label>
-          <input id="b-name" class="form-control form-control-sm" v-model="customerName" data-autofocus>
+          <input id="b-name" class="form-control" v-model="customerName" placeholder="Name" data-autofocus="desktop"
+                 aria-label="Customer name" autocomplete="off">
         </div>
         <div class="col-12 col-md-6">
-          <label class="form-label small" for="b-email">Customer email</label>
-          <input id="b-email" type="email" class="form-control form-control-sm" v-model="customerEmail">
-        </div>
-
-        <template v-if="mode === 'checkout'">
-          <div class="col-12">
-            <label class="form-label small" for="b-due">Return by</label>
-            <input id="b-due" type="datetime-local" class="form-control form-control-sm" v-model="dueAt">
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="col-6">
-            <label class="form-label small" for="b-start">From</label>
-            <input id="b-start" type="datetime-local" class="form-control form-control-sm" v-model="startAt">
-          </div>
-          <div class="col-6">
-            <label class="form-label small" for="b-end">Until</label>
-            <input id="b-end" type="datetime-local" class="form-control form-control-sm" v-model="endAt">
-          </div>
-        </template>
-
-        <div class="col-12">
-          <label class="form-label small" for="b-notes">Notes</label>
-          <textarea id="b-notes" class="form-control form-control-sm" rows="2" v-model="notes"></textarea>
+          <input id="b-email" type="email" class="form-control" v-model="customerEmail" placeholder="Email"
+                 aria-label="Customer email" autocomplete="off">
         </div>
       </div>
+
+      <div class="trax-list-header">{{ mode === 'checkout' ? 'Return by' : 'When' }}</div>
+      <div class="row g-2">
+        <div v-if="mode === 'checkout'" class="col-12">
+          <input id="b-due" type="datetime-local" class="form-control" v-model="dueAt" aria-label="Return by">
+        </div>
+        <template v-else>
+          <div class="col-6">
+            <label class="form-label" for="b-start">From</label>
+            <input id="b-start" type="datetime-local" class="form-control" v-model="startAt">
+          </div>
+          <div class="col-6">
+            <label class="form-label" for="b-end">Until</label>
+            <input id="b-end" type="datetime-local" class="form-control" v-model="endAt">
+          </div>
+        </template>
+      </div>
+
+      <template v-if="eventsEnabled">
+        <div class="trax-list-header">Event</div>
+        <select id="b-event" class="form-select" v-model="eventId" aria-label="Event">
+          <option value="">None</option>
+          <option v-for="event in eventOptions" :key="event.id" :value="String(event.id)">
+            {{ event.name }}<span v-if="event.client"> · {{ event.client }}</span>
+          </option>
+        </select>
+      </template>
+
+      <div class="trax-list-header">Notes</div>
+      <textarea id="b-notes" class="form-control" rows="2" v-model="notes" aria-label="Notes" placeholder="Optional"></textarea>
 
       <!-- Conflict preview while choosing a window -->
       <div v-if="windowConflicts.length" class="alert alert-warning mt-3 py-2 px-3 small">
-        <strong>{{ windowConflicts.length }} item(s) are already booked in that window:</strong>
+        <strong>Already booked in that window:</strong>
         <ul class="mb-2 mt-1 ps-3">
           <li v-for="row in windowConflicts" :key="row.asset.id">
             {{ row.asset.name }} —
             <span v-for="(hit, j) in row.hits" :key="j">
-              {{ hit.kind }} ×{{ hit.qty }} with {{ hit.who }}{{ j < row.hits.length - 1 ? ', ' : '' }}
+              {{ hit.kind }} ×{{ hit.qty }} · {{ hit.who }}{{ j < row.hits.length - 1 ? ', ' : '' }}
             </span>
           </li>
         </ul>
@@ -680,7 +635,7 @@ export default {
 
       <!-- Server refusal -->
       <div v-if="blocked.length" class="alert alert-danger mt-3 py-2 px-3 small">
-        <strong>{{ blocked.length }} item(s) are not available:</strong>
+        <strong>Not available:</strong>
         <ul class="mb-2 mt-1 ps-3">
           <!-- who/until are empty strings when the shortfall is plain capacity
                rather than a named holder, so they must not be printed blind. -->
@@ -688,8 +643,8 @@ export default {
             {{ b.name }}
             <span v-if="b.viaSet" class="text-secondary">(in {{ b.viaSet }})</span>
             — {{ b.wanted }} wanted, {{ b.available }} free
-            <span v-if="b.who">· with {{ b.who }}<span v-if="b.until"> until {{ b.until }}</span></span>
-            <span v-if="b.unitNos?.length" class="text-secondary"> · units {{ blockedUnitCodes(b) }}</span>
+            <span v-if="b.who">· {{ b.who }}<span v-if="b.until"> until {{ b.until }}</span></span>
+            <span v-if="b.unitNos?.length" class="text-secondary"> · {{ blockedUnitCodes(b) }}</span>
           </li>
         </ul>
         <div class="form-check" v-if="mode === 'checkout'">
@@ -699,40 +654,32 @@ export default {
       </div>
 
       <template #footer>
-        <button v-if="editing" class="btn btn-sm btn-outline-danger" @click="discardEdit">
-          Discard changes
-        </button>
-        <button v-else class="btn btn-sm btn-outline-secondary" @click="clearSelection(); emit('close')">
-          Clear selection
-        </button>
-        <!-- What the tray is worth, as a page. Internal figure, same helper as
-             the line above; disabled while the thumbnails are being fetched. -->
-        <button class="btn btn-sm btn-outline-secondary"
-                :disabled="exportingPdf || !selectedItemIds.length"
-                @click="selectionPdf"
-                aria-label="PDF of the current selection and its value">
-          <span v-if="exportingPdf" class="spinner-border spinner-border-sm me-1"></span>
-          <i v-else class="bi bi-filetype-pdf"></i>
-          Value PDF
-        </button>
-        <!-- The quote: the same lines priced for the window above, with no
-             purchase value anywhere on it. -->
-        <button class="btn btn-sm btn-outline-secondary"
-                :disabled="exportingQuote || !selectedItemIds.length"
-                @click="rentalPdf"
-                aria-label="Rental quote PDF for the current selection and period">
-          <span v-if="exportingQuote" class="spinner-border spinner-border-sm me-1"></span>
-          <i v-else class="bi bi-receipt"></i>
-          Rental PDF
-        </button>
+        <Menu label="More actions" up align="start">
+          <button type="button" class="trax-menu-item" :disabled="exportingQuote || !selectedItemIds.length"
+                  @click="rentalPdf">
+            <i class="bi bi-receipt"></i> Rental PDF
+          </button>
+          <button type="button" class="trax-menu-item" :disabled="exportingPdf || !selectedItemIds.length"
+                  @click="selectionPdf">
+            <i class="bi bi-filetype-pdf"></i> Value PDF
+          </button>
+          <div class="trax-menu-sep"></div>
+          <button v-if="editing" type="button" class="trax-menu-item is-danger" @click="discardEdit">
+            <i class="bi bi-arrow-counterclockwise"></i> Discard changes
+          </button>
+          <button v-else type="button" class="trax-menu-item is-danger" @click="clearSelection(); emit('close')">
+            <i class="bi bi-trash3"></i> Clear selection
+          </button>
+        </Menu>
+        <span v-if="exportingPdf || exportingQuote" class="spinner-border spinner-border-sm text-secondary"></span>
         <span class="flex-grow-1"></span>
-        <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">
+        <button class="btn btn-outline-secondary" @click="emit('close')">
           {{ editing ? 'Close' : 'Cancel' }}
         </button>
-        <button class="btn btn-sm btn-primary" :disabled="busy || !selectedItemIds.length || editGone"
+        <button class="btn btn-primary" :disabled="busy || !selectedItemIds.length || editGone"
                 @click="submit">
-          <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
-          <template v-if="editing">{{ force ? 'Save anyway' : 'Save changes' }}</template>
+          <span v-if="busy" class="spinner-border spinner-border-sm"></span>
+          <template v-if="editing">{{ force ? 'Save anyway' : 'Save' }}</template>
           <template v-else>
             {{ mode === 'checkout'
                 ? (allowPartial ? 'Check out available' : 'Check out')

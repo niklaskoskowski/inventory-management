@@ -6,6 +6,20 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-10-09 — branch `UI-test`
+
+### Changed
+
+- **New look (preview):** an Apple-like design system in `app/app.css` — light and dark themes
+  (automatic, or fixed per device via the account menu / More sheet, `app/lib/theme.js`,
+  localStorage `traxTheme`, applied by `admin.php` before the first paint), Inter as the bundled
+  fallback font (`vendor/fonts/InterVariable.woff2`, OFL), every Bootstrap component re-skinned
+  (filled buttons, segmented controls, filled inputs, iOS switches, soft alerts). Grouped sidebar,
+  a toolbar that turns translucent on scroll, large titles and a tab bar with a *More* sheet on
+  phones, drawers as floating inspectors on desktop and swipe-to-dismiss sheets on phones
+  (`ui/Drawer.js`), a pop-up `ui/Menu.js`, the phone inventory as an inset grouped list, filter
+  chips, a floating selection bar, and a regrouped, shorter Selection tray.
+
 ## 2026-10-08
 
 ### Fixed
