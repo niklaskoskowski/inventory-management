@@ -2552,3 +2552,161 @@ kbd {
 
 .trax-cable-gap { width: auto; }
 .trax-cable-gap .form-control { width: 4.5rem; }
+
+/* ------------------------------------------------------------ Settings (System Settings layout) --- */
+
+/* ------------------------------------------------- Settings (grouped) --- */
+
+/* Phone: the section tabs scroll sideways above the content. Desktop: they
+   become a macOS-style sidebar list beside it. */
+.trax-settings > .trax-tabs {
+  margin: 0 -1rem 0.75rem;
+  padding: 0 1rem 0.25rem;
+  scroll-padding-inline: 1rem;
+}
+
+.trax-settings > .trax-tabs .trax-tab { min-height: 2.25rem; }
+.trax-settings > .trax-tabs .trax-tab.active { background: var(--trax-accent); color: var(--trax-on-accent); }
+
+.trax-set-body { min-width: 0; }
+
+@media (min-width: 992px) {
+  .trax-settings {
+    display: grid;
+    grid-template-columns: 13.5rem minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
+  }
+
+  .trax-settings > .trax-tabs {
+    position: sticky;
+    top: 4.5rem;
+    flex-direction: column;
+    gap: 1px;
+    margin: 0;
+    padding: 0.35rem;
+    overflow: visible;
+    background: var(--trax-surface);
+    border-radius: var(--trax-radius);
+    box-shadow: var(--trax-shadow-sm);
+  }
+
+  [data-bs-theme='dark'] .trax-settings > .trax-tabs { box-shadow: none; }
+
+  .trax-settings > .trax-tabs .trax-tab {
+    justify-content: flex-start;
+    gap: 0.6rem;
+    min-height: 2.15rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 8px;
+    color: var(--trax-text);
+    font-weight: 500;
+  }
+
+  .trax-settings > .trax-tabs .trax-tab .bi { width: 1.1rem; text-align: center; color: var(--trax-accent); }
+  .trax-settings > .trax-tabs .trax-tab.active .bi { color: inherit; }
+}
+
+/* One tab's content: a calm single column for forms, full width for the
+   label grid, the mail editor and the terms. */
+.trax-set-col { max-width: 44rem; }
+
+/* A settings row: label left, control right. Lives inside .trax-list. */
+.trax-set-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--trax-text);
+}
+
+.trax-set-hint {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+  color: var(--trax-muted);
+  line-height: 1.3;
+}
+
+.trax-set-ctl { flex: 0 0 auto; width: 10rem; max-width: 55%; }
+.trax-set-ctl.is-narrow { width: 6rem; }
+.trax-set-ctl.is-wide { width: 15rem; }
+input.trax-set-ctl[type='number'],
+.trax-set-ctl input[type='number'] { text-align: end; }
+
+/* A bare switch at the end of a row (no Bootstrap label beside it). */
+.trax-set-switch {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.trax-set-switch .form-check-input { float: none; margin: 0; font-size: 1.05rem; }
+
+/* A row whose control needs the full width: label on top, then the control. */
+.trax-row.trax-set-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.trax-set-stack > .trax-set-label { font-size: 0.8125rem; color: var(--trax-muted); font-weight: 550; }
+
+/* The small print under a group, iOS-style. */
+.trax-set-foot {
+  margin: 0.4rem 0.9rem 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--trax-muted);
+}
+
+.trax-set-foot code,
+.trax-set-hint code { font-size: 0.95em; }
+
+/* Small row actions: compact, but still 32px targets. */
+.trax-set-act {
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Mail template picker: a plain list that highlights the open one. */
+.trax-set-pick { width: 100%; border: 0; background: transparent; text-align: start; color: inherit; }
+.trax-set-pick.is-active { background: var(--trax-accent-soft); }
+.trax-set-pick.is-active .trax-set-label { color: var(--trax-accent-text); font-weight: 600; }
+
+@media (max-width: 991.98px) {
+  .trax-set-col { max-width: none; }
+  .trax-set-ctl { width: 8.5rem; }
+  .trax-set-ctl.is-wide { width: 11rem; }
+}
+
+/* Settings → Labels: the batch panel is a grouped list now, not a boxed panel. */
+.trax-settings .trax-batch { padding: 0; border: 0; background: none; }
+
+/* Quiet icon actions in settings rows (rename, merge, remove). */
+.trax-set-icon {
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--trax-muted);
+  font-size: 0.95rem;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.trax-set-icon:hover:not(:disabled) { background: var(--trax-fill); color: var(--trax-text); }
+.trax-set-icon:active:not(:disabled) { transform: scale(0.94); }
+.trax-set-icon:disabled { opacity: 0.35; }
+.trax-set-icon.is-danger { color: var(--trax-unav); }
+.trax-set-icon.is-danger:hover:not(:disabled) { background: var(--st-UNAV-bg); color: var(--trax-unav); }

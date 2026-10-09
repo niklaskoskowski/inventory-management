@@ -14,6 +14,7 @@ import {
 } from '../lib/rental.js';
 import { BLANK_RULE as BLANK_INSPECTION } from '../lib/inspection.js';
 import { DEFAULT_STATUSES } from '../lib/events.js';
+import { theme, setThemePref, THEME_OPTIONS } from '../lib/theme.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 import RentalRate from './RentalRate.js';
 
@@ -28,19 +29,20 @@ import RentalRate from './RentalRate.js';
  * snapshot and a history entry per typed character.
  */
 
+// 'defaults' is the General tab: appearance, defaults and the scheduled run.
 const SECTIONS = [
-  { id: 'taxonomy', label: 'Taxonomy', icon: 'bi-tags' },
-  { id: 'rental', label: 'Rental rates', icon: 'bi-cash-coin' },
-  { id: 'inspection', label: 'Inspections', icon: 'bi-clipboard-check' },
-  { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
-  { id: 'email', label: 'Email', icon: 'bi-envelope' },
+  { id: 'defaults', label: 'General', icon: 'bi-gear' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
+  { id: 'email', label: 'Email', icon: 'bi-envelope' },
+  { id: 'rental', label: 'Rental rates', icon: 'bi-cash-coin' },
+  { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
+  { id: 'inspection', label: 'Inspections', icon: 'bi-clipboard-check' },
+  { id: 'taxonomy', label: 'Taxonomy', icon: 'bi-tags' },
   { id: 'labels', label: 'Labels', icon: 'bi-qr-code' },
   { id: 'printer', label: 'Printer', icon: 'bi-printer' },
   { id: 'terms', label: 'Terms', icon: 'bi-file-earmark-text' },
-  { id: 'defaults', label: 'Defaults & automation', icon: 'bi-sliders' },
   { id: 'account', label: 'Account', icon: 'bi-person-lock' },
-  { id: 'authentication', label: 'Authentication', icon: 'bi-shield-lock' },
+  { id: 'authentication', label: 'Sign-in', icon: 'bi-shield-lock' },
 ];
 
 /** The formats Settings → Labels can show and pack. */
@@ -61,7 +63,7 @@ const PRINTER_FORMATS = [
   { id: 'cable', label: 'Cable flag · 14 mm high' },
 ];
 const PRINTER_TAPES = [
-  { mm: 0, label: 'Whatever is loaded' },
+  { mm: 0, label: 'Any (as loaded)' },
   { mm: 4, label: '3.5 mm' },
   { mm: 6, label: '6 mm' },
   { mm: 9, label: '9 mm' },
@@ -85,12 +87,12 @@ const AUTH_MODES = [
   {
     value: 'builtin',
     label: 'Built-in login',
-    note: 'This app keeps the accounts and shows its own sign-in form at login.php.',
+    note: 'Accounts kept here, sign-in at login.php',
   },
   {
     value: 'external',
     label: 'External auth include',
-    note: 'A PHP file already on this server signs people in. It is included on every admin and API request.',
+    note: 'A PHP file on this server signs people in',
   },
 ];
 
@@ -104,16 +106,16 @@ const TAXONOMIES = [
 // Grouped so the two very different audiences read apart: one set fires when an
 // operator acts, the other only when cron.php runs.
 const CUSTOMER_MAIL = [
-  { key: 'sendCheckoutConfirmation', label: 'Checkout confirmation', note: 'Sent to the customer when items go out.' },
-  { key: 'sendReservationConfirmation', label: 'Reservation confirmation', note: 'Sent when a reservation is booked.' },
-  { key: 'sendExtend', label: 'Extension confirmed', note: 'Sent when a due date moves.' },
-  { key: 'sendCheckin', label: 'Return receipt', note: 'Sent when items come back.' },
+  { key: 'sendCheckoutConfirmation', label: 'Checkout confirmation', note: 'When items go out' },
+  { key: 'sendReservationConfirmation', label: 'Reservation confirmation', note: 'When a reservation is booked' },
+  { key: 'sendExtend', label: 'Extension confirmed', note: 'When a due date moves' },
+  { key: 'sendCheckin', label: 'Return receipt', note: 'When items come back' },
 ];
 
 const CRON_MAIL = [
-  { key: 'sendDueSoon', label: 'Due-soon reminder', note: 'To the customer, before the due date.' },
-  { key: 'sendOverdue', label: 'Overdue reminder', note: 'To the customer, repeatedly, after it.' },
-  { key: 'sendOwnerDigest', label: 'Owner digest', note: 'The daily summary to the owner address.' },
+  { key: 'sendDueSoon', label: 'Due-soon reminder', note: 'Before the due date' },
+  { key: 'sendOverdue', label: 'Overdue reminder', note: 'Repeats after the due date' },
+  { key: 'sendOwnerDigest', label: 'Owner digest', note: 'Daily summary to the owner' },
 ];
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -178,7 +180,7 @@ export default {
   name: 'SettingsView',
   components: { ConfirmDialog, RentalRate },
   setup() {
-    const section = ref('taxonomy');
+    const section = ref('defaults');
     const busy = ref(false);
 
     // --- Mail templates ---
@@ -540,14 +542,14 @@ export default {
 
     /** How a rule reads in one line, under the row. */
     const inspectionSummary = (rule) => {
-      if (!rule) return 'Not tested — no record is asked for.';
+      if (!rule) return 'Not tested';
       const months = Math.max(0, Number(rule.intervalMonths) || 0);
       const every = months
         ? `every ${months} month${months === 1 ? '' : 's'}`
-        : 'no repeat — nothing falls due on its own';
+        : 'never due';
       const fields = (rule.fields || []).filter(Boolean);
       return `${rule.label || 'Inspection'} · ${every}`
-        + (fields.length ? ` · records ${fields.join(', ')}` : ' · no measured parameters');
+        + (fields.length ? ` · ${fields.join(', ')}` : '');
     };
 
     // --- Taxonomy ---
@@ -1215,7 +1217,7 @@ export default {
 
     return {
       settings, taxonomyUsage,
-      SECTIONS, AUTH_MODES, TAXONOMIES, CUSTOMER_MAIL, CRON_MAIL, HOURS, LOCALES,
+      SECTIONS, AUTH_MODES, theme, setThemePref, THEME_OPTIONS, TAXONOMIES, CUSTOMER_MAIL, CRON_MAIL, HOURS, LOCALES,
       section, draft, busy, patch, dirty, save, revert,
       rentalRows, addRentalRule, removeRentalRule, rulePreview, previewDays,
       defaultFactor, factorOf, serviceFactorOf,
@@ -1248,465 +1250,354 @@ export default {
     };
   },
   template: `
-    <div class="trax-tabs mb-3">
+    <div class="trax-settings">
+    <nav class="trax-tabs" aria-label="Settings sections">
       <button v-for="tab in SECTIONS" :key="tab.id" type="button"
               class="trax-tab" :class="{ active: section === tab.id }"
               :aria-current="section === tab.id ? 'true' : undefined"
               @click="section = tab.id">
         <i class="bi" :class="tab.icon"></i> {{ tab.label }}
       </button>
-    </div>
+    </nav>
+
+    <div class="trax-set-body">
 
     <!-- Taxonomy ------------------------------------------------------- -->
-    <div v-if="section === 'taxonomy'" class="row g-3">
-      <div v-for="group in TAXONOMIES" :key="group.kind" class="col-12 col-xl-4">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">
-              <i class="bi" :class="group.icon"></i> {{ group.label }}
-              <span class="text-secondary small">({{ taxonomyUsage[group.key].length }})</span>
-            </h2>
-            <p class="trax-page-sub">Free text on the assets — editing here rewrites the records.</p>
+    <div v-if="section === 'taxonomy'" class="row g-4">
+      <div v-for="group in TAXONOMIES" :key="group.kind" class="col-12 col-lg-6 col-xxl-4">
+        <div class="trax-list-header">
+          <i class="bi" :class="group.icon"></i> {{ group.label }}
+          <span class="fw-normal">{{ taxonomyUsage[group.key].length }}</span>
+        </div>
+        <div class="trax-list">
+          <div v-for="row in taxonomyUsage[group.key]" :key="row.value" class="trax-row trax-set-stack">
+            <div class="d-flex align-items-center gap-2">
+              <span class="trax-set-label text-truncate">{{ row.value }}</span>
+              <span class="trax-kind-chip">{{ row.count }}</span>
+              <button type="button" class="trax-set-icon" :disabled="busy"
+                      :title="'Rename ' + row.value" :aria-label="'Rename ' + row.value"
+                      @click="startEdit(group.kind, row.value, 'rename')">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button type="button" class="trax-set-icon"
+                      :disabled="busy || !mergeOptions(group.key, row.value).length"
+                      :title="'Merge ' + row.value + ' into another value'"
+                      :aria-label="'Merge ' + row.value + ' into another value'"
+                      @click="startEdit(group.kind, row.value, 'merge')">
+                <i class="bi bi-sign-merge-left"></i>
+              </button>
+              <button type="button" class="trax-set-icon is-danger" :disabled="busy"
+                      :title="'Clear ' + row.value + ' on ' + row.count + ' asset(s)'"
+                      :aria-label="'Clear ' + row.value"
+                      @click="askDelete(group, row.value)">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+
+            <div v-if="isEditing(group.kind, row.value, 'rename')" class="d-flex gap-1">
+              <input class="form-control form-control-sm" v-model="editValue"
+                     :aria-label="'New name for ' + row.value"
+                     @keydown.enter="rename(group, row.value)">
+              <button class="btn btn-sm btn-primary" :disabled="busy" @click="rename(group, row.value)">
+                Rename
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" @click="cancelEdit()">Cancel</button>
+            </div>
+
+            <div v-if="isEditing(group.kind, row.value, 'merge')" class="d-flex gap-1">
+              <select class="form-select form-select-sm" v-model="editValue"
+                      :aria-label="'Merge ' + row.value + ' into'">
+                <option value="">Merge into…</option>
+                <option v-for="option in mergeOptions(group.key, row.value)"
+                        :key="option.value" :value="option.value">
+                  {{ option.value }} ({{ option.count }})
+                </option>
+              </select>
+              <button class="btn btn-sm btn-primary" :disabled="busy || !editValue"
+                      @click="askMerge(group, row.value)">Merge</button>
+              <button class="btn btn-sm btn-outline-secondary" @click="cancelEdit()">Cancel</button>
+            </div>
           </div>
 
-          <ul class="list-group list-group-flush">
-            <li v-for="row in taxonomyUsage[group.key]" :key="row.value"
-                class="list-group-item bg-transparent py-1">
-              <div class="d-flex align-items-center gap-2">
-                <span class="flex-grow-1 text-truncate">{{ row.value }}</span>
-                <span class="trax-kind-chip">{{ row.count }}</span>
-                <button class="btn btn-sm btn-outline-secondary py-0 px-1" :disabled="busy"
-                        :title="'Rename ' + row.value"
-                        @click="startEdit(group.kind, row.value, 'rename')">
-                  <i class="bi bi-pencil"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-secondary py-0 px-1"
-                        :disabled="busy || !mergeOptions(group.key, row.value).length"
-                        :title="'Merge ' + row.value + ' into another value'"
-                        @click="startEdit(group.kind, row.value, 'merge')">
-                  <i class="bi bi-sign-merge-left"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-danger py-0 px-1" :disabled="busy"
-                        :title="'Clear ' + row.value + ' on ' + row.count + ' asset(s)'"
-                        @click="askDelete(group, row.value)">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </div>
-
-              <div v-if="isEditing(group.kind, row.value, 'rename')" class="d-flex gap-1 mt-1">
-                <input class="form-control form-control-sm" v-model="editValue"
-                       :aria-label="'New name for ' + row.value"
-                       @keydown.enter="rename(group, row.value)">
-                <button class="btn btn-sm btn-primary" :disabled="busy" @click="rename(group, row.value)">
-                  Rename
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" @click="cancelEdit()">Cancel</button>
-              </div>
-
-              <div v-if="isEditing(group.kind, row.value, 'merge')" class="d-flex gap-1 mt-1">
-                <select class="form-select form-select-sm" v-model="editValue"
-                        :aria-label="'Merge ' + row.value + ' into'">
-                  <option value="">— merge into —</option>
-                  <option v-for="option in mergeOptions(group.key, row.value)"
-                          :key="option.value" :value="option.value">
-                    {{ option.value }} ({{ option.count }})
-                  </option>
-                </select>
-                <button class="btn btn-sm btn-primary" :disabled="busy || !editValue"
-                        @click="askMerge(group, row.value)">Merge</button>
-                <button class="btn btn-sm btn-outline-secondary" @click="cancelEdit()">Cancel</button>
-              </div>
-            </li>
-
-            <li v-if="!taxonomyUsage[group.key].length"
-                class="list-group-item bg-transparent small text-secondary">
-              Nothing uses a {{ group.kind }} yet.
-            </li>
-          </ul>
+          <div v-if="!taxonomyUsage[group.key].length" class="trax-row">
+            <span class="trax-set-label text-secondary">No {{ group.kind }} in use yet.</span>
+          </div>
         </div>
       </div>
+      <p class="trax-set-foot col-12 mt-2">Editing a value rewrites every asset that uses it.</p>
     </div>
 
     <!-- Rental rates ---------------------------------------------------- -->
-    <div v-else-if="section === 'rental'" class="row g-3">
-      <div class="col-12 col-xl-5">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title"><i class="bi bi-cash-coin"></i> Default rate</h2>
-            <p class="trax-page-sub">
-              What hiring gear out costs when its category says nothing else. A percentage
-              is charged per day of the hire, on what the item is worth; a fixed price
-              ignores the item's value altogether. That rate <strong>is</strong> the dry-hire
-              price; full service is that times the factor below, because the crew's time is
-              invoiced separately.
-            </p>
-          </div>
-          <div class="trax-card-pad pt-0">
+    <div v-else-if="section === 'rental'" class="trax-set-col">
+      <div>
+        <div class="trax-list-header">Default rate</div>
+        <div class="trax-list">
+          <div class="trax-row trax-set-stack">
             <RentalRate :rule="draft.rental.default" variant="rule" :show-tiers="true"
                         :show-service="true" :inherit-factor="1" :currency="currency" />
-            <div class="d-flex align-items-center gap-2 mt-3 pt-2 border-top border-secondary-subtle">
-              <label class="form-label small mb-0" for="set-rental-preview">Preview for</label>
-              <input id="set-rental-preview" class="form-control form-control-sm text-end"
-                     style="width:5rem" type="number" min="1" max="3650" v-model="previewDays">
-              <span class="small text-secondary">days</span>
+          </div>
+          <div class="trax-row">
+            <label class="trax-set-label" for="set-rental-preview">
+              Preview for
+              <span class="trax-set-hint">{{ rulePreview(draft.rental.default) }}</span>
+            </label>
+            <div class="input-group input-group-sm trax-set-ctl is-narrow">
+              <input id="set-rental-preview" class="form-control text-end"
+                     type="number" min="1" max="3650" v-model="previewDays">
+              <span class="input-group-text">days</span>
             </div>
-            <div class="small text-secondary mt-1">{{ rulePreview(draft.rental.default) }}</div>
           </div>
         </div>
+        <p class="trax-set-foot">
+          Per day, as % of the item's value, or a fixed price. Full service = rate × factor.
+        </p>
       </div>
 
-      <div class="col-12 col-xl-7">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">
-              <i class="bi bi-folder2"></i> Per category
-              <span class="text-secondary small">({{ rentalRows.length }})</span>
-            </h2>
-            <p class="trax-page-sub">
-              A category without a rate of its own is hired out at the default. An asset
-              or a single unit can still overrule both, in its own Rental tab.
-            </p>
+      <div class="mt-4">
+        <div class="trax-list-header">
+          Per category <span class="fw-normal">{{ rentalRows.length }}</span>
+        </div>
+        <div class="trax-list">
+          <div v-for="row in rentalRows" :key="row.name" class="trax-row trax-set-stack">
+            <div class="d-flex align-items-center gap-2">
+              <span class="trax-set-label">
+                {{ row.name }}
+                <span v-if="!row.rule" class="trax-set-hint">Default rate</span>
+              </span>
+              <span class="trax-kind-chip">{{ row.count }}</span>
+              <button v-if="!row.rule" type="button" class="btn btn-sm btn-outline-primary trax-set-act"
+                      :disabled="busy" @click="addRentalRule(row.name)">
+                <i class="bi bi-plus"></i> Rate
+              </button>
+              <button v-else type="button" class="trax-set-icon is-danger"
+                      :disabled="busy" :title="'Hire ' + row.name + ' at the default rate again'"
+                      :aria-label="'Remove the rate for ' + row.name"
+                      @click="removeRentalRule(row.name)">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+
+            <template v-if="row.rule">
+              <RentalRate :rule="row.rule" variant="rule" :show-tiers="true"
+                          :show-service="true" :inherit-factor="defaultFactor"
+                          :currency="currency" />
+              <div class="trax-set-hint">{{ rulePreview(row.rule) }}</div>
+            </template>
           </div>
 
-          <ul class="list-group list-group-flush">
-            <li v-for="row in rentalRows" :key="row.name" class="list-group-item bg-transparent">
-              <div class="d-flex align-items-center gap-2">
-                <span class="flex-grow-1 text-truncate">{{ row.name }}</span>
-                <span class="trax-kind-chip">{{ row.count }}</span>
-                <button v-if="!row.rule" type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
-                        :disabled="busy" @click="addRentalRule(row.name)">
-                  <i class="bi bi-plus"></i> Rate
-                </button>
-                <button v-else type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
-                        :disabled="busy" :title="'Hire ' + row.name + ' at the default rate again'"
-                        :aria-label="'Remove the rate for ' + row.name"
-                        @click="removeRentalRule(row.name)">
-                  <i class="bi bi-x"></i>
-                </button>
-              </div>
-
-              <div v-if="row.rule" class="mt-2">
-                <RentalRate :rule="row.rule" variant="rule" :show-tiers="true"
-                            :show-service="true" :inherit-factor="defaultFactor"
-                            :currency="currency" />
-                <div class="small text-secondary mt-1">{{ rulePreview(row.rule) }}</div>
-              </div>
-              <div v-else class="small text-secondary">
-                Default rate — {{ rulePreview(draft.rental.default) }}
-              </div>
-            </li>
-
-            <li v-if="!rentalRows.length" class="list-group-item bg-transparent small text-secondary">
-              Nothing uses a category yet, so there is nothing to price separately.
-            </li>
-          </ul>
+          <div v-if="!rentalRows.length" class="trax-row">
+            <span class="trax-set-label text-secondary">No categories in use yet.</span>
+          </div>
         </div>
+        <p class="trax-set-foot">Assets and units can still override this in their Rental tab.</p>
       </div>
     </div>
 
     <!-- Events ------------------------------------------------------------ -->
-    <div v-else-if="section === 'events'" class="row g-3">
-      <div class="col-12 col-xl-7">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">
-              <i class="bi bi-calendar-event"></i> Workflow
-              <span class="text-secondary small">({{ eventStatuses.length }})</span>
-            </h2>
-            <p class="trax-page-sub">
-              The states a job walks through — booked, in a case in the warehouse, out with the
-              customer. They read top to bottom; the arrows reorder them. A <strong>closed</strong>
-              status ends the job and drops it out of the open list.
-            </p>
+    <div v-else-if="section === 'events'" class="trax-set-col">
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="ev-enabled">
+            Events on checkouts &amp; reservations
+            <span class="trax-set-hint">Off hides the picker. Booked events stay.</span>
+          </label>
+          <div class="form-check form-switch trax-set-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="ev-enabled"
+                   v-model="draft.events.enabled">
           </div>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="ev-default">New events start as</label>
+          <select id="ev-default" class="form-select form-select-sm trax-set-ctl"
+                  v-model="draft.events.defaultStatus">
+            <option v-for="status in eventStatuses" :key="status.id || status.label"
+                    :value="status.id">
+              {{ status.label || status.id }}
+            </option>
+          </select>
+        </div>
+      </div>
 
-          <ul class="list-group list-group-flush">
-            <li v-for="(status, si) in eventStatuses" :key="si"
-                class="list-group-item bg-transparent">
-              <div class="d-flex align-items-center gap-2 flex-wrap">
-                <div class="btn-group btn-group-sm">
-                  <button type="button" class="btn btn-outline-secondary py-0 px-1"
-                          :disabled="si === 0" :aria-label="'Move ' + (status.label || 'status') + ' up'"
-                          @click="moveEventStatus(si, -1)">
-                    <i class="bi bi-chevron-up"></i>
-                  </button>
-                  <button type="button" class="btn btn-outline-secondary py-0 px-1"
-                          :disabled="si === eventStatuses.length - 1"
-                          :aria-label="'Move ' + (status.label || 'status') + ' down'"
-                          @click="moveEventStatus(si, 1)">
-                    <i class="bi bi-chevron-down"></i>
-                  </button>
-                </div>
-
-                <input class="form-control form-control-sm" style="max-width:14rem"
-                       v-model="status.label" maxlength="40" placeholder="e.g. At customer"
-                       :aria-label="'Name of status ' + (si + 1)"
-                       @blur="nameEventStatus(status)">
-
-                <input class="form-control form-control-color form-control-sm" type="color"
-                       style="width:2.75rem" v-model="status.color"
-                       :aria-label="'Colour of ' + (status.label || 'status ' + (si + 1))">
-
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input" type="checkbox" role="switch"
-                         :id="'ev-closed-' + si" v-model="status.closed">
-                  <label class="form-check-label small" :for="'ev-closed-' + si">Closed</label>
-                </div>
-
-                <span class="flex-grow-1"></span>
-                <span v-if="status.id && eventsOnStatus(status.id)" class="trax-kind-chip">
-                  {{ eventsOnStatus(status.id) }}
-                </span>
-                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
-                        :disabled="eventStatuses.length <= 1"
-                        :aria-label="'Remove ' + (status.label || 'status ' + (si + 1))"
-                        @click="removeEventStatus(si)">
-                  <i class="bi bi-x"></i>
-                </button>
-              </div>
-              <div v-if="status.id" class="form-text small mb-0 font-monospace">{{ status.id }}</div>
-            </li>
-          </ul>
-
-          <div class="trax-card-pad d-flex align-items-center gap-2">
-            <span class="small text-secondary flex-grow-1">
-              A status is stored by its id, so renaming one leaves every event on it where it is.
-            </span>
-            <button type="button" class="btn btn-sm btn-outline-primary"
-                    :disabled="busy || eventStatuses.length >= 12" @click="addEventStatus()">
-              <i class="bi bi-plus"></i> Status
+      <div class="trax-list-header">
+        Workflow <span class="fw-normal">{{ eventStatuses.length }}</span>
+        <span class="flex-grow-1"></span>
+        <button type="button" class="btn btn-sm btn-outline-primary"
+                :disabled="busy || eventStatuses.length >= 12" @click="addEventStatus()">
+          <i class="bi bi-plus"></i> Status
+        </button>
+      </div>
+      <div class="trax-list">
+        <div v-for="(status, si) in eventStatuses" :key="si" class="trax-row flex-wrap gap-2">
+          <div class="btn-group btn-group-sm flex-shrink-0">
+            <button type="button" class="btn btn-outline-secondary trax-set-act"
+                    :disabled="si === 0" :aria-label="'Move ' + (status.label || 'status') + ' up'"
+                    @click="moveEventStatus(si, -1)">
+              <i class="bi bi-chevron-up"></i>
+            </button>
+            <button type="button" class="btn btn-outline-secondary trax-set-act"
+                    :disabled="si === eventStatuses.length - 1"
+                    :aria-label="'Move ' + (status.label || 'status') + ' down'"
+                    @click="moveEventStatus(si, 1)">
+              <i class="bi bi-chevron-down"></i>
             </button>
           </div>
-        </div>
-      </div>
 
-      <div class="col-12 col-xl-5">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title"><i class="bi bi-sliders"></i> Defaults</h2>
+          <input class="form-control form-control-sm col-12 col-sm order-first order-sm-0 min-w-0"
+                 v-model="status.label" maxlength="40" placeholder="e.g. At customer"
+                 :title="status.id ? 'ID: ' + status.id : undefined"
+                 :aria-label="'Name of status ' + (si + 1)"
+                 @blur="nameEventStatus(status)">
 
-            <div class="form-check form-switch mb-3">
-              <input class="form-check-input" type="checkbox" role="switch" id="ev-enabled"
-                     v-model="draft.events.enabled">
-              <label class="form-check-label small" for="ev-enabled">
-                Offer an event when checking out and reserving
-                <span class="d-block text-secondary" style="font-size:.72rem">
-                  Off hides the picker in the selection drawer. Events already booked keep theirs.
-                </span>
-              </label>
-            </div>
+          <input class="form-control form-control-color form-control-sm flex-shrink-0" type="color"
+                 style="width:2.25rem" v-model="status.color"
+                 :aria-label="'Colour of ' + (status.label || 'status ' + (si + 1))">
 
-            <label class="form-label small" for="ev-default">A new event starts as</label>
-            <select id="ev-default" class="form-select form-select-sm"
-                    v-model="draft.events.defaultStatus">
-              <option v-for="status in eventStatuses" :key="status.id || status.label"
-                      :value="status.id">
-                {{ status.label || status.id }}
-              </option>
-            </select>
+          <div class="form-check form-switch mb-0 flex-shrink-0" title="Closed ends the job">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   :id="'ev-closed-' + si" v-model="status.closed">
+            <label class="form-check-label small" :for="'ev-closed-' + si">Closed</label>
           </div>
 
-          <div class="trax-card-pad pt-0">
-            <h3 class="trax-page-title">How it works</h3>
-            <ul class="small text-secondary ps-3 mb-0">
-              <li class="mb-2">
-                An event is a <strong>job</strong>: a festival, a conference, a shoot. It is created
-                under Events and picked in the selection drawer when gear is checked out or reserved.
-              </li>
-              <li class="mb-2">
-                Gear is never "inside" an event. The checkout line and the reservation carry the
-                job's name, so availability is decided exactly where it was before.
-              </li>
-              <li class="mb-2">
-                The status is moved by hand, from the Events list, while somebody is holding the
-                flight case. It changes no stock: what is free is still what is not checked out.
-              </li>
-              <li>
-                Deleting an event never deletes gear — the bookings simply stop naming it.
-              </li>
-            </ul>
-          </div>
+          <span v-if="status.id && eventsOnStatus(status.id)" class="trax-kind-chip flex-shrink-0"
+                :title="eventsOnStatus(status.id) + ' event(s) on this status'">
+            {{ eventsOnStatus(status.id) }}
+          </span>
+          <button type="button" class="trax-set-icon is-danger ms-auto ms-sm-0"
+                  :disabled="eventStatuses.length <= 1"
+                  :aria-label="'Remove ' + (status.label || 'status ' + (si + 1))"
+                  @click="removeEventStatus(si)">
+            <i class="bi bi-x-lg"></i>
+          </button>
         </div>
       </div>
+      <p class="trax-set-foot">
+        Top to bottom. A closed status ends the job. Renaming keeps events where they are.
+      </p>
     </div>
 
     <!-- Inspections ------------------------------------------------------ -->
-    <div v-else-if="section === 'inspection'" class="row g-3">
-      <div class="col-12 col-xl-8">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">
-              <i class="bi bi-clipboard-check"></i> Tested categories
-              <span class="text-secondary small">({{ inspectionRows.length }})</span>
-            </h2>
-            <p class="trax-page-sub">
-              Tick a category and every item in it gets a Test tab: when it was tested, whether it
-              passed, what was measured and the certificate. Nothing is asked of the categories you
-              leave unticked — a folding table does not get a test record.
-            </p>
-          </div>
-
-          <ul class="list-group list-group-flush">
-            <li v-for="row in inspectionRows" :key="row.name" class="list-group-item bg-transparent">
-              <div class="d-flex align-items-center gap-2">
-                <div class="form-check mb-0 flex-grow-1 min-w-0">
-                  <input class="form-check-input" type="checkbox" :id="'insp-' + row.name"
-                         :checked="!!row.rule" :disabled="busy"
-                         @change="toggleInspection(row.name, $event.target.checked)">
-                  <label class="form-check-label text-truncate" :for="'insp-' + row.name">
-                    {{ row.name }}
-                  </label>
-                </div>
-                <span class="trax-kind-chip">{{ row.count }}</span>
-              </div>
-
-              <div v-if="row.rule" class="row g-2 mt-1">
-                <div class="col-12 col-sm-6">
-                  <label class="form-label small mb-1" :for="'insp-label-' + row.name">
-                    What the test is called
-                  </label>
-                  <input class="form-control form-control-sm" :id="'insp-label-' + row.name"
-                         v-model="row.rule.label" maxlength="120" placeholder="e.g. DGUV V3">
-                </div>
-                <div class="col-12 col-sm-6">
-                  <label class="form-label small mb-1" :for="'insp-months-' + row.name">
-                    Valid for
-                  </label>
-                  <div class="input-group input-group-sm">
-                    <input class="form-control text-end" :id="'insp-months-' + row.name"
-                           type="number" min="0" max="240" step="1"
-                           v-model="row.rule.intervalMonths">
-                    <span class="input-group-text">months</span>
-                  </div>
-                  <div class="form-text small">0 = record it, but let nothing fall due.</div>
-                </div>
-
-                <div class="col-12">
-                  <div class="d-flex align-items-center gap-2">
-                    <span class="small text-secondary flex-grow-1">
-                      Measured parameters
-                      <span v-if="(row.rule.fields || []).length">({{ row.rule.fields.length }})</span>
-                    </span>
-                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
-                            :disabled="busy || (row.rule.fields || []).length >= 12"
-                            @click="addInspectionField(row.rule)">
-                      <i class="bi bi-plus"></i> Parameter
-                    </button>
-                  </div>
-                  <div v-for="(field, fi) in (row.rule.fields || [])" :key="fi"
-                       class="d-flex align-items-center gap-1 mt-1">
-                    <input class="form-control form-control-sm" v-model="row.rule.fields[fi]"
-                           maxlength="120" placeholder="e.g. Insulation resistance"
-                           :aria-label="'Parameter ' + (fi + 1) + ' of ' + row.name">
-                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
-                            :aria-label="'Remove parameter ' + (fi + 1)"
-                            @click="removeInspectionField(row.rule, fi)">
-                      <i class="bi bi-x"></i>
-                    </button>
-                  </div>
-                  <p class="form-text small mb-0">
-                    These become the boxes on the test form, in this order, so the same readings are
-                    written down every time.
-                  </p>
-                </div>
-              </div>
-
-              <div class="small text-secondary">{{ inspectionSummary(row.rule) }}</div>
-            </li>
-
-            <li v-if="!inspectionRows.length"
-                class="list-group-item bg-transparent small text-secondary">
-              Nothing uses a category yet, so there is nothing to put a test on.
-            </li>
-          </ul>
-        </div>
+    <div v-else-if="section === 'inspection'" class="trax-set-col">
+      <div class="trax-list-header">
+        Tested categories <span class="fw-normal">{{ inspectionRows.length }}</span>
       </div>
-
-      <div class="col-12 col-xl-4">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title"><i class="bi bi-info-circle"></i> How it works</h2>
-            <ul class="small text-secondary ps-3 mb-0">
-              <li class="mb-2">
-                A record belongs to <strong>one piece</strong>: cable 183.5 and cable 183.6 keep
-                separate histories, so each one can show its own documentation.
-              </li>
-              <li class="mb-2">
-                An item that does not track units individually files its records against the record
-                as a whole.
-              </li>
-              <li class="mb-2">
-                Each record carries the date, pass or fail, who tested it, the measured values, a
-                note and one certificate (PDF, image or text).
-              </li>
-              <li class="mb-2">
-                The next test date is filled in from the interval above and can be overruled per
-                record — a re-test agreed for six months is a real answer.
-              </li>
-              <li class="mb-2">
-                Overdue and failed pieces are flagged in the asset sheet and on the dashboard.
-                Nothing is blocked from going out: the app documents, the operator decides.
-              </li>
-              <li>
-                Un-ticking a category stops the asking. The records already filed stay — they are
-                documentation of something that happened.
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Email ---------------------------------------------------------- -->
-    <div v-else-if="section === 'email'" class="row g-3">
-      <div class="col-12 col-xl-5">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Addresses</h2>
-            <p class="trax-page-sub">Anything invalid falls back to the deploy-time constant.</p>
-          </div>
-          <div class="trax-card-pad pt-0">
-            <label class="form-label small" for="set-owner">Owner address</label>
-            <input id="set-owner" type="email" class="form-control form-control-sm mb-2"
-                   v-model="draft.email.ownerEmail">
-            <label class="form-label small" for="set-from">From address</label>
-            <input id="set-from" type="email" class="form-control form-control-sm mb-2"
-                   v-model="draft.email.fromEmail">
-            <label class="form-label small" for="set-report-from">Report from address</label>
-            <input id="set-report-from" type="email" class="form-control form-control-sm"
-                   v-model="draft.email.reportFromEmail">
-            <div class="form-text small">The digest and reminder mails are sent from this one.</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="col-12 col-xl-7">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">To the customer</h2>
-            <p class="trax-page-sub">Sent the moment an operator acts.</p>
-          </div>
-          <div class="trax-card-pad pt-0">
-            <div v-for="row in CUSTOMER_MAIL" :key="row.key" class="form-check form-switch mb-2">
-              <input class="form-check-input" type="checkbox" role="switch"
-                     :id="'set-' + row.key" v-model="draft.email[row.key]">
-              <label class="form-check-label small" :for="'set-' + row.key">
-                {{ row.label }}
-                <span class="d-block text-secondary" style="font-size:.72rem">{{ row.note }}</span>
-              </label>
+      <div class="trax-list">
+        <div v-for="row in inspectionRows" :key="row.name" class="trax-row trax-set-stack">
+          <div class="d-flex align-items-center gap-2">
+            <label class="trax-set-label" :for="'insp-' + row.name">
+              {{ row.name }}
+              <span class="trax-set-hint">{{ inspectionSummary(row.rule) }}</span>
+            </label>
+            <span class="trax-kind-chip">{{ row.count }}</span>
+            <div class="form-check form-switch trax-set-switch">
+              <input class="form-check-input" type="checkbox" role="switch" :id="'insp-' + row.name"
+                     :checked="!!row.rule" :disabled="busy"
+                     @change="toggleInspection(row.name, $event.target.checked)">
             </div>
           </div>
 
-          <div class="trax-card-pad pt-0">
-            <h2 class="trax-page-title">From cron.php</h2>
-            <p class="trax-page-sub mb-2">Only ever sent by the scheduled run.</p>
-            <div v-for="row in CRON_MAIL" :key="row.key" class="form-check form-switch mb-2">
+          <div v-if="row.rule" class="row g-2">
+            <div class="col-12 col-sm-7">
+              <label class="form-label mb-1" :for="'insp-label-' + row.name">Test name</label>
+              <input class="form-control form-control-sm" :id="'insp-label-' + row.name"
+                     v-model="row.rule.label" maxlength="120" placeholder="e.g. DGUV V3">
+            </div>
+            <div class="col-12 col-sm-5">
+              <label class="form-label mb-1" :for="'insp-months-' + row.name"
+                     title="0 = record only, nothing falls due">Valid for</label>
+              <div class="input-group input-group-sm">
+                <input class="form-control text-end" :id="'insp-months-' + row.name"
+                       type="number" min="0" max="240" step="1"
+                       v-model="row.rule.intervalMonths">
+                <span class="input-group-text">months</span>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <div class="d-flex align-items-center gap-2">
+                <span class="form-label mb-0 flex-grow-1">
+                  Measured values
+                  <span v-if="(row.rule.fields || []).length">({{ row.rule.fields.length }})</span>
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-primary trax-set-act"
+                        :disabled="busy || (row.rule.fields || []).length >= 12"
+                        @click="addInspectionField(row.rule)">
+                  <i class="bi bi-plus"></i> Value
+                </button>
+              </div>
+              <div v-for="(field, fi) in (row.rule.fields || [])" :key="fi"
+                   class="d-flex align-items-center gap-1 mt-1">
+                <input class="form-control form-control-sm" v-model="row.rule.fields[fi]"
+                       maxlength="120" placeholder="e.g. Insulation resistance"
+                       :aria-label="'Parameter ' + (fi + 1) + ' of ' + row.name">
+                <button type="button" class="trax-set-icon is-danger"
+                        :aria-label="'Remove parameter ' + (fi + 1)"
+                        @click="removeInspectionField(row.rule, fi)">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="!inspectionRows.length" class="trax-row">
+          <span class="trax-set-label text-secondary">No categories in use yet.</span>
+        </div>
+      </div>
+      <p class="trax-set-foot">
+        Items in a ticked category get a Test tab. Overdue or failed items are flagged, never
+        blocked. Unticking keeps the records already filed.
+      </p>
+    </div>
+
+    <!-- Email ---------------------------------------------------------- -->
+    <div v-else-if="section === 'email'" class="row g-4">
+      <div class="col-12 col-xl-6">
+        <div class="trax-list-header">Addresses</div>
+        <div class="trax-list">
+          <div class="trax-row">
+            <label class="trax-set-label" for="set-owner">Owner</label>
+            <input id="set-owner" type="email" class="form-control form-control-sm trax-set-ctl is-wide"
+                   v-model="draft.email.ownerEmail">
+          </div>
+          <div class="trax-row">
+            <label class="trax-set-label" for="set-from">From</label>
+            <input id="set-from" type="email" class="form-control form-control-sm trax-set-ctl is-wide"
+                   v-model="draft.email.fromEmail">
+          </div>
+          <div class="trax-row">
+            <label class="trax-set-label" for="set-report-from">
+              Reports from <span class="trax-set-hint">Digest &amp; reminders</span>
+            </label>
+            <input id="set-report-from" type="email" class="form-control form-control-sm trax-set-ctl is-wide"
+                   v-model="draft.email.reportFromEmail">
+          </div>
+        </div>
+        <p class="trax-set-foot">An invalid address falls back to the server default.</p>
+      </div>
+
+      <div class="col-12 col-xl-6">
+        <div class="trax-list-header">To the customer</div>
+        <div class="trax-list">
+          <div v-for="row in CUSTOMER_MAIL" :key="row.key" class="trax-row">
+            <label class="trax-set-label" :for="'set-' + row.key">
+              {{ row.label }} <span class="trax-set-hint">{{ row.note }}</span>
+            </label>
+            <div class="form-check form-switch trax-set-switch">
               <input class="form-check-input" type="checkbox" role="switch"
                      :id="'set-' + row.key" v-model="draft.email[row.key]">
-              <label class="form-check-label small" :for="'set-' + row.key">
-                {{ row.label }}
-                <span class="d-block text-secondary" style="font-size:.72rem">{{ row.note }}</span>
-              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="trax-list-header">Scheduled (cron.php)</div>
+        <div class="trax-list">
+          <div v-for="row in CRON_MAIL" :key="row.key" class="trax-row">
+            <label class="trax-set-label" :for="'set-' + row.key">
+              {{ row.label }} <span class="trax-set-hint">{{ row.note }}</span>
+            </label>
+            <div class="form-check form-switch trax-set-switch">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     :id="'set-' + row.key" v-model="draft.email[row.key]">
             </div>
           </div>
         </div>
@@ -1714,976 +1605,937 @@ export default {
 
       <!-- Texts ------------------------------------------------------- -->
       <div class="col-12">
-        <div class="trax-card">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title"><i class="bi bi-body-text"></i> Texts</h2>
-            <p class="trax-page-sub">
-              Subject and body of every mail. A box left empty sends the built-in text,
-              so anything you have not touched goes out exactly as before.
-            </p>
+        <div class="trax-list-header">Mail texts</div>
+        <div class="row g-3">
+          <div class="col-12 col-xl-3">
+            <div class="trax-list">
+              <button v-for="key in templateKeys" :key="key" type="button"
+                      class="trax-row is-tappable trax-set-pick" :class="{ 'is-active': key === templateKey }"
+                      :aria-pressed="key === templateKey ? 'true' : 'false'"
+                      @click="templateKey = key">
+                <span class="trax-set-label text-truncate">{{ mailTemplates[key].label }}</span>
+                <i v-if="templateError(key, 'subject') || templateError(key, 'body')"
+                   class="bi bi-exclamation-triangle-fill text-danger"></i>
+                <span v-else-if="isCustomised(key)" class="trax-kind-chip">edited</span>
+              </button>
+              <div v-if="!templateKeys.length" class="trax-row">
+                <span class="trax-set-label text-secondary">Reload to load the templates.</span>
+              </div>
+            </div>
           </div>
 
-          <div class="row g-3 trax-card-pad pt-0">
-            <div class="col-12 col-xl-3">
-              <ul class="list-group list-group-flush">
-                <li v-for="key in templateKeys" :key="key" class="list-group-item bg-transparent py-1 px-0">
-                  <button type="button"
-                          class="btn btn-sm w-100 text-start d-flex align-items-center gap-2"
-                          :class="key === templateKey ? 'btn-primary' : 'btn-outline-secondary'"
-                          @click="templateKey = key">
-                    <span class="flex-grow-1 text-truncate">{{ mailTemplates[key].label }}</span>
-                    <i v-if="templateError(key, 'subject') || templateError(key, 'body')"
-                       class="bi bi-exclamation-triangle-fill text-danger"></i>
-                    <span v-else-if="isCustomised(key)" class="trax-kind-chip">edited</span>
-                  </button>
-                </li>
-                <li v-if="!templateKeys.length" class="list-group-item bg-transparent small text-secondary">
-                  The template list arrives with the next reload.
-                </li>
-              </ul>
-            </div>
-
-            <div v-if="templateSpec" class="col-12 col-xl-5">
-              <p class="trax-page-sub">{{ templateSpec.note }}</p>
-
-              <label class="form-label small" for="set-tpl-subject">Subject</label>
-              <input id="set-tpl-subject" class="form-control form-control-sm"
-                     :class="{ 'is-invalid': templateError(templateKey, 'subject') }"
-                     :maxlength="subjectMax" :placeholder="templateSpec.subject"
-                     v-model="draft.email.templates[templateKey].subject"
-                     @input="clearTemplateError(templateKey, 'subject')">
-              <div v-if="templateError(templateKey, 'subject')" class="invalid-feedback d-block">
-                {{ templateError(templateKey, 'subject') }}
-              </div>
-
-              <label class="form-label small mt-2" for="set-tpl-body">Body</label>
-              <textarea id="set-tpl-body" rows="12"
-                        class="form-control form-control-sm font-monospace"
-                        :class="{ 'is-invalid': templateError(templateKey, 'body') }"
-                        :maxlength="bodyMax" :placeholder="templateSpec.body"
-                        v-model="draft.email.templates[templateKey].body"
-                        @input="clearTemplateError(templateKey, 'body')"></textarea>
-              <div v-if="templateError(templateKey, 'body')" class="invalid-feedback d-block">
-                {{ templateError(templateKey, 'body') }}
-              </div>
-              <div class="form-text small d-flex gap-2">
-                <span class="flex-grow-1">
-                  Empty = the built-in text, shown greyed out above.
-                </span>
-                <span>{{ templateEntry(templateKey).body.length }} / {{ bodyMax }}</span>
-              </div>
-
-              <div class="d-flex gap-1 mt-2">
-                <button class="btn btn-sm btn-outline-secondary" :disabled="busy"
-                        @click="loadDefault(templateKey)">
-                  <i class="bi bi-clipboard-plus"></i> Start from the default
-                </button>
-                <button class="btn btn-sm btn-outline-danger" :disabled="busy || !isCustomised(templateKey)"
-                        @click="resetTemplate(templateKey)">
-                  <i class="bi bi-arrow-counterclockwise"></i> Reset to default
-                </button>
-              </div>
-
-              <h3 class="form-label small mt-3 mb-1">Tokens for this mail</h3>
-              <ul class="list-unstyled small mb-0">
-                <li v-for="token in templateTokens" :key="token.name" class="mb-1">
-                  <code>{{ token.token }}</code>
-                  <span v-if="token.required" class="trax-kind-chip">required</span>
-                  <span class="d-block text-secondary" style="font-size:.72rem">{{ token.note }}</span>
-                </li>
-              </ul>
-            </div>
-
-            <div v-if="templateSpec" class="col-12 col-xl-4">
-              <h3 class="form-label small">Preview</h3>
-              <div class="trax-card">
-                <div class="trax-card-pad">
-                  <div class="small text-secondary">Subject</div>
-                  <div class="mb-2"><strong>{{ previewSubject }}</strong></div>
-                  <div class="small text-secondary">Body</div>
-                  <pre class="small mb-0" style="white-space:pre-wrap; word-break:break-word">{{ previewBody }}</pre>
+          <div v-if="templateSpec" class="col-12 col-md-7 col-xl-5">
+            <div class="trax-list">
+              <div class="trax-row trax-set-stack">
+                <label class="trax-set-label" for="set-tpl-subject">Subject</label>
+                <input id="set-tpl-subject" class="form-control form-control-sm"
+                       :class="{ 'is-invalid': templateError(templateKey, 'subject') }"
+                       :maxlength="subjectMax" :placeholder="templateSpec.subject"
+                       v-model="draft.email.templates[templateKey].subject"
+                       @input="clearTemplateError(templateKey, 'subject')">
+                <div v-if="templateError(templateKey, 'subject')" class="invalid-feedback d-block mt-0">
+                  {{ templateError(templateKey, 'subject') }}
                 </div>
               </div>
-              <div class="form-text small">
-                Sample values, not a real booking — it shows what the tokens turn into.
-                A token this mail does not have is left standing here, and would be sent
-                that way, which is why saving one is refused.
+              <div class="trax-row trax-set-stack">
+                <label class="trax-set-label d-flex" for="set-tpl-body">
+                  <span class="flex-grow-1">Body</span>
+                  <span class="fw-normal">{{ templateEntry(templateKey).body.length }} / {{ bodyMax }}</span>
+                </label>
+                <textarea id="set-tpl-body" rows="12"
+                          class="form-control form-control-sm font-monospace"
+                          :class="{ 'is-invalid': templateError(templateKey, 'body') }"
+                          :maxlength="bodyMax" :placeholder="templateSpec.body"
+                          v-model="draft.email.templates[templateKey].body"
+                          @input="clearTemplateError(templateKey, 'body')"></textarea>
+                <div v-if="templateError(templateKey, 'body')" class="invalid-feedback d-block mt-0">
+                  {{ templateError(templateKey, 'body') }}
+                </div>
               </div>
             </div>
+            <p class="trax-set-foot">
+              {{ templateSpec.note }} Empty uses the built-in text.
+            </p>
+
+            <div class="d-flex flex-wrap gap-2 mt-2">
+              <button class="btn btn-sm btn-outline-secondary" :disabled="busy"
+                      @click="loadDefault(templateKey)">
+                <i class="bi bi-clipboard-plus"></i> Start from default
+              </button>
+              <button class="btn btn-sm btn-outline-danger" :disabled="busy || !isCustomised(templateKey)"
+                      @click="resetTemplate(templateKey)">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset
+              </button>
+            </div>
+
+            <div class="trax-list-header">Tokens</div>
+            <div class="trax-list">
+              <div v-for="token in templateTokens" :key="token.name" class="trax-kv">
+                <span>
+                  <code>{{ token.token }}</code>
+                  <span v-if="token.required" class="trax-kind-chip ms-1">required</span>
+                  <span class="trax-set-hint">{{ token.note }}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="templateSpec" class="col-12 col-md-5 col-xl-4">
+            <div class="trax-list">
+              <div class="trax-row trax-set-stack">
+                <span class="trax-set-label">Preview · subject</span>
+                <strong>{{ previewSubject }}</strong>
+              </div>
+              <div class="trax-row trax-set-stack">
+                <span class="trax-set-label">Body</span>
+                <pre class="small mb-0" style="white-space:pre-wrap; word-break:break-word">{{ previewBody }}</pre>
+              </div>
+            </div>
+            <p class="trax-set-foot">With sample values. Unknown tokens stay as typed, so saving them is refused.</p>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Branding ------------------------------------------------------- -->
-    <div v-else-if="section === 'branding'" class="row g-3">
-      <div class="col-12 col-xl-7">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad"><h2 class="trax-page-title">Branding</h2></div>
-          <div class="trax-card-pad pt-0">
-            <label class="form-label small" for="set-appname">App name</label>
-            <input id="set-appname" class="form-control form-control-sm mb-1"
-                   v-model="draft.branding.appName" maxlength="60">
-            <div class="form-text small">
-              What this install calls itself: the browser tab, the wordmark in the sidebar
-              and the name of every exported PDF. Cannot be empty — those all have to say
-              something.
-            </div>
+    <div v-else-if="section === 'branding'" class="trax-set-col">
+      <div class="trax-brand-preview" :style="{ background: draft.branding.brandColor }"
+           title="Brand colour on labels and customer pages">
+        {{ draft.branding.orgName || 'Your organisation' }}
+      </div>
 
-            <label class="form-label small mt-2" for="set-org">Organisation name</label>
-            <input id="set-org" class="form-control form-control-sm mb-1" v-model="draft.branding.orgName">
-            <div class="form-text small">
-              Who owns the equipment. Printed on every label under the heading below, and
-              shown to a finder on the public asset page. Leave it empty and the app name
-              is used instead.
-            </div>
-
-            <label class="form-label small mt-2" for="set-color">Brand colour</label>
-            <div class="d-flex gap-2 mb-2">
-              <input id="set-color" type="color" class="form-control form-control-color form-control-sm"
-                     v-model="draft.branding.brandColor">
-              <input class="form-control form-control-sm" v-model="draft.branding.brandColor"
-                     aria-label="Brand colour hex" placeholder="#1F2937" maxlength="7">
-            </div>
-
-            <label class="form-label small" for="set-whatsapp">WhatsApp number</label>
-            <input id="set-whatsapp" class="form-control form-control-sm mb-1" v-model="draft.branding.whatsapp"
-                   inputmode="tel" placeholder="+1 555 0100" maxlength="40">
-            <div class="form-text small">
-              The "Message on WhatsApp" button on the public asset page. Write it with the
-              country code, e.g. <code>+1 555 0100</code> — wa.me dials internationally,
-              so a national <code>0…</code> form is refused. Spaces, dashes and brackets are
-              fine; they are stripped from the link. <strong>Leave it empty</strong> and the
-              button is left out of the page entirely, so finders only get "Report it found".
-            </div>
-
-            <label class="form-label small mt-2" for="set-public">Public path</label>
-            <input id="set-public" class="form-control form-control-sm mb-1" v-model="draft.branding.publicPath">
-            <div class="form-text small">
-              Site-root-relative, e.g. <code>/assets/</code>. Customer links are built from it.
-            </div>
-
-            <label class="form-label small mt-2" for="set-logo">Logo file</label>
-            <input id="set-logo" class="form-control form-control-sm" v-model="draft.branding.logoFile">
-            <div class="form-text small">
-              A PNG or JPEG in the project root, e.g. <code>logo.png</code>, <strong>or an
-              absolute URL</strong> like <code>https://cdn.example.org/logo.png</code>.
-              A file name that points at nothing is dropped, and so is a URL that is not
-              plain <code>http(s)</code> — never one carrying a password.
-              <br>
-              The two are not interchangeable: <strong>labels</strong> are drawn on the server
-              and read the file off disk, so a URL prints the organisation name as text instead;
-              <strong>PDFs</strong> are built in the browser and load either, as long as the
-              host allows it (a CDN that sends no <code>Access-Control-Allow-Origin</code>
-              header leaves the header as text too). Leave it empty for no logo at all.
-            </div>
-
-            <label class="form-label small mt-2" for="set-favicon">Favicon file</label>
-            <input id="set-favicon" class="form-control form-control-sm" v-model="draft.branding.faviconFile">
-            <div class="form-text small">
-              A PNG in the project root, used as the browser icon and the iOS home-screen
-              icon. Same rule as the logo: unknown name, no icon.
-            </div>
-
-            <label class="form-label small mt-2" for="set-labelheading">Label heading</label>
-            <input id="set-labelheading" class="form-control form-control-sm"
-                   v-model="draft.branding.labelHeading" maxlength="40">
-            <div class="form-text small">
-              The line above the logo on every printed label — <code>PROPERTY OF</code> by
-              default. The only label text that is not taken from the asset.
-            </div>
+      <div class="trax-list-header">Identity</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-appname">
+            App name <span class="trax-set-hint">Tab, sidebar, PDFs · required</span>
+          </label>
+          <input id="set-appname" class="form-control form-control-sm trax-set-ctl is-wide"
+                 v-model="draft.branding.appName" maxlength="60">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-org">
+            Organisation <span class="trax-set-hint">On labels · app name if empty</span>
+          </label>
+          <input id="set-org" class="form-control form-control-sm trax-set-ctl is-wide"
+                 v-model="draft.branding.orgName">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-color">Brand colour</label>
+          <div class="d-flex gap-2 trax-set-ctl is-wide">
+            <input id="set-color" type="color" class="form-control form-control-color form-control-sm flex-shrink-0"
+                   v-model="draft.branding.brandColor">
+            <input class="form-control form-control-sm font-monospace" v-model="draft.branding.brandColor"
+                   aria-label="Brand colour hex" placeholder="#1F2937" maxlength="7">
           </div>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-labelheading">
+            Label heading <span class="trax-set-hint">Above the logo on labels</span>
+          </label>
+          <input id="set-labelheading" class="form-control form-control-sm trax-set-ctl is-wide"
+                 v-model="draft.branding.labelHeading" maxlength="40" placeholder="PROPERTY OF">
         </div>
       </div>
 
-      <div class="col-12 col-xl-5">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad"><h2 class="trax-page-title">Preview</h2></div>
-          <div class="trax-card-pad pt-0">
-            <div class="trax-brand-preview" :style="{ background: draft.branding.brandColor }">
-              {{ draft.branding.orgName || 'Your organisation' }}
-            </div>
-            <p class="small text-secondary mt-2 mb-0">
-              {{ draft.branding.brandColor }} — used on labels and customer-facing pages.
-            </p>
-          </div>
+      <div class="trax-list-header">Public page</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-whatsapp">
+            WhatsApp <span class="trax-set-hint">With country code · empty hides it</span>
+          </label>
+          <input id="set-whatsapp" class="form-control form-control-sm trax-set-ctl is-wide"
+                 v-model="draft.branding.whatsapp"
+                 inputmode="tel" placeholder="+1 555 0100" maxlength="40">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-public">
+            Public path <span class="trax-set-hint">Base of customer links</span>
+          </label>
+          <input id="set-public" class="form-control form-control-sm trax-set-ctl is-wide font-monospace"
+                 v-model="draft.branding.publicPath" placeholder="/assets/">
         </div>
       </div>
+
+      <div class="trax-list-header">Images</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-logo"
+                 title="Labels are drawn on the server and need a local file; a URL prints the organisation name instead. PDFs load either, if the host allows CORS.">
+            Logo <span class="trax-set-hint">PNG/JPEG file or https URL</span>
+          </label>
+          <input id="set-logo" class="form-control form-control-sm trax-set-ctl is-wide font-monospace"
+                 v-model="draft.branding.logoFile" placeholder="logo.png">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-favicon">
+            Favicon <span class="trax-set-hint">PNG in the project root</span>
+          </label>
+          <input id="set-favicon" class="form-control form-control-sm trax-set-ctl is-wide font-monospace"
+                 v-model="draft.branding.faviconFile" placeholder="favicon.png">
+        </div>
+      </div>
+      <p class="trax-set-foot">Labels need a logo file on the server; a URL prints the name as text.</p>
     </div>
 
     <!-- Labels ------------------------------------------------------------ -->
     <!-- Not part of the settings draft: nothing here is saved through the
          save bar. It shows what the label endpoints render now, ticks labels
          off as they go on the gear (label.mark), and packs a ZIP. -->
-    <div v-else-if="section === 'labels'" class="row g-3">
-      <div class="col-12">
-        <div class="trax-card">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title mb-3">Labels</h2>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <div class="btn-group btn-group-sm" role="group" aria-label="Label format">
-                <button v-for="option in LABEL_FORMATS" :key="option.id" type="button"
-                        class="btn btn-outline-secondary" :class="{ active: labelFormat === option.id }"
-                        :aria-pressed="labelFormat === option.id ? 'true' : 'false'"
-                        @click="labelFormat = option.id">
-                  {{ option.label }}
-                </button>
-              </div>
-              <div class="btn-group btn-group-sm" role="group" aria-label="Labeled or not">
-                <button v-for="option in LABEL_STATES" :key="option.id" type="button"
-                        class="btn btn-outline-secondary" :class="{ active: labelState === option.id }"
-                        :aria-pressed="labelState === option.id ? 'true' : 'false'"
-                        @click="labelState = option.id">
-                  {{ option.label }} <span class="text-secondary">{{ labelCounts[option.id] }}</span>
-                </button>
-              </div>
-              <!-- Saved on change: this tab has no save bar, and the
-                   preview below re-renders from the saved value. -->
-              <div class="input-group input-group-sm trax-cable-gap"
-                   title="The blank middle of the cable flag, the part that goes round the cable">
-                <label class="input-group-text" for="set-cable-gap">Cable gap</label>
-                <input id="set-cable-gap" type="number" class="form-control" inputmode="numeric"
-                       :min="CABLE_GAP.min" :max="CABLE_GAP.max" step="1"
-                       :value="cableGapMm" :disabled="cableGapBusy" @change="saveCableGap($event)">
-                <span class="input-group-text">mm</span>
-              </div>
-              <span class="flex-grow-1"></span>
-              <button class="btn btn-sm btn-outline-secondary"
-                      :disabled="!!labelZip || !labelFileCount" @click="downloadAllLabels()">
-                <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
-                <i v-else class="bi bi-file-earmark-zip"></i>
-                {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total
-                  : 'Download ZIP (' + labelFileCount + ')' }}
+    <div v-else-if="section === 'labels'">
+      <div class="trax-list">
+        <div class="trax-row flex-wrap">
+          <span class="trax-set-label">Format</span>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Label format">
+            <button v-for="option in LABEL_FORMATS" :key="option.id" type="button"
+                    class="btn btn-outline-secondary" :class="{ active: labelFormat === option.id }"
+                    :aria-pressed="labelFormat === option.id ? 'true' : 'false'"
+                    @click="labelFormat = option.id">
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+        <div class="trax-row flex-wrap">
+          <span class="trax-set-label">Show</span>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Labeled or not">
+            <button v-for="option in LABEL_STATES" :key="option.id" type="button"
+                    class="btn btn-outline-secondary" :class="{ active: labelState === option.id }"
+                    :aria-pressed="labelState === option.id ? 'true' : 'false'"
+                    @click="labelState = option.id">
+              {{ option.label }} <span class="text-secondary">{{ labelCounts[option.id] }}</span>
+            </button>
+          </div>
+        </div>
+        <!-- Saved on change: this tab has no save bar, and the preview
+             below re-renders from the saved value. -->
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-cable-gap"
+                 title="The blank middle of the cable flag, the part that goes round the cable">
+            Cable gap <span class="trax-set-hint">Blank middle of the cable flag</span>
+          </label>
+          <div class="input-group input-group-sm flex-nowrap trax-cable-gap">
+            <input id="set-cable-gap" type="number" class="form-control" inputmode="numeric"
+                   :min="CABLE_GAP.min" :max="CABLE_GAP.max" step="1"
+                   :value="cableGapMm" :disabled="cableGapBusy" @change="saveCableGap($event)">
+            <span class="input-group-text">mm</span>
+          </div>
+        </div>
+        <div class="trax-row">
+          <span class="trax-set-label">
+            Download <span class="trax-set-hint">{{ labelFileCount }} PNG file(s) as ZIP</span>
+          </span>
+          <button class="btn btn-sm btn-outline-secondary"
+                  :disabled="!!labelZip || !labelFileCount" @click="downloadAllLabels()">
+            <span v-if="labelZip" class="spinner-border spinner-border-sm me-1"></span>
+            <i v-else class="bi bi-file-earmark-zip"></i>
+            {{ labelZip ? 'Labels ' + labelZip.done + ' / ' + labelZip.total
+              : 'Download ZIP (' + labelFileCount + ')' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Batch printing: tick tiles below, print them as one half-cut strip. -->
+      <section v-if="printerEnabled" class="trax-batch mt-3">
+        <div class="trax-list-header">
+          <span><i class="bi bi-printer"></i> Batch print</span>
+          <span class="fw-normal">
+            {{ batchItems.length }} selected<span v-if="batchHidden"> · {{ batchHidden }} hidden</span>
+          </span>
+          <span class="flex-grow-1"></span>
+          <button type="button" class="btn btn-sm btn-link px-1 py-0"
+                  :disabled="!labelPreviews.length || !!batchBusy" @click="pickAllShown()">
+            Select all
+          </button>
+          <button type="button" class="btn btn-sm btn-link px-1 py-0"
+                  :disabled="!batchItems.length || !!batchBusy" @click="clearPicked()">
+            Clear
+          </button>
+        </div>
+        <div class="trax-list">
+          <div class="trax-row">
+            <label class="trax-set-label" for="batch-format">Format</label>
+            <select id="batch-format" class="form-select form-select-sm trax-set-ctl is-wide" v-model="batchFormat"
+                    :disabled="!!batchBusy">
+              <option v-for="option in PRINTER_FORMATS" :key="option.id" :value="option.id">{{ option.label }}</option>
+            </select>
+          </div>
+          <div class="trax-row flex-wrap">
+            <span class="trax-set-label">Orientation</span>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Orientation on the tape">
+              <button type="button" class="btn btn-outline-secondary text-nowrap" :disabled="!!batchBusy"
+                      :class="{ active: batchOrientation === 'along' }"
+                      :aria-pressed="batchOrientation === 'along' ? 'true' : 'false'"
+                      title="Long side along the tape: as large as the tape allows"
+                      @click="batchOrientation = 'along'">
+                <i class="bi bi-arrows"></i> Along tape
+              </button>
+              <button type="button" class="btn btn-outline-secondary text-nowrap" :disabled="!!batchBusy"
+                      :class="{ active: batchOrientation === 'across' }"
+                      :aria-pressed="batchOrientation === 'across' ? 'true' : 'false'"
+                      title="Turned 90°: long side across the tape – smaller label, shorter strip"
+                      @click="batchOrientation = 'across'">
+                <i class="bi bi-arrow-clockwise"></i> Rotated 90°
               </button>
             </div>
           </div>
-          <!-- Batch printing: tick tiles below, print them as one half-cut strip. -->
-          <div v-if="printerEnabled" class="trax-card-pad pt-0">
-            <div class="trax-batch">
-              <div class="d-flex align-items-center gap-2 flex-wrap">
-                <span class="small fw-semibold"><i class="bi bi-printer"></i> Batch print</span>
-                <span class="small text-secondary">
-                  {{ batchItems.length }} selected<span v-if="batchHidden"> · {{ batchHidden }} hidden by the filter</span>
-                </span>
-                <button type="button" class="btn btn-sm btn-link px-1 py-0"
-                        :disabled="!labelPreviews.length || !!batchBusy" @click="pickAllShown()">
-                  Select all shown
-                </button>
-                <button type="button" class="btn btn-sm btn-link px-1 py-0"
-                        :disabled="!batchItems.length || !!batchBusy" @click="clearPicked()">
-                  Clear
-                </button>
-              </div>
-
-              <div class="row g-2 align-items-end mt-1">
-                <div class="col-12 col-sm-6 col-xl-auto">
-                  <label class="form-label small text-secondary mb-1" for="batch-format">Format</label>
-                  <select id="batch-format" class="form-select form-select-sm" v-model="batchFormat"
-                          :disabled="!!batchBusy">
-                    <option v-for="option in PRINTER_FORMATS" :key="option.id" :value="option.id">{{ option.label }}</option>
-                  </select>
-                </div>
-                <div class="col-12 col-sm-6 col-xl-auto">
-                  <div class="form-label small text-secondary mb-1">Orientation</div>
-                  <div class="btn-group btn-group-sm w-100" role="group" aria-label="Orientation on the tape">
-                    <button type="button" class="btn btn-outline-secondary text-nowrap" :disabled="!!batchBusy"
-                            :class="{ active: batchOrientation === 'along' }"
-                            :aria-pressed="batchOrientation === 'along' ? 'true' : 'false'"
-                            title="Long side along the tape: as large as the tape allows"
-                            @click="batchOrientation = 'along'">
-                      <i class="bi bi-arrows"></i> Along tape
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary text-nowrap" :disabled="!!batchBusy"
-                            :class="{ active: batchOrientation === 'across' }"
-                            :aria-pressed="batchOrientation === 'across' ? 'true' : 'false'"
-                            title="Turned 90°: long side across the tape – smaller label, shorter strip"
-                            @click="batchOrientation = 'across'">
-                      <i class="bi bi-arrow-clockwise"></i> Rotated 90° (smaller)
-                    </button>
-                  </div>
-                </div>
-                <div class="col-8 col-sm-6 col-xl-auto">
-                  <label class="form-label small text-secondary mb-1" for="batch-cut">Cutting</label>
-                  <select id="batch-cut" class="form-select form-select-sm" v-model="batchCut" :disabled="!!batchBusy">
-                    <option value="half">Half cut – one continuous strip</option>
-                    <option value="each">Cut every label</option>
-                    <option value="none">No cut between labels</option>
-                  </select>
-                </div>
-                <div class="col-4 col-sm-2 col-xl-auto">
-                  <label class="form-label small text-secondary mb-1" for="batch-copies">Copies</label>
-                  <input id="batch-copies" type="number" min="1" max="20" class="form-control form-control-sm"
-                         style="min-width:4.5rem" v-model.number="batchCopies" :disabled="!!batchBusy">
-                </div>
-                <div class="col-12 col-sm col-xl d-flex gap-2 justify-content-end">
-                  <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
-                          :disabled="!batchItems.length || (batchBusy && batchBusy.phase !== 'upload')"
-                          @click="runBatch(true)">
-                    <i class="bi bi-eye"></i> Preview
-                  </button>
-                  <button type="button" class="btn btn-sm text-nowrap"
-                          :class="batchBusy?.phase === 'upload' ? 'btn-outline-danger' : 'btn-primary'"
-                          :disabled="!batchItems.length || (batchBusy && batchBusy.phase !== 'upload')"
-                          @click="runBatch(false)">
-                    <template v-if="batchBusy?.phase === 'upload'">
-                      <span class="spinner-border spinner-border-sm me-1"></span>
-                      {{ batchBusy.stop ? 'Stopping…' : 'Stop · ' + batchBusy.done + ' / ' + batchBusy.total }}
-                    </template>
-                    <template v-else-if="batchBusy">
-                      <span class="spinner-border spinner-border-sm me-1"></span>
-                      {{ batchBusy.phase === 'preview' ? 'Rendering…' : 'Printing…' }}
-                    </template>
-                    <template v-else>
-                      <i class="bi bi-printer"></i> Print {{ batchItems.length }} label{{ batchItems.length === 1 ? '' : 's' }}
-                    </template>
-                  </button>
-                </div>
-              </div>
-
-              <div class="small text-secondary mt-2">
-                <template v-if="batchEstimate">
-                  On {{ batchEstimate.tape === 4 ? '3.5' : batchEstimate.tape }} mm tape: each label
-                  ≈ {{ batchEstimate.length }} × {{ batchEstimate.height }} mm
-                  <span :class="{ 'text-warning-emphasis': batchEstimate.pct < 100 }">({{ batchEstimate.pct }} %)</span>
-                  <span v-if="batchItems.length"> · strip ≈ {{ batchEstimate.strip }} cm</span>
-                  · one job, {{ batchCut === 'half' ? 'half-cut between labels, cut once at the end'
-                    : batchCut === 'each' ? 'every label cut' : 'cut once at the end' }}.
+          <div class="trax-row">
+            <label class="trax-set-label" for="batch-cut">Cutting</label>
+            <select id="batch-cut" class="form-select form-select-sm trax-set-ctl is-wide" v-model="batchCut"
+                    :disabled="!!batchBusy">
+              <option value="half">Half cut · one strip</option>
+              <option value="each">Cut every label</option>
+              <option value="none">No cuts between</option>
+            </select>
+          </div>
+          <div class="trax-row">
+            <label class="trax-set-label" for="batch-copies">Copies</label>
+            <input id="batch-copies" type="number" min="1" max="20"
+                   class="form-control form-control-sm trax-set-ctl is-narrow"
+                   v-model.number="batchCopies" :disabled="!!batchBusy">
+          </div>
+          <div class="trax-row flex-wrap">
+            <span class="trax-set-label small text-secondary">
+              <template v-if="batchEstimate">
+                {{ batchEstimate.tape === 4 ? '3.5' : batchEstimate.tape }} mm tape · each
+                ≈ {{ batchEstimate.length }} × {{ batchEstimate.height }} mm
+                <span :class="{ 'text-warning-emphasis': batchEstimate.pct < 100 }">({{ batchEstimate.pct }} %)</span>
+                <span v-if="batchItems.length"> · strip ≈ {{ batchEstimate.strip }} cm</span>
+              </template>
+              <template v-else>
+                Tick labels below. Set the expected tape under Printer for a size estimate.
+              </template>
+            </span>
+            <div class="d-flex gap-2 ms-auto">
+              <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                      :disabled="!batchItems.length || (batchBusy && batchBusy.phase !== 'upload')"
+                      @click="runBatch(true)">
+                <i class="bi bi-eye"></i> Preview
+              </button>
+              <button type="button" class="btn btn-sm text-nowrap"
+                      :class="batchBusy?.phase === 'upload' ? 'btn-outline-danger' : 'btn-primary'"
+                      :disabled="!batchItems.length || (batchBusy && batchBusy.phase !== 'upload')"
+                      @click="runBatch(false)">
+                <template v-if="batchBusy?.phase === 'upload'">
+                  <span class="spinner-border spinner-border-sm me-1"></span>
+                  {{ batchBusy.stop ? 'Stopping…' : 'Stop · ' + batchBusy.done + ' / ' + batchBusy.total }}
+                </template>
+                <template v-else-if="batchBusy">
+                  <span class="spinner-border spinner-border-sm me-1"></span>
+                  {{ batchBusy.phase === 'preview' ? 'Rendering…' : 'Printing…' }}
                 </template>
                 <template v-else>
-                  Tick the labels below. Tape unknown – set <em>Expected tape</em> under Settings → Printer
-                  for a size estimate.
+                  <i class="bi bi-printer"></i> Print {{ batchItems.length }} label{{ batchItems.length === 1 ? '' : 's' }}
                 </template>
-              </div>
-
-              <div v-if="batchPreview" class="trax-batch-preview mt-2">
-                <img :src="batchPreview.src" alt="Preview of the printed strip">
-                <div class="small text-secondary mt-1">
-                  {{ batchPreview.job.labels }} labels on {{ batchPreview.job.tapeLabel }} tape ·
-                  strip {{ (batchPreview.job.stripMm / 10).toFixed(1) }} cm ·
-                  dashed red = cut<span v-if="batchPreview.job.warnings?.length"> ·
-                  <span class="text-warning-emphasis">{{ batchPreview.job.warnings[0] }}</span></span>
-                </div>
-              </div>
-
-              <div v-if="batchPrinted.length" class="d-flex align-items-center gap-2 mt-2 small">
-                <i class="bi bi-check-circle text-success"></i>
-                <span>{{ batchPrinted.length }} labels sent.</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="markPrintedLabeled()">
-                  Mark them as labeled
-                </button>
-                <button type="button" class="btn btn-sm btn-link py-0 px-1" @click="batchPrinted = []">Dismiss</button>
-              </div>
+              </button>
             </div>
-          </div>
-          <div v-if="labelPreviews.length" class="trax-card-pad pt-0">
-            <div class="trax-label-grid" :class="'trax-label-grid-' + labelFormat">
-              <figure v-for="label in labelPreviews" :key="label.key" class="trax-label-tile"
-                      :class="{ 'trax-label-done': label.labeled, 'trax-label-picked': printerEnabled && isPicked(label) }">
-                <div v-if="label.portrait || label.wide" class="trax-label-pair">
-                  <a v-if="label.portrait" :href="label.portrait" target="_blank" rel="noopener"
-                     :aria-label="'Portrait label ' + label.code">
-                    <img class="trax-label-portrait" :src="label.portrait" alt="" loading="lazy">
-                  </a>
-                  <a v-if="label.wide" :href="label.wide" target="_blank" rel="noopener"
-                     :aria-label="'Wide label ' + label.code">
-                    <img class="trax-label-wide" :src="label.wide" alt="" loading="lazy">
-                  </a>
-                </div>
-                <a v-if="label.cable" :href="label.cable" target="_blank" rel="noopener"
-                   :aria-label="'Cable flag ' + label.code">
-                  <img class="trax-label-cable" :src="label.cable" alt="" loading="lazy"
-                       :style="{ aspectRatio: (60 + cableGapMm) + ' / 14' }">
-                </a>
-                <figcaption class="d-flex align-items-center gap-2 small">
-                  <input v-if="printerEnabled" class="form-check-input mt-0 flex-shrink-0" type="checkbox"
-                         :checked="isPicked(label)" :disabled="!!batchBusy"
-                         :aria-label="'Select ' + label.code + ' for batch printing'" @change="togglePick(label)">
-                  <span class="text-truncate flex-grow-1" :title="label.title">
-                    <span class="font-monospace">{{ label.code }}</span>
-                    <span class="text-secondary"> · {{ label.title }}</span>
-                  </span>
-                  <span class="form-check form-switch mb-0" :title="'Label ' + label.code + ' is on the gear'">
-                    <input class="form-check-input" type="checkbox" role="switch"
-                           :id="'labeled-' + label.key" :checked="label.labeled"
-                           @change="toggleLabeled(label, $event)">
-                    <label class="form-check-label text-secondary" :for="'labeled-' + label.key">
-                      Labeled
-                    </label>
-                  </span>
-                </figcaption>
-              </figure>
-            </div>
-          </div>
-          <div v-else class="trax-card-pad pt-0 small text-secondary">
-            {{ state.assets.length ? 'No labels match this filter.' : 'No assets to label yet.' }}
           </div>
         </div>
+
+        <div v-if="batchPreview" class="trax-batch-preview mt-2">
+          <img :src="batchPreview.src" alt="Preview of the printed strip">
+          <div class="small text-secondary mt-1">
+            {{ batchPreview.job.labels }} labels on {{ batchPreview.job.tapeLabel }} tape ·
+            strip {{ (batchPreview.job.stripMm / 10).toFixed(1) }} cm ·
+            dashed red = cut<span v-if="batchPreview.job.warnings?.length"> ·
+            <span class="text-warning-emphasis">{{ batchPreview.job.warnings[0] }}</span></span>
+          </div>
+        </div>
+
+        <div v-if="batchPrinted.length" class="alert alert-success d-flex align-items-center flex-wrap gap-2 py-2 px-3 small mt-2 mb-0">
+          <i class="bi bi-check-circle"></i>
+          <span class="flex-grow-1">{{ batchPrinted.length }} labels sent.</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" @click="markPrintedLabeled()">
+            Mark as labeled
+          </button>
+          <button type="button" class="btn btn-sm btn-link px-1" @click="batchPrinted = []">Dismiss</button>
+        </div>
+      </section>
+
+      <div class="trax-list-header">
+        Labels <span class="fw-normal">{{ labelPreviews.length }}</span>
+      </div>
+      <div v-if="labelPreviews.length" class="trax-card trax-card-pad">
+        <div class="trax-label-grid" :class="'trax-label-grid-' + labelFormat">
+          <figure v-for="label in labelPreviews" :key="label.key" class="trax-label-tile"
+                  :class="{ 'trax-label-done': label.labeled, 'trax-label-picked': printerEnabled && isPicked(label) }">
+            <div v-if="label.portrait || label.wide" class="trax-label-pair">
+              <a v-if="label.portrait" :href="label.portrait" target="_blank" rel="noopener"
+                 :aria-label="'Portrait label ' + label.code">
+                <img class="trax-label-portrait" :src="label.portrait" alt="" loading="lazy">
+              </a>
+              <a v-if="label.wide" :href="label.wide" target="_blank" rel="noopener"
+                 :aria-label="'Wide label ' + label.code">
+                <img class="trax-label-wide" :src="label.wide" alt="" loading="lazy">
+              </a>
+            </div>
+            <a v-if="label.cable" :href="label.cable" target="_blank" rel="noopener"
+               :aria-label="'Cable flag ' + label.code">
+              <img class="trax-label-cable" :src="label.cable" alt="" loading="lazy"
+                   :style="{ aspectRatio: (60 + cableGapMm) + ' / 14' }">
+            </a>
+            <figcaption class="d-flex align-items-center gap-2 small">
+              <input v-if="printerEnabled" class="form-check-input mt-0 flex-shrink-0" type="checkbox"
+                     :checked="isPicked(label)" :disabled="!!batchBusy"
+                     :aria-label="'Select ' + label.code + ' for batch printing'" @change="togglePick(label)">
+              <span class="text-truncate flex-grow-1" :title="label.title">
+                <span class="font-monospace">{{ label.code }}</span>
+                <span class="text-secondary"> · {{ label.title }}</span>
+              </span>
+              <span class="form-check form-switch mb-0" :title="'Label ' + label.code + ' is on the gear'">
+                <input class="form-check-input" type="checkbox" role="switch"
+                       :id="'labeled-' + label.key" :checked="label.labeled"
+                       @change="toggleLabeled(label, $event)">
+                <label class="form-check-label text-secondary" :for="'labeled-' + label.key">
+                  Labeled
+                </label>
+              </span>
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+      <div v-else class="trax-empty">
+        <i class="bi bi-qr-code"></i>
+        {{ state.assets.length ? 'No labels match this filter.' : 'No assets to label yet.' }}
       </div>
     </div>
 
     <!-- Label printer ------------------------------------------------------ -->
     <!-- Part of the settings draft: saved through the save bar like Branding.
          "Test connection" asks the bridge with the SAVED values. -->
-    <div v-else-if="section === 'printer'" class="row g-3">
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Label printer</h2>
-            <p class="trax-page-sub">
-              Sends labels straight to a Brother PT-P750W. The printer sits in a local network
-              with a small bridge next to it (<code>pt750w-print-trax</code> on a Raspberry Pi), which
-              this server reaches over HTTPS — typically through a Cloudflare Tunnel. Labels go out
-              exactly as the previews show them.
-            </p>
-            <div class="form-check form-switch mt-3">
-              <input class="form-check-input" type="checkbox" role="switch" id="set-printer-enabled"
-                     v-model="draft.printer.enabled">
-              <label class="form-check-label small" for="set-printer-enabled">
-                Enable the label printer
-                <span class="d-block text-secondary" style="font-size:.72rem">
-                  Adds “Send to printer” to the label drawer and to Settings → Labels.
-                </span>
-              </label>
-            </div>
-          </div>
-          <div class="trax-card-pad pt-0">
-            <div class="row g-2">
-              <div class="col-12">
-                <label class="form-label small" for="set-printer-url">Bridge URL</label>
-                <input id="set-printer-url" class="form-control form-control-sm font-monospace"
-                       type="url" maxlength="300" placeholder="https://print.example.com"
-                       autocomplete="off" v-model.trim="draft.printer.bridgeUrl">
-              </div>
-              <div class="col-12">
-                <label class="form-label small" for="set-printer-token">Bridge token</label>
-                <div class="input-group input-group-sm">
-                  <input id="set-printer-token" class="form-control font-monospace"
-                         :type="showPrinterSecrets ? 'text' : 'password'" maxlength="300"
-                         autocomplete="new-password" spellcheck="false"
-                         placeholder="PTB_TOKEN from the bridge's .env"
-                         v-model.trim="draft.printer.token">
-                  <button class="btn btn-outline-secondary" type="button"
-                          :title="showPrinterSecrets ? 'Hide' : 'Show'"
-                          @click="showPrinterSecrets = !showPrinterSecrets">
-                    <i class="bi" :class="showPrinterSecrets ? 'bi-eye-slash' : 'bi-eye'"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="col-12 mt-3">
-                <div class="small fw-semibold">Cloudflare Access <span class="text-secondary fw-normal">(optional)</span></div>
-                <div class="form-text small mt-0 mb-1">
-                  When the bridge's hostname is behind Cloudflare Access, a service token lets this
-                  server through: an Access policy with the action <em>Service Auth</em>.
-                </div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label small" for="set-printer-cfid">Client ID</label>
-                <input id="set-printer-cfid" class="form-control form-control-sm font-monospace"
-                       maxlength="300" autocomplete="off" spellcheck="false" placeholder="….access"
-                       v-model.trim="draft.printer.accessClientId">
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label small" for="set-printer-cfsecret">Client secret</label>
-                <input id="set-printer-cfsecret" class="form-control form-control-sm font-monospace"
-                       :type="showPrinterSecrets ? 'text' : 'password'" maxlength="300"
-                       autocomplete="new-password" spellcheck="false"
-                       v-model.trim="draft.printer.accessClientSecret">
-              </div>
-            </div>
-          </div>
-          <div class="trax-card-pad pt-0">
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <button class="btn btn-sm btn-outline-secondary"
-                      :disabled="printerDirty || !state.settings.printer.bridgeUrl || printerTest?.busy"
-                      @click="testPrinter()">
-                <span v-if="printerTest?.busy" class="spinner-border spinner-border-sm me-1"></span>
-                <i v-else class="bi bi-plug"></i> Test connection
-              </button>
-              <span v-if="printerDirty" class="small text-secondary">Save first — the test uses the saved settings.</span>
-              <span v-else-if="!state.settings.printer.bridgeUrl" class="small text-secondary">No bridge URL saved yet.</span>
-            </div>
-
-            <div v-if="printerTest?.error" class="alert alert-danger py-2 px-3 small mt-2 mb-0">
-              <i class="bi bi-x-circle"></i> {{ printerTest.error }}
-            </div>
-            <div v-else-if="printerTest?.data" class="mt-2">
-              <div v-if="printerTestStatus?.errors?.length" class="alert alert-warning py-2 px-3 small mb-2">
-                <i class="bi bi-exclamation-triangle"></i>
-                Printer reports: {{ printerTestStatus.errors.join(', ') }}
-              </div>
-              <div v-else class="alert alert-success py-2 px-3 small mb-2">
-                <i class="bi bi-check-circle"></i>
-                Bridge {{ printerTest.data.bridge?.version }} answers<span v-if="printerTestStatus">,
-                {{ printerTestStatus.model }} is ready</span><span v-else>, printer is reachable</span>.
-              </div>
-              <dl v-if="printerTestStatus" class="row small mb-0">
-                <dt class="col-4 text-secondary fw-normal">Tape</dt>
-                <dd class="col-8 mb-1">
-                  <strong>{{ printerTestStatus.tapeLabel }}</strong> · {{ printerTestStatus.mediaLabel }}
-                  <span v-if="draft.printer.tapeMm && printerTestStatus.tapeMm !== draft.printer.tapeMm"
-                        class="text-warning-emphasis d-block">
-                    <i class="bi bi-exclamation-triangle"></i> Not the expected tape — jobs will be refused.
-                  </span>
-                </dd>
-                <dt class="col-4 text-secondary fw-normal">Colours</dt>
-                <dd class="col-8 mb-1">{{ printerTestStatus.textColor }} on {{ printerTestStatus.tapeColor }}</dd>
-                <dt class="col-4 text-secondary fw-normal">Print height</dt>
-                <dd class="col-8 mb-0">
-                  {{ printerTestStatus.printablePins ? (printerTestStatus.printablePins * 25.4 / 180).toFixed(1) + ' mm' : '—' }}
-                  <span v-if="printerTestStatus.printablePins && printerTestStatus.printablePins < 99"
-                        class="text-secondary"> — 14 mm labels print scaled down</span>
-                </dd>
-              </dl>
-              <p v-else class="small text-secondary mb-0">
-                The printer does not report its status over the network, so the bridge prints for
-                its default tape (<code>PTB_DEFAULT_TAPE_MM</code>,
-                {{ printerTest.data.bridge?.defaults?.tapeMm }} mm).
-              </p>
-            </div>
+    <div v-else-if="section === 'printer'" class="trax-set-col">
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-enabled">
+            Label printer
+            <span class="trax-set-hint">Brother PT-P750W via the print bridge</span>
+          </label>
+          <div class="form-check form-switch trax-set-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="set-printer-enabled"
+                   v-model="draft.printer.enabled">
           </div>
         </div>
       </div>
+      <p class="trax-set-foot">Adds “Send to printer” to the label sheet and batch printing to Labels.</p>
 
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Print defaults</h2>
-            <p class="trax-page-sub">
-              The labels are 14 mm high: on 18 or 24 mm tape they print at their true size, on
-              12 mm tape at about 70 %.
-            </p>
+      <div class="trax-list-header">Bridge</div>
+      <div class="trax-list">
+        <div class="trax-row trax-set-stack">
+          <label class="trax-set-label" for="set-printer-url">URL</label>
+          <input id="set-printer-url" class="form-control form-control-sm font-monospace"
+                 type="url" maxlength="300" placeholder="https://print.example.com"
+                 autocomplete="off" v-model.trim="draft.printer.bridgeUrl">
+        </div>
+        <div class="trax-row trax-set-stack">
+          <label class="trax-set-label" for="set-printer-token">Token</label>
+          <div class="input-group input-group-sm">
+            <input id="set-printer-token" class="form-control font-monospace"
+                   :type="showPrinterSecrets ? 'text' : 'password'" maxlength="300"
+                   autocomplete="new-password" spellcheck="false"
+                   placeholder="PTB_TOKEN from the bridge's .env"
+                   v-model.trim="draft.printer.token">
+            <button class="btn btn-outline-secondary" type="button"
+                    :title="showPrinterSecrets ? 'Hide' : 'Show'"
+                    :aria-label="showPrinterSecrets ? 'Hide secrets' : 'Show secrets'"
+                    @click="showPrinterSecrets = !showPrinterSecrets">
+              <i class="bi" :class="showPrinterSecrets ? 'bi-eye-slash' : 'bi-eye'"></i>
+            </button>
           </div>
-          <div class="trax-card-pad pt-0">
-            <div class="row g-2">
-              <div class="col-12 col-md-6">
-                <label class="form-label small" for="set-printer-format">Format for batch printing</label>
-                <select id="set-printer-format" class="form-select form-select-sm" v-model="draft.printer.format">
-                  <option v-for="option in PRINTER_FORMATS" :key="option.id" :value="option.id">{{ option.label }}</option>
-                </select>
-              </div>
-              <div class="col-6 col-md-3">
-                <label class="form-label small" for="set-printer-copies">Copies</label>
-                <input id="set-printer-copies" type="number" min="1" max="20"
-                       class="form-control form-control-sm" v-model.number="draft.printer.copies">
-              </div>
-              <div class="col-6 col-md-3">
-                <label class="form-label small" for="set-printer-margin">Margin (mm)</label>
-                <input id="set-printer-margin" type="number" min="0" max="30" step="0.5"
-                       class="form-control form-control-sm" v-model.number="draft.printer.marginMm">
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label small" for="set-printer-batchmode">Strip mode</label>
-                <select id="set-printer-batchmode" class="form-select form-select-sm" v-model="draft.printer.batchMode">
-                  <option value="">Bridge default (PTB_BATCH_MODE)</option>
-                  <option value="perpage">Chain until the last label (recommended)</option>
-                  <option value="chain">Chain all, cut by the job end</option>
-                  <option value="once">Settings once at the start</option>
-                  <option value="noautocut">Half cuts only, no auto cut</option>
-                  <option value="legacy">Every label on its own (old)</option>
-                </select>
-                <div class="form-text small">
-                  How several labels or copies become one strip. If they come out one by one, try
-                  the next mode. Cutting and orientation: Settings → Labels → Batch print.
-                </div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label small" for="set-printer-shift">Strip offset (mm)</label>
-                <input id="set-printer-shift" type="number" min="-5" max="5" step="0.1"
-                       class="form-control form-control-sm" v-model.number="draft.printer.shiftMm">
-                <div class="form-text small">
-                  Centres the print between the cuts. Negative moves it towards the end of the strip
-                  that comes out first, positive towards the end that comes out last — e.g. −0.5 when
-                  every label sits a little towards the later cut.
-                </div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label small" for="set-printer-tape">Expected tape</label>
-                <select id="set-printer-tape" class="form-select form-select-sm" v-model.number="draft.printer.tapeMm">
-                  <option v-for="option in PRINTER_TAPES" :key="option.mm" :value="option.mm">{{ option.label }}</option>
-                </select>
-                <div class="form-text small">A different tape in the printer makes it refuse the job.</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label small" for="set-printer-fit">Size</label>
-                <select id="set-printer-fit" class="form-select form-select-sm" v-model="draft.printer.fit">
-                  <option value="exact">True size</option>
-                  <option value="fill">Fill the tape's height</option>
-                </select>
-                <div class="form-text small">True size is scaled down only when the tape is too narrow.</div>
-              </div>
-              <div class="col-12 col-md-6 d-flex align-items-end">
-                <div class="form-check form-switch mb-1">
-                  <input class="form-check-input" type="checkbox" role="switch" id="set-printer-chain"
-                         v-model="draft.printer.chain">
-                  <label class="form-check-label small" for="set-printer-chain">
-                    Chain printing
-                    <span class="d-block text-secondary" style="font-size:.72rem">
-                      No feed and cut after the last label — saves tape, the next job pushes it out.
-                    </span>
-                  </label>
-                </div>
-              </div>
-              <div class="col-12 col-md-6">
-                <div class="form-check form-switch mb-1">
-                  <input class="form-check-input" type="checkbox" role="switch" id="set-printer-highres"
-                         v-model="draft.printer.highRes">
-                  <label class="form-check-label small" for="set-printer-highres">
-                    High resolution (180 × 360 dpi)
-                    <span class="d-block text-secondary" style="font-size:.72rem">
-                      Twice the dots along the tape: crisper text and QR codes, slightly slower.
-                    </span>
-                  </label>
-                </div>
-              </div>
-            </div>
+        </div>
+        <div class="trax-row">
+          <span class="trax-set-label">
+            Connection
+            <span v-if="printerDirty" class="trax-set-hint">Save first — the test uses saved values.</span>
+            <span v-else-if="!state.settings.printer.bridgeUrl" class="trax-set-hint">No bridge URL saved yet.</span>
+          </span>
+          <button class="btn btn-sm btn-outline-secondary"
+                  :disabled="printerDirty || !state.settings.printer.bridgeUrl || printerTest?.busy"
+                  @click="testPrinter()">
+            <span v-if="printerTest?.busy" class="spinner-border spinner-border-sm me-1"></span>
+            <i v-else class="bi bi-plug"></i> Test
+          </button>
+        </div>
+      </div>
+      <p class="trax-set-foot">The bridge (pt750w-print-trax) runs next to the printer, e.g. behind a Cloudflare Tunnel.</p>
+
+      <div v-if="printerTest?.error" class="alert alert-danger py-2 px-3 small mt-2 mb-0">
+        <i class="bi bi-x-circle"></i> {{ printerTest.error }}
+      </div>
+      <div v-else-if="printerTest?.data" class="mt-2">
+        <div v-if="printerTestStatus?.errors?.length" class="alert alert-warning py-2 px-3 small mb-2">
+          <i class="bi bi-exclamation-triangle"></i>
+          Printer reports: {{ printerTestStatus.errors.join(', ') }}
+        </div>
+        <div v-else class="alert alert-success py-2 px-3 small mb-2">
+          <i class="bi bi-check-circle"></i>
+          Bridge {{ printerTest.data.bridge?.version }} answers<span v-if="printerTestStatus">,
+          {{ printerTestStatus.model }} is ready</span><span v-else>, printer is reachable</span>.
+        </div>
+        <div v-if="printerTestStatus" class="trax-list">
+          <div class="trax-kv">
+            <span>Tape</span>
+            <span class="text-end">
+              <strong>{{ printerTestStatus.tapeLabel }}</strong> · {{ printerTestStatus.mediaLabel }}
+              <span v-if="draft.printer.tapeMm && printerTestStatus.tapeMm !== draft.printer.tapeMm"
+                    class="text-warning-emphasis d-block">
+                <i class="bi bi-exclamation-triangle"></i> Not the expected tape — jobs will be refused.
+              </span>
+            </span>
+          </div>
+          <div class="trax-kv">
+            <span>Colours</span>
+            <span>{{ printerTestStatus.textColor }} on {{ printerTestStatus.tapeColor }}</span>
+          </div>
+          <div class="trax-kv">
+            <span>Print height</span>
+            <span class="text-end">
+              {{ printerTestStatus.printablePins ? (printerTestStatus.printablePins * 25.4 / 180).toFixed(1) + ' mm' : '—' }}
+              <span v-if="printerTestStatus.printablePins && printerTestStatus.printablePins < 99"
+                    class="text-secondary d-block small">14 mm labels print scaled down</span>
+            </span>
+          </div>
+        </div>
+        <p v-else class="trax-set-foot">
+          No status over the network: the bridge prints for its default tape
+          (<code>PTB_DEFAULT_TAPE_MM</code>, {{ printerTest.data.bridge?.defaults?.tapeMm }} mm).
+        </p>
+      </div>
+
+      <div class="trax-list-header">Cloudflare Access <span class="fw-normal">optional</span></div>
+      <div class="trax-list">
+        <div class="trax-row trax-set-stack">
+          <label class="trax-set-label" for="set-printer-cfid">Client ID</label>
+          <input id="set-printer-cfid" class="form-control form-control-sm font-monospace"
+                 maxlength="300" autocomplete="off" spellcheck="false" placeholder="….access"
+                 v-model.trim="draft.printer.accessClientId">
+        </div>
+        <div class="trax-row trax-set-stack">
+          <label class="trax-set-label" for="set-printer-cfsecret">Client secret</label>
+          <input id="set-printer-cfsecret" class="form-control form-control-sm font-monospace"
+                 :type="showPrinterSecrets ? 'text' : 'password'" maxlength="300"
+                 autocomplete="new-password" spellcheck="false"
+                 v-model.trim="draft.printer.accessClientSecret">
+        </div>
+      </div>
+      <p class="trax-set-foot">A service token, for an Access policy with the action <em>Service Auth</em>.</p>
+
+      <div class="trax-list-header">Print defaults</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-format">Batch format</label>
+          <select id="set-printer-format" class="form-select form-select-sm trax-set-ctl is-wide"
+                  v-model="draft.printer.format">
+            <option v-for="option in PRINTER_FORMATS" :key="option.id" :value="option.id">{{ option.label }}</option>
+          </select>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-copies">Copies</label>
+          <input id="set-printer-copies" type="number" min="1" max="20"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.printer.copies">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-margin">Margin (mm)</label>
+          <input id="set-printer-margin" type="number" min="0" max="30" step="0.5"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.printer.marginMm">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-tape">
+            Expected tape <span class="trax-set-hint">Other tape → job refused</span>
+          </label>
+          <select id="set-printer-tape" class="form-select form-select-sm trax-set-ctl"
+                  v-model.number="draft.printer.tapeMm">
+            <option v-for="option in PRINTER_TAPES" :key="option.mm" :value="option.mm">{{ option.label }}</option>
+          </select>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-fit">
+            Size <span class="trax-set-hint">True size shrinks only on narrow tape</span>
+          </label>
+          <select id="set-printer-fit" class="form-select form-select-sm trax-set-ctl" v-model="draft.printer.fit">
+            <option value="exact">True size</option>
+            <option value="fill">Fill tape height</option>
+          </select>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-highres">
+            High resolution <span class="trax-set-hint">180 × 360 dpi · crisper, a bit slower</span>
+          </label>
+          <div class="form-check form-switch trax-set-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="set-printer-highres"
+                   v-model="draft.printer.highRes">
+          </div>
+        </div>
+      </div>
+      <p class="trax-set-foot">14 mm labels print true size on 18/24 mm tape, about 70 % on 12 mm.</p>
+
+      <div class="trax-list-header">Strips</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-batchmode"
+                 title="How several labels or copies become one strip. Cutting and orientation are set under Labels → Batch print.">
+            Strip mode <span class="trax-set-hint">Labels come out one by one? Try the next.</span>
+          </label>
+          <select id="set-printer-batchmode" class="form-select form-select-sm trax-set-ctl is-wide"
+                  v-model="draft.printer.batchMode">
+            <option value="">Bridge default</option>
+            <option value="perpage">Chain until last (recommended)</option>
+            <option value="chain">Chain all, cut at job end</option>
+            <option value="once">Settings once at start</option>
+            <option value="noautocut">Half cuts only</option>
+            <option value="legacy">Each label alone (old)</option>
+          </select>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-shift"
+                 title="Negative moves the print towards the end that comes out first, positive towards the later cut.">
+            Strip offset (mm) <span class="trax-set-hint">Centres the print between cuts</span>
+          </label>
+          <input id="set-printer-shift" type="number" min="-5" max="5" step="0.1"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.printer.shiftMm">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-printer-chain">
+            Chain printing <span class="trax-set-hint">No final feed and cut · saves tape</span>
+          </label>
+          <div class="form-check form-switch trax-set-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="set-printer-chain"
+                   v-model="draft.printer.chain">
           </div>
         </div>
       </div>
     </div>
 
     <!-- Terms & conditions ---------------------------------------------- -->
-    <div v-else-if="section === 'terms'" class="row g-3">
+    <div v-else-if="section === 'terms'" class="row g-4">
       <div class="col-12 col-xl-6">
-        <div class="trax-card">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Terms &amp; conditions</h2>
-            <p class="trax-page-sub">
-              What a customer accepts when they sign for a hand-over. Once published, the terms are
-              linked in the footer of every public page, have to be ticked next to the signature
-              pad (at the counter and on the customer's booking link), and are named on the
-              hand-over sheet.
-            </p>
-            <p v-if="state.terms.active" class="small mb-0">
-              <i class="bi bi-check-circle text-success"></i>
-              In force: <strong>version {{ state.terms.version }}</strong>,
-              published {{ formatDateTime(state.terms.at) }}<span v-if="state.terms.actor">
-              by {{ state.terms.actor }}</span> ·
-              <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">open public page</a>
-            </p>
-            <p v-else class="small text-secondary mb-0">
-              <i class="bi bi-dash-circle"></i>
-              Nothing is published: no footer link, no tick box, no line on the sheet.
-            </p>
+        <div class="trax-list">
+          <div class="trax-row">
+            <template v-if="state.terms.active">
+              <i class="bi bi-check-circle-fill text-success"></i>
+              <span class="trax-set-label">
+                Version {{ state.terms.version }} in force
+                <span class="trax-set-hint">
+                  {{ formatDateTime(state.terms.at) }}<span v-if="state.terms.actor"> · {{ state.terms.actor }}</span>
+                </span>
+              </span>
+              <a class="btn btn-sm btn-outline-secondary" :href="termsUrl()" target="_blank"
+                 rel="noopener noreferrer">
+                <i class="bi bi-box-arrow-up-right"></i> Open
+              </a>
+            </template>
+            <template v-else>
+              <i class="bi bi-dash-circle text-secondary"></i>
+              <span class="trax-set-label">
+                Not published
+                <span class="trax-set-hint">No footer link, tick box or line on the sheet.</span>
+              </span>
+            </template>
           </div>
-          <div class="trax-card-pad pt-0">
-            <label class="form-label small" for="set-terms">Text (Markdown)</label>
+        </div>
+        <p class="trax-set-foot">Customers accept them when signing for a hand-over.</p>
+
+        <div class="trax-list-header">
+          <label for="set-terms" class="mb-0">Text (Markdown)</label>
+          <span class="flex-grow-1"></span>
+          <span class="fw-normal">{{ termsDraft.length }} / {{ termsMax }}</span>
+        </div>
+        <div class="trax-list">
+          <div class="trax-row trax-set-stack">
             <textarea id="set-terms" class="form-control form-control-sm font-monospace" rows="18"
                       spellcheck="true" :maxlength="termsMax" v-model="termsDraft"
                       placeholder="# Terms &amp; conditions&#10;&#10;## 1. Scope&#10;These terms apply to every hire …"></textarea>
-            <div class="form-text small d-flex gap-2">
-              <span class="flex-grow-1">
-                <code># Heading</code>, <code>**bold**</code>, <code>*italic*</code>,
-                <code>- list</code>, <code>1. list</code>, <code>[label](https://…)</code>.
-                A line break stays a line break.
-              </span>
-              <span class="text-nowrap">{{ termsDraft.length }} / {{ termsMax }}</span>
-            </div>
-            <div class="form-text small">
-              Every save publishes a new version. Signatures already taken keep pointing at the
-              version they accepted, which stays readable at its own link below.
-            </div>
           </div>
         </div>
+        <p class="trax-set-foot">
+          <code># Heading</code> · <code>**bold**</code> · <code>*italic*</code> · <code>- list</code> · <code>[label](https://…)</code>
+          <br>Each save publishes a new version; signed versions stay readable.
+        </p>
 
-        <div v-if="termsVersions.length" class="trax-card mt-3">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Versions</h2>
-            <ul class="list-unstyled small mb-0">
-              <li v-for="entry in termsVersions" :key="entry.version" class="py-1">
+        <template v-if="termsVersions.length">
+          <div class="trax-list-header">Versions</div>
+          <div class="trax-list">
+            <div v-for="entry in termsVersions" :key="entry.version" class="trax-row">
+              <span class="trax-set-label">
                 <a v-if="!entry.empty" :href="termsUrl(entry.version)" target="_blank"
                    rel="noopener noreferrer">Version {{ entry.version }}</a>
                 <span v-else class="text-secondary">Version {{ entry.version }} (withdrawn)</span>
-                <span class="text-secondary">
-                  · {{ formatDateTime(entry.at) }}<span v-if="entry.actor"> · {{ entry.actor }}</span>
+                <span class="trax-set-hint">
+                  {{ formatDateTime(entry.at) }}<span v-if="entry.actor"> · {{ entry.actor }}</span>
                 </span>
-                <span v-if="entry.version === state.terms.version && state.terms.active"
-                      class="trax-kind-chip ms-1">in force</span>
-              </li>
-            </ul>
+              </span>
+              <span v-if="entry.version === state.terms.version && state.terms.active"
+                    class="trax-kind-chip">in force</span>
+            </div>
           </div>
-        </div>
+        </template>
       </div>
 
       <div class="col-12 col-xl-6">
-        <div class="trax-card">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Preview</h2>
-            <p class="trax-page-sub">As customers see it, rendered by the server.</p>
+        <div class="trax-list-header">Preview</div>
+        <div class="trax-card trax-card-pad">
+          <div v-if="termsPreviewError" class="alert alert-danger py-2 px-3 small" role="alert">
+            <i class="bi bi-x-circle"></i> {{ termsPreviewError }}
           </div>
-          <div class="trax-card-pad pt-0">
-            <div v-if="termsPreviewError" class="alert alert-danger py-2 px-3 small" role="alert">
-              {{ termsPreviewError }}
-            </div>
-            <div v-if="termsHtml" class="trax-terms-preview" v-html="termsHtml"></div>
-            <p v-else class="small text-secondary mb-0">Nothing to preview.</p>
-          </div>
+          <div v-if="termsHtml" class="trax-terms-preview" v-html="termsHtml"></div>
+          <p v-else class="small text-secondary mb-0">Nothing to preview.</p>
         </div>
       </div>
     </div>
 
     <!-- Account --------------------------------------------------------- -->
-    <div v-else-if="section === 'account'" class="row g-3">
-      <div class="col-12 col-xl-6">
-        <div class="trax-card">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Account</h2>
-            <p class="trax-page-sub">The password this operator signs in with.</p>
-            <p v-if="authInfo && authInfo.effectiveMode === 'external'"
-               class="trax-page-sub text-warning-emphasis">
-              Sign-in currently goes through the external include, so this password is only
-              used as a fallback — if that include disappears, login.php comes back.
-            </p>
-          </div>
-          <div class="trax-card-pad pt-0">
-            <template v-if="authInfo && authInfo.effectiveMode === 'external'">
-              <label class="form-label small" for="set-pw-user">Fallback account username</label>
-              <input id="set-pw-user" type="text" autocomplete="username"
-                     class="form-control form-control-sm mb-1" v-model="account.username">
-              <div class="form-text small mb-2">
-                Which built-in account to change. The external include does not sign you in
-                as one of these, so it has to be named.
-              </div>
-            </template>
+    <div v-else-if="section === 'account'" class="trax-set-col">
+      <div v-if="authInfo && authInfo.effectiveMode === 'external'" class="alert alert-warning small mb-3">
+        <i class="bi bi-info-circle"></i>
+        External sign-in is active. This password is only the fallback.
+      </div>
 
-            <label class="form-label small" for="set-pw-current">Current password</label>
-            <input id="set-pw-current" type="password" autocomplete="current-password"
-                   class="form-control form-control-sm mb-2" v-model="account.current">
-
-            <label class="form-label small" for="set-pw-new">New password</label>
-            <input id="set-pw-new" type="password" autocomplete="new-password"
-                   class="form-control form-control-sm mb-1" v-model="account.next">
-            <div class="form-text small">At least 10 characters.</div>
-
-            <label class="form-label small mt-2" for="set-pw-confirm">Repeat new password</label>
-            <input id="set-pw-confirm" type="password" autocomplete="new-password"
-                   class="form-control form-control-sm mb-2" v-model="account.confirm">
-
-            <div v-if="accountError" class="alert alert-danger py-2 px-3 small" role="alert">
-              {{ accountError }}
-            </div>
-
-            <button class="btn btn-sm btn-primary" :disabled="accountBusy"
-                    @click="changePassword()">
-              <span v-if="accountBusy" class="spinner-border spinner-border-sm me-1"></span>
-              Change password
-            </button>
-          </div>
+      <div class="trax-list-header">Change password</div>
+      <div class="trax-list">
+        <div v-if="authInfo && authInfo.effectiveMode === 'external'" class="trax-row">
+          <label class="trax-set-label" for="set-pw-user">
+            Username <span class="trax-set-hint">Built-in account to change</span>
+          </label>
+          <input id="set-pw-user" type="text" autocomplete="username"
+                 class="form-control form-control-sm trax-set-ctl is-wide" v-model="account.username">
         </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-pw-current">Current</label>
+          <input id="set-pw-current" type="password" autocomplete="current-password"
+                 class="form-control form-control-sm trax-set-ctl is-wide" v-model="account.current">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-pw-new">
+            New <span class="trax-set-hint">At least 10 characters</span>
+          </label>
+          <input id="set-pw-new" type="password" autocomplete="new-password"
+                 class="form-control form-control-sm trax-set-ctl is-wide" v-model="account.next">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-pw-confirm">Repeat</label>
+          <input id="set-pw-confirm" type="password" autocomplete="new-password"
+                 class="form-control form-control-sm trax-set-ctl is-wide" v-model="account.confirm">
+        </div>
+      </div>
+
+      <div v-if="accountError" class="alert alert-danger py-2 px-3 small mt-3 mb-0" role="alert">
+        <i class="bi bi-x-circle"></i> {{ accountError }}
+      </div>
+
+      <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-primary" :disabled="accountBusy" @click="changePassword()">
+          <span v-if="accountBusy" class="spinner-border spinner-border-sm me-1"></span>
+          Change password
+        </button>
       </div>
     </div>
 
     <!-- Authentication --------------------------------------------------- -->
-    <div v-else-if="section === 'authentication'" class="row g-3">
-      <div class="col-12 col-xl-7">
-        <div class="trax-card">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Authentication</h2>
-            <p class="trax-page-sub">
-              How people get into this installation. Saved to lib/config.local.php, in force
-              from the next request.
-            </p>
+    <div v-else-if="section === 'authentication'" class="trax-set-col">
+      <template v-if="authInfo">
+        <div class="trax-list">
+          <div class="trax-kv">
+            <span>In force now</span>
+            <strong>{{ authInfo.effectiveMode === 'external' ? 'External include' : 'Built-in login' }}</strong>
           </div>
+          <div class="trax-kv">
+            <span>Built-in accounts</span>
+            <strong>{{ authInfo.hasBuiltinUsers }}</strong>
+          </div>
+          <div v-if="authInfo.includeStatus && auth.mode === 'external'" class="trax-kv">
+            <span>Include</span>
+            <span class="text-end">{{ authInfo.includeStatus.message }}</span>
+          </div>
+        </div>
+        <div v-if="auth.mode === 'external' && authInfo.effectiveMode === 'builtin'"
+             class="alert alert-danger py-2 px-3 small mt-2 mb-0">
+          <i class="bi bi-exclamation-triangle"></i>
+          The include is not usable, so the built-in login is standing in.
+        </div>
+      </template>
 
-          <div class="trax-card-pad pt-0">
-            <div v-if="authInfo" class="small text-secondary mb-3">
-              In force now:
-              <strong>{{ authInfo.effectiveMode === 'external' ? 'external include' : 'built-in login' }}</strong>.
-              <span v-if="auth.mode === 'external' && authInfo.effectiveMode === 'builtin'"
-                    class="text-danger">
-                The configured include is not usable, so the built-in login is standing in.
-              </span>
-              <span v-if="authInfo.includeStatus && auth.mode === 'external'">
-                Include: {{ authInfo.includeStatus.message }}
-              </span>
-              <div>{{ authInfo.hasBuiltinUsers }} built-in account(s) on file.</div>
+      <div class="trax-list-header">Sign-in method</div>
+      <div class="trax-list">
+        <div v-for="option in AUTH_MODES" :key="option.value" class="trax-row">
+          <label class="trax-set-label" :for="'set-auth-' + option.value">
+            {{ option.label }} <span class="trax-set-hint">{{ option.note }}</span>
+          </label>
+          <input class="form-check-input flex-shrink-0 m-0" type="radio" :value="option.value"
+                 :id="'set-auth-' + option.value" v-model="auth.mode">
+        </div>
+      </div>
+      <p class="trax-set-foot">Saved to lib/config.local.php; applies from the next request.</p>
+
+      <template v-if="auth.mode === 'external'">
+        <div class="trax-list-header">External include</div>
+        <div class="trax-list">
+          <div class="trax-row trax-set-stack">
+            <label class="trax-set-label" for="set-auth-include">Path to the include</label>
+            <div class="input-group input-group-sm">
+              <input id="set-auth-include" type="text" class="form-control form-control-sm font-monospace"
+                     placeholder="/var/www/example.com/auth/check_auth.php"
+                     v-model="auth.include" @input="authTest = null">
+              <button class="btn btn-outline-secondary" :disabled="authBusy"
+                      @click="testAuthInclude()">Test path</button>
             </div>
-
-            <div v-for="option in AUTH_MODES" :key="option.value" class="form-check mb-2">
-              <input class="form-check-input" type="radio" :value="option.value"
-                     :id="'set-auth-' + option.value" v-model="auth.mode">
-              <label class="form-check-label" :for="'set-auth-' + option.value">
-                {{ option.label }}
-                <span class="d-block form-text small mt-0">{{ option.note }}</span>
-              </label>
+            <div v-if="authTest" class="small"
+                 :class="authTest.ok ? 'text-success' : 'text-danger'">
+              {{ authTest.message }}
             </div>
+          </div>
+          <div class="trax-row trax-set-stack">
+            <label class="trax-set-label" for="set-auth-logout">Sign-out URL (optional)</label>
+            <input id="set-auth-logout" type="text" class="form-control form-control-sm"
+                   placeholder="https://example.com/logout" v-model="auth.logoutUrl">
+          </div>
+        </div>
+        <p class="trax-set-foot">
+          Absolute path. It must stop anonymous requests and set <code>$_SESSION['trax_user']</code>.
+          Without a sign-out URL, Sign out returns to the app.
+        </p>
+      </template>
 
-            <div v-if="auth.mode === 'external'" class="mt-3">
-              <label class="form-label small" for="set-auth-include">Path to the include</label>
-              <div class="input-group input-group-sm mb-1">
-                <input id="set-auth-include" type="text" class="form-control form-control-sm"
-                       placeholder="/var/www/example.com/auth/check_auth.php"
-                       v-model="auth.include" @input="authTest = null">
-                <button class="btn btn-outline-secondary" :disabled="authBusy"
-                        @click="testAuthInclude()">Test path</button>
-              </div>
-              <div class="form-text small">
-                An absolute path on this server. It has to end the request for anonymous
-                visitors and put the username in $_SESSION['trax_user'].
-              </div>
-              <div v-if="authTest" class="small mt-1"
-                   :class="authTest.ok ? 'text-success' : 'text-danger'">
-                {{ authTest.message }}
-              </div>
+      <div v-if="authError" class="alert alert-danger py-2 px-3 small mt-3 mb-0" role="alert">
+        <i class="bi bi-x-circle"></i> {{ authError }}
+      </div>
 
-              <label class="form-label small mt-3" for="set-auth-logout">Sign-out URL</label>
-              <input id="set-auth-logout" type="text" class="form-control form-control-sm"
-                     placeholder="https://example.com/logout" v-model="auth.logoutUrl">
-              <div class="form-text small">
-                Optional. Where the Sign out button goes. Empty drops the local session and
-                returns to the app.
-              </div>
-            </div>
+      <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-primary" :disabled="authBusy" @click="saveAuthConfig()">
+          <span v-if="authBusy" class="spinner-border spinner-border-sm me-1"></span>
+          Save authentication
+        </button>
+      </div>
+    </div>
 
-            <div v-if="authError" class="alert alert-danger py-2 px-3 small mt-3" role="alert">
-              {{ authError }}
-            </div>
-
-            <button class="btn btn-sm btn-primary mt-3" :disabled="authBusy"
-                    @click="saveAuthConfig()">
-              <span v-if="authBusy" class="spinner-border spinner-border-sm me-1"></span>
-              Save authentication
+    <!-- General: appearance, defaults & automation -------------------- -->
+    <div v-else class="trax-set-col">
+      <div class="trax-list-header">Appearance</div>
+      <div class="trax-list">
+        <div class="trax-row flex-wrap">
+          <span class="trax-set-label">Theme <span class="trax-set-hint">This device only</span></span>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Appearance">
+            <button v-for="option in THEME_OPTIONS" :key="option.id" type="button"
+                    class="btn btn-outline-secondary" :class="{ active: theme.pref === option.id }"
+                    :aria-pressed="theme.pref === option.id ? 'true' : 'false'"
+                    @click="setThemePref(option.id)">
+              <i class="bi" :class="option.icon"></i> {{ option.label }}
             </button>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Defaults & automation ------------------------------------------ -->
-    <div v-else class="row g-3">
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Defaults</h2>
-            <p class="trax-page-sub">What a new checkout or reservation starts with.</p>
-          </div>
-          <div class="trax-card-pad pt-0 row g-2">
-            <div class="col-6">
-              <label class="form-label small" for="set-loan">Loan days</label>
-              <input id="set-loan" type="number" min="1" max="365"
-                     class="form-control form-control-sm" v-model.number="draft.defaults.loanDays">
-            </div>
-            <div class="col-6">
-              <label class="form-label small" for="set-grace">Overdue grace days</label>
-              <input id="set-grace" type="number" min="0" max="90"
-                     class="form-control form-control-sm" v-model.number="draft.defaults.overdueGraceDays">
-            </div>
-            <div class="col-6">
-              <label class="form-label small" for="set-due-hour">Due hour</label>
-              <select id="set-due-hour" class="form-select form-select-sm" v-model.number="draft.defaults.dueHour">
-                <option v-for="hour in HOURS" :key="hour" :value="hour">{{ hour }}:00</option>
-              </select>
-            </div>
-            <div class="col-6">
-              <label class="form-label small" for="set-start-hour">Reservation start hour</label>
-              <select id="set-start-hour" class="form-select form-select-sm"
-                      v-model.number="draft.defaults.reservationStartHour">
-                <option v-for="hour in HOURS" :key="hour" :value="hour">{{ hour }}:00</option>
-              </select>
-            </div>
-            <div class="col-6">
-              <label class="form-label small" for="set-warranty-months">Default warranty (months)</label>
-              <input id="set-warranty-months" type="number" min="0" max="120"
-                     class="form-control form-control-sm" v-model.number="draft.defaults.warrantyMonths">
-              <div class="form-text small">
-                Applied to the warranty date when a purchase date is entered. 0 turns it off.
-              </div>
-            </div>
-            <div class="col-6">
-              <label class="form-label small" for="set-currency">Currency</label>
-              <input id="set-currency" class="form-control form-control-sm" maxlength="8"
-                     v-model="draft.defaults.currency">
-            </div>
-            <div class="col-6">
-              <label class="form-label small" for="set-locale">Locale</label>
-              <input id="set-locale" class="form-control form-control-sm" list="set-locale-options"
-                     maxlength="35" v-model="draft.defaults.locale">
-              <datalist id="set-locale-options">
-                <option v-for="tag in LOCALES" :key="tag" :value="tag"></option>
-              </datalist>
-              <div class="form-text small">
-                A BCP 47 tag. Formats money in the admin. Pick one or type any tag your
-                browser knows, e.g. <code>pt-BR</code>.
-              </div>
-            </div>
-            <div class="col-6">
-              <label class="form-label small" for="set-dateformat">Date format</label>
-              <input id="set-dateformat" class="form-control form-control-sm" maxlength="40"
-                     v-model="draft.defaults.dateFormat">
-              <div class="form-text small">
-                PHP <code>date()</code> format for labels, mails and the public page —
-                <code>Y-m-d H:i</code> gives 2026-08-28 17:00, <code>d.m.Y H:i</code> gives
-                28.08.2026 17:00, <code>m/d/Y g:ia</code> gives 08/28/2026 5:00pm.
-              </div>
-            </div>
-            <div class="col-12">
-              <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="set-partial"
-                       v-model="draft.defaults.allowPartialDefault">
-                <label class="form-check-label small" for="set-partial">
-                  Allow partial fulfilment by default
-                  <span class="d-block text-secondary" style="font-size:.72rem">
-                    Hand out what is free instead of refusing the whole request.
-                  </span>
-                </label>
-              </div>
-            </div>
+      <div class="trax-list-header">Checkouts &amp; reservations</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-loan">Loan days</label>
+          <input id="set-loan" type="number" min="1" max="365"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.defaults.loanDays">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-grace">Overdue grace days</label>
+          <input id="set-grace" type="number" min="0" max="90"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.defaults.overdueGraceDays">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-due-hour">Due hour</label>
+          <select id="set-due-hour" class="form-select form-select-sm trax-set-ctl is-narrow"
+                  v-model.number="draft.defaults.dueHour">
+            <option v-for="hour in HOURS" :key="hour" :value="hour">{{ hour }}:00</option>
+          </select>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-start-hour">Reservation start hour</label>
+          <select id="set-start-hour" class="form-select form-select-sm trax-set-ctl is-narrow"
+                  v-model.number="draft.defaults.reservationStartHour">
+            <option v-for="hour in HOURS" :key="hour" :value="hour">{{ hour }}:00</option>
+          </select>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-partial">
+            Partial fulfilment <span class="trax-set-hint">Hand out what is free</span>
+          </label>
+          <div class="form-check form-switch trax-set-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="set-partial"
+                   v-model="draft.defaults.allowPartialDefault">
           </div>
         </div>
       </div>
 
-      <div class="col-12 col-xl-6">
-        <div class="trax-card h-100">
-          <div class="trax-card-pad">
-            <h2 class="trax-page-title">Scheduled run</h2>
-            <p class="trax-page-sub">cron.php sends the reminders and the owner digest.</p>
+      <div class="trax-list-header">Formats</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-warranty-months">
+            Warranty (months) <span class="trax-set-hint">From the purchase date · 0 = off</span>
+          </label>
+          <input id="set-warranty-months" type="number" min="0" max="120"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.defaults.warrantyMonths">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-currency">Currency</label>
+          <input id="set-currency" class="form-control form-control-sm trax-set-ctl is-narrow" maxlength="8"
+                 v-model="draft.defaults.currency">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-locale" title="A BCP 47 tag, e.g. pt-BR. Formats money in the admin.">
+            Locale <span class="trax-set-hint">For money, e.g. de-DE</span>
+          </label>
+          <input id="set-locale" class="form-control form-control-sm trax-set-ctl" list="set-locale-options"
+                 maxlength="35" v-model="draft.defaults.locale">
+          <datalist id="set-locale-options">
+            <option v-for="tag in LOCALES" :key="tag" :value="tag"></option>
+          </datalist>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-dateformat"
+                 title="Y-m-d H:i → 2026-08-28 17:00 · d.m.Y H:i → 28.08.2026 17:00 · m/d/Y g:ia → 08/28/2026 5:00pm">
+            Date format <span class="trax-set-hint">PHP date(), e.g. d.m.Y H:i</span>
+          </label>
+          <input id="set-dateformat" class="form-control form-control-sm trax-set-ctl font-monospace" maxlength="40"
+                 v-model="draft.defaults.dateFormat">
+        </div>
+      </div>
+      <p class="trax-set-foot">Dates apply to labels, mails and the public page.</p>
+
+      <div class="trax-list-header">Scheduled run</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-duesoon">Due-soon window (hours)</label>
+          <input id="set-duesoon" type="number" min="1" max="168"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.cron.dueSoonHours">
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-repeat">Overdue repeat (days)</label>
+          <input id="set-repeat" type="number" min="1" max="90"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.cron.overdueRepeatDays">
+        </div>
+        <div class="trax-row trax-set-stack">
+          <label class="trax-set-label" for="set-secret">Shared secret</label>
+          <div class="d-flex gap-2">
+            <input id="set-secret" class="form-control form-control-sm font-monospace" v-model="draft.cron.secret"
+                   placeholder="Not set">
+            <button class="btn btn-sm btn-outline-secondary text-nowrap" @click="generateSecret()">
+              <i class="bi bi-shuffle"></i> Generate
+            </button>
           </div>
-          <div class="trax-card-pad pt-0">
-            <div class="row g-2 mb-2">
-              <div class="col-6">
-                <label class="form-label small" for="set-duesoon">Due-soon window (hours)</label>
-                <input id="set-duesoon" type="number" min="1" max="168"
-                       class="form-control form-control-sm" v-model.number="draft.cron.dueSoonHours">
-              </div>
-              <div class="col-6">
-                <label class="form-label small" for="set-repeat">Overdue repeat (days)</label>
-                <input id="set-repeat" type="number" min="1" max="90"
-                       class="form-control form-control-sm" v-model.number="draft.cron.overdueRepeatDays">
-              </div>
-            </div>
-
-            <label class="form-label small" for="set-secret">Shared secret</label>
-            <div class="d-flex gap-1">
-              <input id="set-secret" class="form-control form-control-sm" v-model="draft.cron.secret"
-                     placeholder="not set — the HTTP trigger is refused">
-              <button class="btn btn-sm btn-outline-secondary" @click="generateSecret()">
-                <i class="bi bi-shuffle"></i> Generate
-              </button>
-            </div>
-
-            <div v-if="!cronUrl" class="alert alert-warning py-2 px-3 small mt-2 mb-0">
-              <i class="bi bi-exclamation-triangle"></i>
-              No secret is saved, so <code>cron.php</code> refuses every HTTP request.
-              Generate one and save — the URL to hand to the host appears here.
-              A command-line run (<code>php cron.php</code>) never needs it.
-            </div>
-
-            <div v-else class="mt-2">
-              <label class="form-label small" for="set-cron-url">Give this URL to the host's cron</label>
-              <div class="d-flex gap-1">
-                <input id="set-cron-url" class="form-control form-control-sm font-monospace"
-                       :value="cronUrl" readonly>
-                <button class="btn btn-sm btn-outline-secondary" @click="copyCronUrl()"
-                        title="Copy the cron URL">
-                  <i class="bi bi-clipboard"></i>
-                </button>
-              </div>
-              <div class="form-text small">
-                Once every hour is plenty. Append <code>&amp;dry=1</code> to see what it would send.
-              </div>
-            </div>
+        </div>
+        <div v-if="cronUrl" class="trax-row trax-set-stack">
+          <label class="trax-set-label" for="set-cron-url">Cron URL</label>
+          <div class="d-flex gap-2">
+            <input id="set-cron-url" class="form-control form-control-sm font-monospace"
+                   :value="cronUrl" readonly>
+            <button class="btn btn-sm btn-outline-secondary trax-set-act" @click="copyCronUrl()"
+                    title="Copy the cron URL" aria-label="Copy the cron URL">
+              <i class="bi bi-clipboard"></i>
+            </button>
           </div>
         </div>
       </div>
+      <div v-if="!cronUrl" class="alert alert-warning py-2 px-3 small mt-2 mb-0">
+        <i class="bi bi-exclamation-triangle"></i>
+        No secret saved: <code>cron.php</code> refuses HTTP calls. Generate one and save.
+        CLI runs don't need it.
+      </div>
+      <p v-else class="trax-set-foot">
+        Hourly is plenty. Add <code>&amp;dry=1</code> for a dry run.
+      </p>
     </div>
 
     <!-- Save bar -------------------------------------------------------- -->
@@ -2692,12 +2544,12 @@ export default {
          Terms neither: a save there publishes a version, so it has its own bar. -->
     <div v-if="section === 'terms'" class="trax-selection-bar">
       <span v-if="termsWithdraw" class="small text-warning-emphasis">
-        Saving an empty text withdraws the terms.
+        An empty text withdraws the terms.
       </span>
       <span v-else-if="termsDirty" class="small">
-        Unsaved changes. Saving publishes <strong>version {{ state.terms.version + 1 }}</strong>.
+        Publishes <strong>version {{ state.terms.version + 1 }}</strong>
       </span>
-      <span v-else class="text-secondary small">No unsaved changes.</span>
+      <span v-else class="text-secondary small">No changes</span>
       <span class="flex-grow-1"></span>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!termsDirty || termsBusy"
               @click="revertTerms()">
@@ -2712,16 +2564,18 @@ export default {
     <div v-else-if="section !== 'taxonomy' && section !== 'account' && section !== 'authentication'
                     && section !== 'labels'"
          class="trax-selection-bar">
-      <span v-if="dirty"><strong>{{ Object.keys(patch).length }}</strong> section(s) changed</span>
-      <span v-else class="text-secondary small">No unsaved changes.</span>
+      <span v-if="dirty" class="small"><strong>{{ Object.keys(patch).length }}</strong> section(s) changed</span>
+      <span v-else class="text-secondary small">No changes</span>
       <span class="flex-grow-1"></span>
       <button class="btn btn-sm btn-outline-secondary" :disabled="!dirty || busy" @click="revert()">
         Discard
       </button>
       <button class="btn btn-sm btn-primary" :disabled="!dirty || busy" @click="save()">
         <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
-        Save settings
+        Save
       </button>
+    </div>
+    </div>
     </div>
 
     <ConfirmDialog v-if="pending" :title="pending.title" :message="pending.message"
