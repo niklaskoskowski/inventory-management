@@ -2,11 +2,14 @@ import { ref, computed } from 'vue';
 import {
   state, mutate, toast, getAsset, eventById, startReservationEdit,
 } from '../store.js';
-import { formatDateTime, parseDate, toLocalInput, formatTotals } from '../lib/format.js';
+import {
+  formatDateTime, parseDate, toLocalInput, formatTotals, getUiLocale,
+} from '../lib/format.js';
 import { valueOfLines } from '../lib/insights.js';
 import { HIRE_LABEL, hireOf } from '../lib/rental.js';
 import { exportBookingPdf } from '../lib/pdf.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
+import Menu from './ui/Menu.js';
 
 const STATUS_CLASS = {
   ACTIVE: 'status-RSVD',
@@ -15,9 +18,25 @@ const STATUS_CLASS = {
   CANCELLED: 'status-LOCK',
 };
 
+const STATUS_LABEL = {
+  ACTIVE: 'Active',
+  CONVERTED: 'Converted',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+};
+
+/** The filter segments; '' is every status. */
+const FILTERS = [
+  { id: 'ACTIVE', label: 'Active' },
+  { id: 'CONVERTED', label: 'Converted' },
+  { id: 'COMPLETED', label: 'Completed' },
+  { id: 'CANCELLED', label: 'Cancelled' },
+  { id: '', label: 'All' },
+];
+
 export default {
   name: 'ReservationsView',
-  components: { ConfirmDialog },
+  components: { ConfirmDialog, Menu },
   emits: ['open', 'basket'],
   setup(props, { emit }) {
     const filter = ref('ACTIVE');
@@ -162,19 +181,37 @@ export default {
      */
     const blockedUnitCodes = (b) => (b.unitNos || []).map((no) => `${b.assetId}.${no}`).join(', ');
 
+    /** "Oct 12, 9:00 AM" — the year only when it is not this one. */
+    const shortWhen = (value) => {
+      const date = parseDate(value);
+      if (!date) return '—';
+      const options = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+      if (date.getFullYear() !== new Date().getFullYear()) options.year = 'numeric';
+      try {
+        return date.toLocaleString(getUiLocale(), options);
+      } catch {
+        return formatDateTime(value);
+      }
+    };
+
+    const itemsOf = (r) => r.items || (r.assetIds || []).map((id) => ({ assetId: id, qty: 1 }));
+    const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? '' : 's'}`;
+
     return {
-      state, rows, filter, nameOf, STATUS_CLASS, blockedUnitCodes,
+      state, rows, filter, nameOf, STATUS_CLASS, STATUS_LABEL, FILTERS, blockedUnitCodes,
+      shortWhen, itemsOf, plural,
       converting, cancelling, convertDue, allowPartial, blocked,
       startConvert, doConvert, doCancel, edit, restore, restoring, formatDateTime, formatTotals, emit,
       exporting, bookingPdf, HIRE_LABEL, hireOf, eventById,
     };
   },
   template: `
-    <div class="btn-group btn-group-sm mb-3" role="group" aria-label="Filter reservations">
-      <button v-for="s in ['ACTIVE', 'CONVERTED', 'COMPLETED', 'CANCELLED', '']" :key="s || 'all'"
-              class="btn" :class="filter === s ? 'btn-secondary' : 'btn-outline-secondary'"
-              @click="filter = s">
-        {{ s || 'All' }}
+    <div class="btn-group btn-group-sm trax-seg-fill mb-3" role="group" aria-label="Filter reservations">
+      <button v-for="f in FILTERS" :key="f.id || 'all'" type="button"
+              class="btn" :class="filter === f.id ? 'btn-secondary' : 'btn-outline-secondary'"
+              :aria-pressed="filter === f.id ? 'true' : 'false'"
+              @click="filter = f.id">
+        {{ f.label }}
       </button>
     </div>
 
@@ -183,72 +220,85 @@ export default {
       No reservations here.
     </div>
 
-    <div v-else class="d-flex flex-column gap-2">
-      <article v-for="r in rows" :key="r.id" class="trax-card trax-card-pad">
-        <div class="d-flex align-items-start gap-2 flex-wrap">
-          <div class="flex-grow-1 min-w-0">
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <strong>{{ r.customerName }}</strong>
-              <span class="trax-badge" :class="STATUS_CLASS[r.status]">{{ r.status }}</span>
-              <!-- Only what is not dry hire says so: dry hire is what almost
-                   every reservation is, and a chip on all of them says nothing. -->
-              <span v-if="hireOf(r) !== 'DRY'" class="trax-kind-chip">
-                <i class="bi" :class="hireOf(r) === 'FREE' ? 'bi-gift' : 'bi-person-gear'"></i>
-                {{ HIRE_LABEL[hireOf(r)] }}
-              </span>
-              <span v-if="eventById.get(Number(r.eventId))" class="trax-kind-chip">
-                <i class="bi bi-calendar-event"></i> {{ eventById.get(Number(r.eventId)).name }}
-              </span>
-              <span class="text-secondary small">{{ r.customerEmail }}</span>
+    <div v-else class="trax-list">
+      <article v-for="r in rows" :key="r.id" class="trax-row align-items-start">
+        <div class="trax-row-main">
+          <div class="d-flex align-items-start gap-2">
+            <div class="trax-row-title flex-grow-1 min-w-0 pt-1">
+              <span :title="r.customerEmail">{{ r.customerName }}</span>
             </div>
-            <div class="small text-secondary mt-1">
-              {{ formatDateTime(r.startAt) }} → {{ formatDateTime(r.endAt) }}
-              <span v-if="r.notes"> · {{ r.notes }}</span>
-            </div>
-            <!-- Internal figure: what this reservation holds. -->
-            <div class="small text-secondary">
-              Value: <strong>{{ formatTotals(r.value.totals) }}</strong>
-              <span v-if="r.value.unpricedCount">
-                · {{ r.value.unpricedCount }} item(s) without a price
-              </span>
-            </div>
-            <!-- items carries the quantities; assetIds is its id mirror. -->
-            <div class="mt-2 d-flex flex-wrap gap-1">
-              <span v-for="setId in r.setIds" :key="'s' + setId" class="trax-kind-chip">
-                <i class="bi bi-box-seam"></i> {{ nameOf(setId) }}
-              </span>
-              <button v-for="item in (r.items || r.assetIds.map(id => ({ assetId: id, qty: 1 })))"
-                      :key="'i' + item.assetId"
-                      class="btn btn-sm btn-outline-secondary py-0 px-1"
-                      style="font-size:.7rem" @click="emit('open', item.assetId)">
-                {{ nameOf(item.assetId) }}<span v-if="item.qty > 1"> ×{{ item.qty }}</span>
-              </button>
+
+            <!-- The one thing to do with it, visible; the rest in the menu. -->
+            <div class="d-flex align-items-center gap-1 flex-shrink-0">
+              <template v-if="r.status === 'ACTIVE'">
+                <button class="btn btn-sm btn-primary" @click="startConvert(r)">
+                  <i class="bi bi-box-arrow-right"></i> Check out
+                </button>
+                <Menu :label="'More for ' + r.customerName">
+                  <button class="trax-menu-item" @click="edit(r)"
+                          :aria-label="'Edit the reservation of ' + r.customerName">
+                    <i class="bi bi-pencil"></i> Edit
+                  </button>
+                  <button class="trax-menu-item" :disabled="exporting" @click="bookingPdf(r)"
+                          :aria-label="'Booking PDF for ' + r.customerName">
+                    <i class="bi bi-filetype-pdf"></i> Booking PDF
+                  </button>
+                  <div class="trax-menu-sep"></div>
+                  <button class="trax-menu-item is-danger" @click="cancelling = r">
+                    <i class="bi bi-x-circle"></i> Cancel reservation
+                  </button>
+                </Menu>
+              </template>
+              <template v-else>
+                <button v-if="r.status === 'CANCELLED'" class="btn btn-sm btn-outline-secondary"
+                        :disabled="restoring === r.id" @click="restore(r)">
+                  <span v-if="restoring === r.id" class="spinner-border spinner-border-sm"></span>
+                  <i v-else class="bi bi-arrow-counterclockwise"></i> Restore
+                </button>
+                <!-- Outside the ACTIVE guard: a converted booking still needs its sheet. -->
+                <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
+                        @click="bookingPdf(r)" title="Booking PDF"
+                        :aria-label="'Booking PDF for ' + r.customerName">
+                  <i class="bi bi-filetype-pdf"></i>
+                </button>
+              </template>
             </div>
           </div>
 
-          <div class="d-flex flex-wrap gap-1">
-            <!-- Outside the ACTIVE guard: a converted booking still needs its sheet. -->
-            <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
-                    @click="bookingPdf(r)"
-                    :aria-label="'Booking PDF for ' + r.customerName">
-              <i class="bi bi-filetype-pdf"></i> PDF
-            </button>
-            <template v-if="r.status === 'ACTIVE'">
-              <button class="btn btn-sm btn-outline-secondary" @click="edit(r)"
-                      :aria-label="'Edit the reservation of ' + r.customerName">
-                <i class="bi bi-pencil"></i> Edit
-              </button>
-              <button class="btn btn-sm btn-primary" @click="startConvert(r)">
-                <i class="bi bi-box-arrow-right"></i> Check out
-              </button>
-              <button class="btn btn-sm btn-outline-danger" @click="cancelling = r">
-                Cancel reservation
-              </button>
-            </template>
-            <button v-else-if="r.status === 'CANCELLED'" class="btn btn-sm btn-outline-secondary"
-                    :disabled="restoring === r.id" @click="restore(r)">
-              <span v-if="restoring === r.id" class="spinner-border spinner-border-sm me-1"></span>
-              <i v-else class="bi bi-arrow-counterclockwise"></i> Restore
+          <div class="trax-row-meta">
+            <span v-if="!filter" class="trax-status-dot" :class="STATUS_CLASS[r.status]">{{ STATUS_LABEL[r.status] || r.status }}</span>
+            <span :title="formatDateTime(r.startAt) + ' → ' + formatDateTime(r.endAt)">
+              {{ shortWhen(r.startAt) }} → {{ shortWhen(r.endAt) }}
+            </span>
+          </div>
+          <!-- Internal figure: what this reservation holds. -->
+          <div class="trax-row-meta">
+            <span class="text-truncate">{{ r.customerEmail }}</span>
+            <span>
+              <strong class="fw-semibold" title="Reserved value">{{ formatTotals(r.value.totals) }}</strong>
+              <span v-if="r.value.unpricedCount"
+                    :title="r.value.unpricedCount + ' item(s) without a price'"> · {{ r.value.unpricedCount }} unpriced</span>
+            </span>
+            <!-- Only what is not dry hire says so: dry hire is what almost
+                 every reservation is, and a chip on all of them says nothing. -->
+            <span v-if="hireOf(r) !== 'DRY'" class="trax-kind-chip">
+              <i class="bi" :class="hireOf(r) === 'FREE' ? 'bi-gift' : 'bi-person-gear'"></i>
+              {{ HIRE_LABEL[hireOf(r)] }}
+            </span>
+            <span v-if="eventById.get(Number(r.eventId))" class="trax-kind-chip">
+              <i class="bi bi-calendar-event"></i> {{ eventById.get(Number(r.eventId)).name }}
+            </span>
+          </div>
+          <div v-if="r.notes" class="trax-row-notes">{{ r.notes }}</div>
+
+          <!-- items carries the quantities; assetIds is its id mirror. -->
+          <div class="trax-row-chips">
+            <span v-for="setId in r.setIds" :key="'s' + setId" class="trax-kind-chip">
+              <i class="bi bi-box-seam"></i> {{ nameOf(setId) }}
+            </span>
+            <button v-for="item in itemsOf(r)" :key="'i' + item.assetId" type="button"
+                    class="trax-chip-btn" @click="emit('open', item.assetId)">
+              {{ nameOf(item.assetId) }}<span v-if="item.qty > 1" class="text-secondary">×{{ item.qty }}</span>
             </button>
           </div>
         </div>
@@ -256,30 +306,27 @@ export default {
     </div>
 
     <ConfirmDialog v-if="converting"
-                   title="Convert to checkout"
+                   title="Check out"
+                   :message="converting.customerName + ' · ' + plural(converting.assetIds.length, 'item') + ', '
+                     + plural((converting.items || []).reduce((s, i) => s + i.qty, 0) || converting.assetIds.length, 'unit')"
                    :confirm-label="allowPartial ? 'Check out available' : 'Check out'"
                    @confirm="doConvert" @cancel="converting = null">
-      <p class="small text-secondary mt-2 mb-2">
-        {{ converting.assetIds.length }} item(s),
-        {{ (converting.items || []).reduce((s, i) => s + i.qty, 0) || converting.assetIds.length }} unit(s)
-        for {{ converting.customerName }}.
-      </p>
-
-      <label class="form-label small" for="convert-due">Return date</label>
+      <label class="form-label mt-2" for="convert-due">Return by</label>
       <input id="convert-due" type="datetime-local" class="form-control form-control-sm"
              v-model="convertDue" data-autofocus>
 
       <div v-if="blocked.length" class="alert alert-warning mt-3 py-2 px-3 small mb-0">
-        <strong>{{ blocked.length }} item(s) already out:</strong>
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <strong>{{ plural(blocked.length, 'item') }} not available</strong>
         <ul class="mb-2 mt-1 ps-3">
           <!-- who/until are empty when the shortfall is capacity, not a holder. -->
           <li v-for="b in blocked" :key="b.assetId">
-            {{ b.name }} — {{ b.wanted }} wanted, {{ b.available }} free
+            {{ b.name }} — {{ b.available }} of {{ b.wanted }} free
             <span v-if="b.who">· with {{ b.who }}<span v-if="b.until"> until {{ b.until }}</span></span>
             <span v-if="b.unitNos?.length" class="text-secondary"> · units {{ blockedUnitCodes(b) }}</span>
           </li>
         </ul>
-        <div class="form-check">
+        <div class="form-check mb-0">
           <input class="form-check-input" type="checkbox" id="allow-partial-res" v-model="allowPartial">
           <label class="form-check-label" for="allow-partial-res">
             Check out the rest anyway
@@ -289,9 +336,9 @@ export default {
     </ConfirmDialog>
 
     <ConfirmDialog v-if="cancelling"
-                   title="Cancel this reservation?"
-                   message="Reserved items are released unless they are physically out. The customer is not emailed. It stays under Cancelled and can be restored there while its items are still free."
-                   confirm-label="Cancel reservation" cancel-label="Keep it" danger
+                   title="Cancel reservation?"
+                   message="Its items are released (unless already out). No email is sent. You can restore it under Cancelled."
+                   confirm-label="Cancel reservation" cancel-label="Keep" danger
                    @confirm="doCancel" @cancel="cancelling = null" />
   `,
 };

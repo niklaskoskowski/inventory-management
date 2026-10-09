@@ -5,7 +5,7 @@ import {
 } from '../store.js';
 import * as api from '../api.js';
 import {
-  formatDateTime, daysOverdue, isOverdue, toLocalInput, parseDate, formatTotals,
+  formatDateTime, daysOverdue, isOverdue, toLocalInput, parseDate, formatTotals, getUiLocale,
 } from '../lib/format.js';
 import { valueOfLines } from '../lib/insights.js';
 import {
@@ -14,6 +14,7 @@ import {
 import { exportBookingPdf, exportRentalPdf } from '../lib/pdf.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 import Drawer from './ui/Drawer.js';
+import Menu from './ui/Menu.js';
 import SignaturePad from './SignaturePad.js';
 
 /**
@@ -40,7 +41,7 @@ export function openCheckout(bookingId) {
  */
 export default {
   name: 'CheckoutsView',
-  components: { ConfirmDialog, Drawer, SignaturePad },
+  components: { ConfirmDialog, Drawer, Menu, SignaturePad },
   emits: ['open'],
   setup(props, { emit }) {
     // Selection is by lineId now — an asset id can appear on several lines.
@@ -669,6 +670,34 @@ export default {
       } catch { /* toast already raised */ }
     };
 
+    // --- Presentation only ---------------------------------------------------
+
+    /** "2 units", "1 unit". */
+    const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? '' : 's'}`;
+
+    /** "Oct 14, 6:00 PM" — the year only when it is not this one. */
+    const shortWhen = (value) => {
+      const date = parseDate(value);
+      if (!date) return '—';
+      const options = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+      if (date.getFullYear() !== new Date().getFullYear()) options.year = 'numeric';
+      try {
+        return date.toLocaleString(getUiLocale(), options);
+      } catch {
+        return formatDateTime(value);
+      }
+    };
+
+    /** Overdue hand-overs first, under their own header. */
+    const sections = computed(() => {
+      const late = groups.value.filter((group) => isOverdue(group.dueAt));
+      const out = groups.value.filter((group) => !isOverdue(group.dueAt));
+      return [
+        { key: 'late', title: 'Overdue', groups: late },
+        { key: 'out', title: late.length ? 'Out' : 'Checked out', groups: out },
+      ].filter((section) => section.groups.length);
+    });
+
     const startExtend = () => {
       const first = state.checkouts.find((r) => selected.value.includes(r.lineId));
       extendTo.value = toLocalInput(first?.dueAt || first?.returnDate) || '';
@@ -676,7 +705,7 @@ export default {
     };
 
     return {
-      state, groups, selected, selectedUnits, toggle, toggleGroup, setName,
+      state, groups, sections, plural, shortWhen, selected, selectedUnits, toggle, toggleGroup, setName,
       qtyFor, setQtyFor, extending, extendTo, confirmReturn, notify,
       unitCodes, unitTitle, unitLabel, unitPicked, toggleUnitFor,
       doReturn, doExtend, startExtend, exporting, bookingPdf,
@@ -697,16 +726,15 @@ export default {
          offered back rather than dropped. -->
     <div v-if="failedPhotos" class="alert alert-danger d-flex align-items-center gap-2 flex-wrap">
       <i class="bi bi-exclamation-octagon"></i>
-      <div class="flex-grow-1 small">
-        <strong>{{ failedPhotos.files.length }} condition photo(s) were not stored</strong>
-        for {{ failedPhotos.name }} on booking #{{ failedPhotos.bookingId }} —
-        {{ failedPhotos.message }}
+      <div class="flex-grow-1 small min-w-0">
+        <strong>{{ plural(failedPhotos.files.length, 'photo') }} not stored</strong>
+        · {{ failedPhotos.name }}, booking #{{ failedPhotos.bookingId }} — {{ failedPhotos.message }}
       </div>
-      <button class="btn btn-sm btn-light" :disabled="uploading" @click="retryPhotos()">
-        <span v-if="uploading" class="spinner-border spinner-border-sm me-1"></span>
-        Retry upload
+      <button class="btn btn-sm btn-outline-secondary" @click="discardPhotos()">Discard</button>
+      <button class="btn btn-sm btn-primary" :disabled="uploading" @click="retryPhotos()">
+        <span v-if="uploading" class="spinner-border spinner-border-sm"></span>
+        Retry
       </button>
-      <button class="btn btn-sm btn-outline-light" @click="discardPhotos()">Discard</button>
     </div>
 
     <div v-if="!state.checkouts.length" class="trax-empty">
@@ -714,293 +742,310 @@ export default {
       Nothing is checked out.
     </div>
 
-    <div v-else class="d-flex flex-column gap-3">
-      <!-- The whole card opens the hand-over. The one control that is not the
-           panel — select this customer's lines — stops the click itself. -->
-      <article v-for="group in groups" :key="group.key" class="trax-card"
-               role="button" tabindex="0" style="cursor:pointer"
-               :aria-label="'Open the hand-over for ' + group.customerName"
-               @click="openDetail(group)"
-               @keydown.enter.prevent="openDetail(group)"
-               @keydown.space.prevent="openDetail(group)">
-        <div class="trax-card-pad d-flex align-items-center gap-2 flex-wrap">
-          <input class="form-check-input" type="checkbox"
-                 :checked="group.lines.every(r => selected.includes(r.lineId))"
-                 @click.stop @change="toggleGroup(group)"
-                 :aria-label="'Select all items out with ' + group.customerName">
-          <div class="flex-grow-1 min-w-0">
-            <strong>{{ group.customerName }}</strong>
-            <span class="text-secondary small ms-2">{{ group.customerEmail }}</span>
-            <div class="small" :class="isOverdue(group.dueAt) ? 'text-danger' : 'text-secondary'">
-              {{ group.lines.length }} asset(s) in booking · due {{ formatDateTime(group.dueAt) }}
-              <span v-if="isOverdue(group.dueAt)">— {{ daysOverdue(group.dueAt) }} days late</span>
+    <!-- One row per hand-over. The row opens it; the tick selects its lines. -->
+    <template v-for="section in sections" :key="section.key">
+      <div class="trax-list-header">
+        {{ section.title }} <span class="fw-normal">{{ section.groups.length }}</span>
+      </div>
+      <div class="trax-list">
+        <div v-for="group in section.groups" :key="group.key" class="trax-row is-tappable"
+             role="button" tabindex="0"
+             :aria-label="'Open the hand-over for ' + group.customerName"
+             @click="openDetail(group)"
+             @keydown.enter.prevent="openDetail(group)"
+             @keydown.space.prevent="openDetail(group)">
+          <label class="trax-tick-hit" @click.stop @keydown.stop>
+            <input class="trax-check" type="checkbox"
+                   :checked="group.lines.every(r => selected.includes(r.lineId))"
+                   @change="toggleGroup(group)"
+                   :aria-label="'Select all items out with ' + group.customerName">
+          </label>
+          <div class="trax-row-main">
+            <div class="trax-row-title">
+              <span>{{ group.customerName }}</span>
+              <i v-if="bookingOf(group) && bookingOf(group).signature" class="bi bi-pen text-secondary small"
+                 :title="'Signed by ' + bookingOf(group).signature.name"></i>
+            </div>
+            <div class="trax-row-meta">
+              <span :class="{ 'text-danger': isOverdue(group.dueAt) }"
+                    :title="formatDateTime(group.dueAt)">Due {{ shortWhen(group.dueAt) }}</span>
+              <span>{{ plural(group.units, 'unit') }}<template v-if="group.lines.length > 1"> · {{ plural(group.lines.length, 'line') }}</template></span>
+              <span class="d-none d-md-inline">{{ group.customerEmail }}</span>
+              <span v-if="group.event" class="trax-kind-chip">
+                <i class="bi bi-calendar-event"></i> {{ group.event.name }}
+              </span>
+              <span v-for="setId in [...group.setIds]" :key="setId" class="trax-kind-chip">
+                <i class="bi bi-box-seam"></i> {{ setName(setId) }}
+              </span>
             </div>
           </div>
-
-          <!-- At a glance only: the job, the kits, and whether it is signed.
-               Everything that DOES something is one click away, in the panel. -->
-          <span v-if="group.event" class="trax-kind-chip">
-            <i class="bi bi-calendar-event"></i> {{ group.event.name }}
+          <span v-if="isOverdue(group.dueAt)" class="trax-badge status-UNAV">
+            {{ daysOverdue(group.dueAt) }}d late
           </span>
-          <span v-for="setId in [...group.setIds]" :key="setId" class="trax-kind-chip">
-            <i class="bi bi-box-seam"></i> {{ setName(setId) }}
-          </span>
-          <span v-if="bookingOf(group) && bookingOf(group).signature" class="trax-kind-chip"
-                :title="'Signed by ' + bookingOf(group).signature.name">
-            <i class="bi bi-pen"></i> signed
-          </span>
-
-          <i class="bi bi-chevron-right text-secondary"></i>
+          <i class="bi bi-chevron-right trax-row-chevron"></i>
         </div>
-      </article>
-    </div>
+      </div>
+    </template>
 
     <div v-if="selected.length" class="trax-selection-bar">
-      <strong>{{ selected.length }}</strong> line(s) · {{ selectedUnits }} unit(s)
+      <span class="trax-sel-count">{{ plural(selectedUnits, 'unit') }}</span>
+      <span class="small text-secondary text-nowrap d-none d-sm-inline">{{ plural(selected.length, 'line') }}</span>
       <span class="flex-grow-1"></span>
-      <button class="btn btn-sm btn-outline-secondary" @click="startExtend">
-        <i class="bi bi-calendar-plus"></i> Extend
+      <button class="btn btn-sm btn-outline-secondary" @click="startExtend" aria-label="Extend">
+        <i class="bi bi-calendar-plus"></i><span class="btn-label">Extend</span>
       </button>
-      <button class="btn btn-sm btn-success" @click="confirmReturn = true">
+      <button class="btn btn-sm btn-primary" @click="confirmReturn = true">
         <i class="bi bi-box-arrow-in-left"></i> Check in
       </button>
-      <button class="btn btn-sm btn-outline-secondary" @click="selected = []">Clear</button>
+      <button class="trax-close" @click="selected = []" aria-label="Clear selection" title="Clear selection">
+        <i class="bi bi-x-lg"></i>
+      </button>
     </div>
 
     <!-- One hand-over, in full: what it is worth, what it bills, the customer's
-         link, the documents and the signature. Opened from the card, and by
+         link, the documents and the signature. Opened from the row, and by
          booking id from a scanned hand-over sheet. -->
     <Drawer v-if="detail" wide icon="bi-box-arrow-right"
             :title="detail.customerName" @close="closeDetail">
-      <p class="text-secondary small">
+      <template #header-actions>
+        <span v-if="isOverdue(detail.dueAt)" class="trax-badge status-UNAV">
+          {{ daysOverdue(detail.dueAt) }}d late
+        </span>
+      </template>
+
+      <p class="text-secondary small mb-3">
         {{ detail.customerEmail }}
         <span v-if="bookingOf(detail)"> · Booking #{{ bookingOf(detail).id }}</span>
       </p>
 
-      <div class="row g-3 mb-3">
-        <div class="col-6 col-md-3">
-          <div class="form-label small mb-0 text-secondary">Out</div>
-          <div>{{ detail.units }} unit(s) on {{ detail.lines.length }} line(s)</div>
+      <!-- Internal figures (value, rental) never reach the customer's documents. -->
+      <div class="trax-list">
+        <div class="trax-kv">
+          <span>Due</span>
+          <strong :class="{ 'text-danger': isOverdue(detail.dueAt) }">{{ formatDateTime(detail.dueAt) }}</strong>
         </div>
-        <div class="col-6 col-md-3">
-          <div class="form-label small mb-0 text-secondary">Due</div>
-          <div :class="isOverdue(detail.dueAt) ? 'text-danger' : ''">
-            {{ formatDateTime(detail.dueAt) }}
-            <span v-if="isOverdue(detail.dueAt)">— {{ daysOverdue(detail.dueAt) }} days late</span>
+        <div class="trax-kv">
+          <span>Out</span>
+          <strong>{{ plural(detail.units, 'unit') }} · {{ plural(detail.lines.length, 'line') }}</strong>
+        </div>
+        <div class="trax-kv">
+          <span>Hire</span>
+          <strong>{{ HIRE_LABEL[detail.hire] }}</strong>
+        </div>
+        <div v-if="detail.event" class="trax-kv">
+          <span>Event</span>
+          <strong>{{ detail.event.name }}</strong>
+        </div>
+        <div class="trax-kv">
+          <span>Value
+            <span v-if="detail.value.unpricedCount" class="small"> · {{ detail.value.unpricedCount }} unpriced</span>
+          </span>
+          <strong>{{ formatTotals(detail.value.totals) }}</strong>
+        </div>
+        <div class="trax-kv">
+          <span>Rental · {{ daysLabel(detail.days) }}
+            <span v-if="detail.rental.unratedCount" class="small"> · {{ detail.rental.unratedCount }} without rate</span>
+            <span v-if="detail.rental.unpricedCount" class="small"> · {{ detail.rental.unpricedCount }} without value</span>
+          </span>
+          <strong>{{ formatTotals(detail.rental.totals) }}</strong>
+        </div>
+      </div>
+
+      <!-- The ticks here feed the same selection the overview's bar acts on:
+           what is ticked is checked in, nothing ticked means everything. -->
+      <div class="trax-list-header">
+        Items
+        <span class="ms-auto fw-normal small">Tick to return only some</span>
+      </div>
+      <div class="trax-list">
+        <div v-for="line in detail.lines" :key="line.lineId" class="trax-row align-items-start flex-wrap"
+             :class="{ 'is-selected': selected.includes(line.lineId) }">
+          <label class="trax-tick-hit mt-1">
+            <input class="trax-check" type="checkbox"
+                   :checked="selected.includes(line.lineId)" @change="toggle(line.lineId)"
+                   :aria-label="'Select ' + line.name">
+          </label>
+          <div class="trax-row-main">
+            <div class="trax-row-title">
+              <button class="trax-name-btn text-truncate mw-100" @click="emit('open', line.assetId)">
+                {{ line.name || ('#' + line.assetId) }}
+              </button>
+            </div>
+            <div class="trax-row-meta">
+              <span>×{{ line.qty }}</span>
+              <span class="font-monospace">#{{ line.assetId }}</span>
+              <!-- Which physical units left, when the asset tracks them. -->
+              <span v-if="line.unitNos?.length" class="trax-kind-chip font-monospace"
+                    :title="unitTitle(line)">{{ unitCodes(line) }}</span>
+              <span v-if="line.setId" class="trax-kind-chip"><i class="bi bi-box-seam"></i> in kit</span>
+            </div>
+
+            <!-- Partial return: hand back some of the units on this line. -->
+            <div v-if="selected.includes(line.lineId) && !line.unitNos?.length && line.qty > 1"
+                 class="d-flex align-items-center gap-2 mt-2">
+              <span class="small text-secondary">Return</span>
+              <div class="input-group input-group-sm" style="width:8rem">
+                <button class="btn btn-outline-secondary px-2"
+                        @click="setQtyFor(line.lineId, qtyFor(line.lineId) - 1)"
+                        :aria-label="'Return one fewer ' + line.name">−</button>
+                <input class="form-control text-center px-0" type="number" min="1" :max="line.qty"
+                       :value="qtyFor(line.lineId)"
+                       @input="setQtyFor(line.lineId, $event.target.value)"
+                       :aria-label="'Units of ' + line.name + ' to check in'">
+                <button class="btn btn-outline-secondary px-2"
+                        @click="setQtyFor(line.lineId, qtyFor(line.lineId) + 1)"
+                        :aria-label="'Return one more ' + line.name">+</button>
+              </div>
+              <span class="small text-secondary">of {{ line.qty }}</span>
+            </div>
+
+            <!-- Partial return, unit by unit: the numbers are the quantity, so
+                 a line that names them gets check boxes instead of a stepper. -->
+            <div v-if="selected.includes(line.lineId) && line.unitNos?.length && line.qty > 1"
+                 class="d-flex flex-wrap gap-3 mt-2">
+              <div v-for="no in line.unitNos" :key="no" class="form-check mb-0">
+                <input class="form-check-input" type="checkbox"
+                       :id="'ret-' + line.lineId + '-' + no"
+                       :checked="unitPicked(line.lineId, no)"
+                       @change="toggleUnitFor(line.lineId, no)">
+                <label class="form-check-label small" :for="'ret-' + line.lineId + '-' + no">
+                  <span class="font-monospace">{{ line.assetId }}.{{ no }}</span>
+                  <span v-if="unitLabel(line, no)" class="text-secondary ms-1">{{ unitLabel(line, no) }}</span>
+                </label>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="col-6 col-md-3">
-          <div class="form-label small mb-0 text-secondary">Hire</div>
-          <div><span class="trax-kind-chip">{{ HIRE_LABEL[detail.hire] }}</span></div>
-        </div>
-        <div class="col-6 col-md-3" v-if="detail.event">
-          <div class="form-label small mb-0 text-secondary">Event</div>
-          <div>{{ detail.event.name }}</div>
-        </div>
-      </div>
 
-      <!-- Internal figures: what the customer is holding, and what it bills
-           over the booked period. Neither reaches the customer's documents. -->
-      <div class="small text-secondary mb-1">
-        Value out: <strong>{{ formatTotals(detail.value.totals) }}</strong>
-        <span v-if="detail.value.unpricedCount">
-          · {{ detail.value.unpricedCount }} item(s) without a price
-        </span>
-      </div>
-      <div class="small text-secondary mb-3">
-        Rental · {{ daysLabel(detail.days) }}:
-        <strong>{{ formatTotals(detail.rental.totals) }}</strong>
-        <span v-if="detail.rental.unratedCount">
-          · {{ detail.rental.unratedCount }} line(s) without a rate
-        </span>
-        <span v-if="detail.rental.unpricedCount">
-          · {{ detail.rental.unpricedCount }} without a value
-        </span>
-      </div>
-
-      <div class="d-flex flex-wrap gap-2 mb-3">
-        <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
-                @click="bookingPdf(detail)"
-                :aria-label="'Handover PDF for ' + detail.customerName">
-          <i class="bi bi-filetype-pdf"></i> Handover PDF
-        </button>
-        <button class="btn btn-sm btn-outline-secondary" :disabled="exporting"
-                @click="rentalPdf(detail)"
-                :aria-label="'Rental quote PDF for ' + detail.customerName">
-          <i class="bi bi-receipt"></i> Rental PDF
-        </button>
-        <button v-if="bookingOf(detail)" class="btn btn-sm btn-outline-secondary"
-                @click="copyLink(detail)"
-                :aria-label="'Copy the booking link for ' + detail.customerName">
-          <i class="bi bi-link-45deg"></i> Copy link
-        </button>
-        <button v-if="bookingOf(detail)" class="btn btn-sm btn-outline-secondary"
-                :disabled="state.loading" @click="resendEmail(detail)"
-                :aria-label="'Re-send the confirmation to ' + detail.customerEmail">
-          <i class="bi bi-envelope"></i> Resend email
-        </button>
-      </div>
-
-      <!-- What is out, and where it is handed back: the check boxes here feed
-           the same selection the overview's bar acts on, so a partial return
-           picked in this panel is the one that is checked in. -->
-      <h3 class="trax-page-title mt-4 mb-2">{{ detail.lines.length }} asset(s) · {{ detail.units }} unit(s)</h3>
-      <ul class="list-group list-group-flush mb-3">
-        <li v-for="line in detail.lines" :key="line.lineId"
-            class="list-group-item bg-transparent d-flex flex-wrap align-items-center gap-2">
-          <input class="form-check-input" type="checkbox"
-                 :checked="selected.includes(line.lineId)" @change="toggle(line.lineId)"
-                 :aria-label="'Select ' + line.name">
-          <button class="trax-name-btn flex-grow-1" @click="emit('open', line.assetId)">
-            {{ line.name || ('#' + line.assetId) }}
-          </button>
-          <span class="trax-kind-chip">×{{ line.qty }}</span>
-          <!-- Which physical units left, when the asset tracks them. -->
-          <span v-if="line.unitNos?.length" class="trax-kind-chip font-monospace"
-                :title="unitTitle(line)">{{ unitCodes(line) }}</span>
-
-          <!-- Partial return: hand back some of the units on this line. -->
-          <div v-if="selected.includes(line.lineId) && !line.unitNos?.length && line.qty > 1"
-               class="input-group input-group-sm" style="width:8rem">
-            <button class="btn btn-outline-secondary py-0 px-2"
-                    @click="setQtyFor(line.lineId, qtyFor(line.lineId) - 1)"
-                    :aria-label="'Return one fewer ' + line.name">−</button>
-            <input class="form-control text-center px-0" type="number" min="1" :max="line.qty"
-                   :value="qtyFor(line.lineId)"
-                   @input="setQtyFor(line.lineId, $event.target.value)"
-                   :aria-label="'Units of ' + line.name + ' to check in'">
-            <button class="btn btn-outline-secondary py-0 px-2"
-                    @click="setQtyFor(line.lineId, qtyFor(line.lineId) + 1)"
-                    :aria-label="'Return one more ' + line.name">+</button>
-          </div>
-
-          <!-- Photos belong to one piece of gear, so they are taken from
-               the line rather than from the check-in dialog. -->
-          <button class="btn btn-sm btn-outline-secondary" @click="openPhotos(line)"
+          <!-- Photos belong to one piece of gear, so they are taken per line. -->
+          <button class="trax-icon-btn" @click="openPhotos(line)"
+                  :title="'Condition photos'"
                   :aria-label="'Condition photos of ' + (line.name || ('#' + line.assetId))">
             <i class="bi bi-camera"></i>
           </button>
-
-          <span class="text-secondary font-monospace small">#{{ line.assetId }}</span>
-          <span v-if="line.setId" class="trax-kind-chip">in kit</span>
-
-          <!-- Partial return, unit by unit: the numbers are the quantity, so
-               a line that names them gets check boxes instead of a stepper. -->
-          <div v-if="selected.includes(line.lineId) && line.unitNos?.length && line.qty > 1"
-               class="w-100 d-flex flex-wrap gap-3 ps-4">
-            <div v-for="no in line.unitNos" :key="no" class="form-check mb-0">
-              <input class="form-check-input" type="checkbox"
-                     :id="'ret-' + line.lineId + '-' + no"
-                     :checked="unitPicked(line.lineId, no)"
-                     @change="toggleUnitFor(line.lineId, no)">
-              <label class="form-check-label small" :for="'ret-' + line.lineId + '-' + no">
-                <span class="font-monospace">{{ line.assetId }}.{{ no }}</span>
-                <span v-if="unitLabel(line, no)" class="text-secondary ms-1">{{ unitLabel(line, no) }}</span>
-              </label>
-            </div>
-          </div>
-        </li>
-      </ul>
-
-      <!-- What was signed for, once it has been. -->
-      <div v-if="bookingOf(detail) && bookingOf(detail).signature"
-           class="d-flex align-items-center gap-2 flex-wrap">
-        <button type="button" class="trax-thumb-btn"
-                :aria-label="'Show the signature of ' + bookingOf(detail).signature.name"
-                @click="openSignatureImage(bookingOf(detail))">
-          <img class="trax-sig-thumb" :src="'uploads/thumb/' + bookingOf(detail).signature.file"
-               alt="">
-        </button>
-        <div class="small">
-          <strong>{{ bookingOf(detail).signature.name }}</strong>
-          <span class="text-secondary"> signed {{ formatDateTime(bookingOf(detail).signature.at) }}</span>
-          <div class="text-secondary">
-            <span v-if="bookingOf(detail).signature.source === 'CUSTOMER'">
-              on their own booking link
-            </span>
-            <span v-else>at the counter</span>
-            <span v-if="bookingOf(detail).handedOverBy">
-              · handed over by {{ bookingOf(detail).handedOverBy }}
-            </span>
-          </div>
-          <div v-if="bookingOf(detail).signature.terms" class="text-secondary">
-            Accepted the
-            <a :href="termsUrl(bookingOf(detail).signature.terms.version)" target="_blank"
-               rel="noopener noreferrer">terms, version {{ bookingOf(detail).signature.terms.version }}</a>
-          </div>
         </div>
-        <span class="flex-grow-1"></span>
-        <button class="btn btn-sm btn-outline-danger py-0 px-1"
-                :aria-label="'Remove the signature of ' + bookingOf(detail).signature.name"
-                @click="unsigning = bookingOf(detail)">
-          <i class="bi bi-trash"></i>
-        </button>
       </div>
 
       <!-- Only where there is a booking to hang it on: a legacy line without
-           one has nothing to sign for. The pad: hand the tablet over, done. -->
-      <template v-else-if="bookingOf(detail)">
-        <button v-if="signing !== detail.key" class="btn btn-sm btn-outline-secondary"
-                :aria-label="'Take a hand-over signature from ' + detail.customerName"
-                @click="openSignature(detail)">
-          <i class="bi bi-pen"></i> Take signature
-        </button>
-        <div v-else>
-          <label class="form-label small" :for="'sig-name-' + detail.key">Signed by</label>
-          <input class="form-control form-control-sm mb-2" :id="'sig-name-' + detail.key"
-                 v-model="signName" maxlength="200" placeholder="Name in block letters">
-          <SignaturePad :busy="signBusy" :locked="signLocked"
-                        @submit="saveSignature(detail, $event)" @cancel="closeSignature" />
-          <!-- What the signature is given under. The tick is the customer's,
-               on the same screen they sign on; the version it was given for
-               goes to the server with the drawing. -->
-          <div v-if="state.terms.active" class="form-check mt-2">
-            <input class="form-check-input" type="checkbox" :id="'sig-terms-' + detail.key"
-                   v-model="signTerms">
-            <label class="form-check-label small" :for="'sig-terms-' + detail.key">
-              I have read and accept the
-              <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>
-              (version {{ state.terms.version }} of {{ formatDateTime(state.terms.at) }}).
-            </label>
+           one has nothing to sign for. -->
+      <template v-if="bookingOf(detail)">
+        <div class="trax-list-header">Signature</div>
+        <div class="trax-list">
+          <!-- What was signed for, once it has been. -->
+          <div v-if="bookingOf(detail).signature" class="trax-row">
+            <button type="button" class="trax-thumb-btn"
+                    :aria-label="'Show the signature of ' + bookingOf(detail).signature.name"
+                    @click="openSignatureImage(bookingOf(detail))">
+              <img class="trax-sig-thumb" :src="'uploads/thumb/' + bookingOf(detail).signature.file"
+                   alt="">
+            </button>
+            <div class="trax-row-main">
+              <div class="trax-row-title"><span>{{ bookingOf(detail).signature.name }}</span></div>
+              <div class="trax-row-meta">
+                <span>{{ shortWhen(bookingOf(detail).signature.at) }}</span>
+                <span>{{ bookingOf(detail).signature.source === 'CUSTOMER' ? 'via booking link' : 'at the counter' }}</span>
+                <span v-if="bookingOf(detail).handedOverBy">by {{ bookingOf(detail).handedOverBy }}</span>
+                <a v-if="bookingOf(detail).signature.terms"
+                   :href="termsUrl(bookingOf(detail).signature.terms.version)" target="_blank"
+                   rel="noopener noreferrer">Terms v{{ bookingOf(detail).signature.terms.version }}</a>
+              </div>
+            </div>
+            <button class="trax-icon-btn text-danger" title="Remove signature"
+                    :aria-label="'Remove the signature of ' + bookingOf(detail).signature.name"
+                    @click="unsigning = bookingOf(detail)">
+              <i class="bi bi-trash"></i>
+            </button>
           </div>
-          <p class="form-text small mb-0">
-            Confirms the customer received the items listed on the card<span
-              v-if="state.terms.active"> and accepts the terms &amp; conditions</span>. They can
-            also sign it themselves from their booking link.
-          </p>
+
+          <div v-else-if="signing !== detail.key" class="trax-row">
+            <i class="bi bi-pen text-secondary"></i>
+            <div class="trax-row-main">
+              <div class="trax-row-title"><span>Not signed</span></div>
+              <div class="trax-row-meta">Or via the booking link</div>
+            </div>
+            <button class="btn btn-sm btn-outline-primary"
+                    :aria-label="'Take a hand-over signature from ' + detail.customerName"
+                    @click="openSignature(detail)">
+              Sign now
+            </button>
+          </div>
+
+          <!-- The pad: hand the tablet over, done. -->
+          <div v-else class="p-3">
+            <label class="form-label" :for="'sig-name-' + detail.key">Signed by</label>
+            <input class="form-control form-control-sm mb-2" :id="'sig-name-' + detail.key"
+                   v-model="signName" maxlength="200" placeholder="Name in block letters">
+            <SignaturePad :busy="signBusy" :locked="signLocked"
+                          @submit="saveSignature(detail, $event)" @cancel="closeSignature" />
+            <!-- The tick is the customer's, on the same screen they sign on; the
+                 version it was given for goes to the server with the drawing. -->
+            <div v-if="state.terms.active" class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" :id="'sig-terms-' + detail.key"
+                     v-model="signTerms">
+              <label class="form-check-label small" :for="'sig-terms-' + detail.key">
+                I accept the
+                <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>
+                (v{{ state.terms.version }}, {{ shortWhen(state.terms.at) }}).
+              </label>
+            </div>
+            <p class="form-text mb-0">
+              Confirms receipt of the listed items<span v-if="state.terms.active"> and the terms</span>.
+            </p>
+          </div>
         </div>
       </template>
 
       <!-- The same two actions as the overview's bar, on this hand-over: what
            is ticked here, or the whole booking when nothing is. -->
       <template #footer>
-        <span class="small text-secondary flex-grow-1">
-          {{ detailLines.length }} line(s) · {{ detailUnits }} unit(s)
+        <Menu up align="start" label="Documents and sharing" icon="bi-three-dots"
+              button-class="trax-icon-btn">
+          <button class="trax-menu-item" :disabled="exporting" @click="bookingPdf(detail)"
+                  :aria-label="'Handover PDF for ' + detail.customerName">
+            <i class="bi bi-filetype-pdf"></i> Handover PDF
+          </button>
+          <button class="trax-menu-item" :disabled="exporting" @click="rentalPdf(detail)"
+                  :aria-label="'Rental quote PDF for ' + detail.customerName">
+            <i class="bi bi-receipt"></i> Rental quote PDF
+          </button>
+          <template v-if="bookingOf(detail)">
+            <div class="trax-menu-sep"></div>
+            <button class="trax-menu-item" @click="copyLink(detail)"
+                    :aria-label="'Copy the booking link for ' + detail.customerName">
+              <i class="bi bi-link-45deg"></i> Copy booking link
+            </button>
+            <button class="trax-menu-item" :disabled="state.loading" @click="resendEmail(detail)"
+                    :aria-label="'Re-send the confirmation to ' + detail.customerEmail">
+              <i class="bi bi-envelope"></i> Resend confirmation
+            </button>
+          </template>
+        </Menu>
+        <span class="small text-secondary text-nowrap" :title="plural(detailLines.length, 'line')">
+          {{ plural(detailUnits, 'unit') }}
         </span>
-        <button class="btn btn-sm btn-outline-secondary" @click="detailExtend">
+        <span class="flex-grow-1"></span>
+        <button class="btn btn-outline-secondary" @click="detailExtend">
           <i class="bi bi-calendar-plus"></i> Extend
         </button>
-        <button class="btn btn-sm btn-success" @click="detailCheckIn">
+        <button class="btn btn-primary" @click="detailCheckIn">
           <i class="bi bi-box-arrow-in-left"></i> Check in
         </button>
       </template>
     </Drawer>
 
     <ConfirmDialog v-if="unsigning"
-                   title="Remove this signature?"
-                   :message="'The signature of ' + unsigning.signature.name + ' and its image are deleted. '
-                     + 'The hand-over can then be signed again, at the counter or on the booking link.'"
+                   title="Remove signature?"
+                   :message="'Deletes the signature of ' + unsigning.signature.name + '. The booking can be signed again.'"
                    confirm-label="Remove" danger
                    @confirm="removeSignature" @cancel="unsigning = null" />
 
     <ConfirmDialog v-if="confirmReturn"
-                   title="Check these items back in?"
-                   :message="selectedUnits + ' unit(s) across ' + selected.length + ' line(s) will be marked returned.'"
+                   title="Check in?"
+                   :message="plural(selectedUnits, 'unit') + ' on ' + plural(selected.length, 'line') + ' will be marked returned.'"
                    confirm-label="Check in"
                    @confirm="doReturn" @cancel="confirmReturn = false">
-      <div class="form-check mt-3">
-        <input class="form-check-input" type="checkbox" id="notify-return" v-model="notify">
-        <label class="form-check-label small" for="notify-return">Email the customer</label>
+      <div class="form-check form-switch mt-3 mb-0">
+        <input class="form-check-input" type="checkbox" role="switch" id="notify-return" v-model="notify">
+        <label class="form-check-label small ms-1" for="notify-return">Email the customer</label>
       </div>
     </ConfirmDialog>
 
@@ -1008,30 +1053,27 @@ export default {
          camera directly: this is somebody standing at the counter with it. -->
     <ConfirmDialog v-if="photoLine"
                    title="Condition photos"
-                   :message="'Of ' + (photoLine.name || ('#' + photoLine.assetId)) + ' — up to ' + MAX_PHOTOS + ' at once.'"
+                   :message="(photoLine.name || ('#' + photoLine.assetId)) + ' · up to ' + MAX_PHOTOS + ' at once'"
                    confirm-label="Upload"
                    @confirm="uploadItemPhotos" @cancel="closePhotos()">
       <div class="mt-3">
-        <label class="form-label small mb-1" for="item-photos">Photos</label>
         <input id="item-photos" class="form-control form-control-sm" type="file"
-               multiple accept="image/*" capture="environment" @change="pickItemPhotos">
-
-        <div v-if="itemFiles.length" class="d-flex align-items-center gap-2 mt-2">
-          <span class="trax-kind-chip">
-            <i class="bi bi-camera"></i> {{ itemFiles.length }} photo(s) ready
-          </span>
+               multiple accept="image/*" capture="environment" aria-label="Photos"
+               @change="pickItemPhotos">
+        <div v-if="itemFiles.length" class="small text-secondary mt-2">
+          <i class="bi bi-camera"></i> {{ plural(itemFiles.length, 'photo') }} ready
         </div>
         <input class="form-control form-control-sm mt-2"
                v-model="itemNote" aria-label="Comment on these photos"
-               placeholder="What is damaged on this item?">
+               placeholder="What is damaged?">
       </div>
     </ConfirmDialog>
 
     <ConfirmDialog v-if="extending"
-                   title="Extend the return date"
+                   title="Extend"
                    confirm-label="Extend"
                    @confirm="doExtend" @cancel="extending = false">
-      <label class="form-label small mt-3" for="extend-to">New return date</label>
+      <label class="form-label mt-2" for="extend-to">New return date</label>
       <input id="extend-to" type="datetime-local" class="form-control form-control-sm"
              v-model="extendTo" data-autofocus>
     </ConfirmDialog>

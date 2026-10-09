@@ -216,7 +216,7 @@ export function buildTimeline({ windowStart, windowEnd, rows, reservations, chec
         kind: 'reservation',
         qty,
         label: (reservation.customerName || 'Reserved') + (qty > 1 ? ` ×${qty}` : ''),
-        tooltip: `Reserved ×${qty} · ${reservation.customerName} · ${reservation.notes || ''}`.trim(),
+        tooltip: [`Reserved ×${qty}`, reservation.customerName, reservation.notes].filter(Boolean).join(' · '),
         refId: reservation.id,
         refKind: 'reservation',
       });

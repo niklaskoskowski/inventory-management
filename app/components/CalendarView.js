@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue';
 import { state, items, sets, getAsset } from '../store.js';
 import { buildTimeline } from '../lib/schedule.js';
-import { startOfDay, addDays, formatDate, formatDateTime } from '../lib/format.js';
+import { startOfDay, addDays, formatDate, formatDateTime, getUiLocale } from '../lib/format.js';
 
 /**
  * Booking calendar.
@@ -56,7 +56,8 @@ export default {
     );
 
     const gridStyle = computed(() => ({
-      '--trax-tl-label': '180px',
+      // Narrower on a phone, so the days get most of the screen.
+      '--trax-tl-label': 'clamp(104px, 26vw, 200px)',
       '--trax-tl-lane': '18px',
       gridTemplateColumns: `var(--trax-tl-label) repeat(${model.value.dayCount}, minmax(26px, 1fr))`,
     }));
@@ -68,54 +69,78 @@ export default {
       picked.value = { band, row };
     };
 
+    /** "Oct 9 – Nov 9, 2026": the window, compactly. */
+    const rangeLabel = computed(() => {
+      const from = model.value.windowStart;
+      const to = model.value.windowEnd;
+      try {
+        const locale = getUiLocale();
+        const sameYear = from.getFullYear() === to.getFullYear();
+        const a = from.toLocaleDateString(locale, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+        const b = to.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' });
+        return `${a} – ${b}`;
+      } catch {
+        return `${formatDate(from)} – ${formatDate(to)}`;
+      }
+    });
+
     return {
       state, anchor, days, scope, onlyBusy, picked, model, visibleRows, gridStyle,
-      shift, today, pickBand, formatDate, formatDateTime, getAsset, emit,
+      shift, today, pickBand, rangeLabel, formatDate, formatDateTime, getAsset, emit,
     };
   },
   template: `
-    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-      <div class="btn-group btn-group-sm">
-        <button class="btn btn-outline-secondary" @click="shift(-days)" aria-label="Previous period">
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <div class="btn-group btn-group-sm" role="group" aria-label="Move the range">
+        <button class="btn btn-outline-secondary" @click="shift(-days)"
+                aria-label="Previous period" title="Previous period">
           <i class="bi bi-chevron-double-left"></i>
         </button>
-        <button class="btn btn-outline-secondary" @click="shift(-7)">−7d</button>
+        <button class="btn btn-outline-secondary" @click="shift(-7)"
+                aria-label="Back 7 days" title="Back 7 days">
+          <i class="bi bi-chevron-left"></i>
+        </button>
         <button class="btn btn-outline-secondary" @click="today()">Today</button>
-        <button class="btn btn-outline-secondary" @click="shift(7)">+7d</button>
-        <button class="btn btn-outline-secondary" @click="shift(days)" aria-label="Next period">
+        <button class="btn btn-outline-secondary" @click="shift(7)"
+                aria-label="Forward 7 days" title="Forward 7 days">
+          <i class="bi bi-chevron-right"></i>
+        </button>
+        <button class="btn btn-outline-secondary" @click="shift(days)"
+                aria-label="Next period" title="Next period">
           <i class="bi bi-chevron-double-right"></i>
         </button>
       </div>
 
-      <strong class="small">
-        {{ formatDate(model.windowStart) }} – {{ formatDate(model.windowEnd) }}
+      <strong class="text-nowrap" :title="formatDate(model.windowStart) + ' – ' + formatDate(model.windowEnd)">
+        {{ rangeLabel }}
       </strong>
 
-      <select class="form-select form-select-sm" style="width:auto" v-model.number="days"
-              aria-label="Range length">
-        <option :value="14">2 weeks</option>
-        <option :value="31">1 month</option>
-        <option :value="62">2 months</option>
-        <option :value="92">3 months</option>
-      </select>
+      <div class="d-flex align-items-center gap-2 flex-wrap ms-lg-auto">
+        <select class="trax-chip-select" v-model.number="days" aria-label="Range length">
+          <option :value="14">2 weeks</option>
+          <option :value="31">1 month</option>
+          <option :value="62">2 months</option>
+          <option :value="92">3 months</option>
+        </select>
 
-      <div class="btn-group btn-group-sm" role="group" aria-label="Row scope">
-        <button class="btn" :class="scope === 'assets' ? 'btn-secondary' : 'btn-outline-secondary'"
-                @click="scope = 'assets'">Items</button>
-        <button class="btn" :class="scope === 'sets' ? 'btn-secondary' : 'btn-outline-secondary'"
-                @click="scope = 'sets'">Kits</button>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Rows">
+          <button class="btn" :class="scope === 'assets' ? 'btn-secondary' : 'btn-outline-secondary'"
+                  @click="scope = 'assets'">Items</button>
+          <button class="btn" :class="scope === 'sets' ? 'btn-secondary' : 'btn-outline-secondary'"
+                  @click="scope = 'sets'">Kits</button>
+        </div>
+
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" role="switch" id="only-busy" v-model="onlyBusy">
+          <label class="form-check-label small ms-1" for="only-busy">Booked only</label>
+        </div>
       </div>
+    </div>
 
-      <div class="form-check form-switch ms-1">
-        <input class="form-check-input" type="checkbox" id="only-busy" v-model="onlyBusy">
-        <label class="form-check-label small" for="only-busy">Only booked</label>
-      </div>
-
-      <span class="ms-auto small text-secondary d-flex align-items-center gap-2">
-        <span><i class="trax-tl-key" style="background:var(--trax-rsvd)"></i> reserved</span>
-        <span><i class="trax-tl-key" style="background:var(--trax-unav)"></i> out</span>
-        <span><i class="trax-tl-key" style="background:repeating-linear-gradient(45deg,#e5534b 0 4px,#7d1f1a 4px 8px)"></i> overdue</span>
-      </span>
+    <div class="trax-tl-legend mb-2" aria-label="Legend">
+      <span><i class="trax-tl-key kind-reservation"></i> Reserved</span>
+      <span><i class="trax-tl-key kind-checkout"></i> Out</span>
+      <span><i class="trax-tl-key kind-overdue"></i> Overdue</span>
     </div>
 
     <div class="trax-timeline-scroll">
@@ -163,19 +188,27 @@ export default {
     </p>
 
     <!-- Detail for a clicked band -->
-    <div v-if="picked" class="trax-card trax-card-pad mt-3">
-      <div class="d-flex align-items-start gap-2">
-        <div class="flex-grow-1">
-          <h3 class="trax-page-title">
-            {{ picked.band.kind === 'reservation' ? 'Reservation' : 'Checkout' }} · {{ picked.band.label }}
-          </h3>
-          <p class="small text-secondary mb-1">{{ picked.band.tooltip }}</p>
-          <p class="small mb-0">Row: {{ picked.row.label }}</p>
+    <div v-if="picked" class="trax-list mt-3">
+      <div class="trax-row">
+        <span class="trax-tl-key flex-shrink-0" :class="'kind-' + picked.band.kind"></span>
+        <div class="trax-row-main">
+          <div class="trax-row-title">
+            <span>{{ picked.band.label }}</span>
+            <span class="text-secondary fw-normal small flex-shrink-0">
+              {{ picked.band.kind === 'reservation' ? 'Reservation' : 'Checkout' }}
+            </span>
+          </div>
+          <div class="trax-row-meta">
+            <span>{{ picked.row.label }}</span>
+            <span>{{ picked.band.tooltip }}</span>
+          </div>
         </div>
         <button class="btn btn-sm btn-outline-secondary" @click="emit('open', picked.row.id)">
-          Open asset
+          Open
         </button>
-        <button class="btn-close btn-close-white" aria-label="Close" @click="picked = null"></button>
+        <button class="trax-close" aria-label="Close" @click="picked = null">
+          <i class="bi bi-x-lg"></i>
+        </button>
       </div>
     </div>
   `,

@@ -19,6 +19,21 @@ only record. There is no git history to mine.
   phones, drawers as floating inspectors on desktop and swipe-to-dismiss sheets on phones
   (`ui/Drawer.js`), a pop-up `ui/Menu.js`, the phone inventory as an inset grouped list, filter
   chips, a floating selection bar, and a regrouped, shorter Selection tray.
+- **The rest of the app in the same look:** Overview as widgets, Insights, Checkouts, Reservations,
+  Events and Calendar as grouped lists with rare actions in menus, the asset sheet as an inspector
+  (photo, status, key facts, segmented tabs, grouped fields), label drawer, kit editor, bulk edit,
+  event sheet, Settings like System Settings (sidebar on desktop, Appearance control first), the
+  scanner, the lightbox and iOS-style confirm alerts. Sign-in, booking page, asset tag page, board,
+  terms and installer (`public.css`) follow light/dark from the system. Explanatory texts cut to
+  short hints or tooltips throughout. Settings → *Defaults* is now *General* and opens first;
+  *Authentication* reads *Sign-in*.
+
+### Fixed
+
+- The phone scanner's overlay was unreadable in the light theme (dark text on the dark scrim): the
+  full-screen stage is now always dark.
+- Escape in a menu inside a drawer closed the whole drawer.
+- A calendar band's tooltip ended in a stray "·" for a reservation without notes.
 
 ## 2026-10-08
 

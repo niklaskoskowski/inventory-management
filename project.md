@@ -743,6 +743,28 @@ so it is served by `index.php` as the `DirectoryIndex`.)
 - CSS: `app/app.css` is a dark-only theme layer of `--trax-*` tokens that also re-points Bootstrap's
   `--bs-*` variables; `public.css` covers the public pages.
 
+### Look & feel (branch `UI-test`)
+
+- **One design system in `app/app.css`**: tokens per theme on `[data-bs-theme='light'|'dark']`
+  (`--trax-bg/surface/fill/border/text/muted/accent…`, status colours `--st-FREE…`), Bootstrap
+  re-skinned through its own variables. Templates use tokens, never hex colours (exceptions: white
+  behind labels, signature pads and the camera stage, which is forced dark).
+- **Theme**: `app/lib/theme.js` (`theme.pref` auto|light|dark, `setThemePref()`, localStorage
+  `traxTheme`, per device). `admin.php` sets `data-bs-theme` before the first paint with the same
+  rule. Public pages (`public.css`) follow `prefers-color-scheme` only.
+- **Building blocks**: grouped lists (`.trax-list-header`, `.trax-list`, `.trax-row`,
+  `.trax-row-main/-title/-meta`, `.trax-kv`), `.trax-status-dot`, `.trax-kind-chip`, `.trax-close`
+  / `.trax-icon-btn`, segmented controls (a `.btn-group` of `btn-outline-secondary`/`btn-secondary`,
+  or `.nav-pills`/`.nav-tabs`), chip selects (`.trax-chip-select`), `ui/Menu.js` for rare actions,
+  `ui/ConfirmDialog.js` as an iOS-style alert (`.trax-alert*`).
+- **Shell**: grouped sidebar + account menu (appearance, sign out) on desktop; on phones a compact
+  title bar, a tab bar (Inventory, Checkouts, Scan, Reservations, More) and a *More* sheet.
+- **Drawer** (`ui/Drawer.js`): floating inspector on desktop, bottom sheet on phones with
+  swipe-to-dismiss (pointer events, momentum projection) and an animated close. Escape is left to an
+  open menu or alert on top. `data-autofocus="desktop"` focuses only where no keyboard pops up.
+- **Copy**: short labels, hints of a few words or a `title=` tooltip; no explanatory paragraphs in
+  the UI.
+
 ## Conventions & gotchas
 
 - **All UI strings are hard-coded English. There is no i18n.** Only dates, numbers and currency

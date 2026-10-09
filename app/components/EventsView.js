@@ -1,12 +1,13 @@
 import { ref, computed } from 'vue';
 import { state, saveEvent, toast, getAsset } from '../store.js';
-import { formatDateTime, formatTotals, parseDate } from '../lib/format.js';
+import { formatDateTime, formatTotals, parseDate, getUiLocale } from '../lib/format.js';
 import { valueOfLines } from '../lib/insights.js';
 import {
   rentalDays as hireDays, rentalOfLines, daysLabel, HIRE_LABEL, hireOf,
 } from '../lib/rental.js';
 import { bookedOn, byStart, eventSettings, isClosed, isRunning, linesOf, statusOf } from '../lib/events.js';
 import { exportRentalPdf } from '../lib/pdf.js';
+import Menu from './ui/Menu.js';
 
 /**
  * The jobs the gear goes out on.
@@ -25,6 +26,7 @@ const FILTERS = [
 
 export default {
   name: 'EventsView',
+  components: { Menu },
   emits: ['open', 'edit'],
   setup(props, { emit }) {
     const filter = ref('open');
@@ -122,90 +124,118 @@ export default {
       }
     };
 
-    /** "12 Jun, 08:00 → 14 Jun, 23:00", or what is known of it. */
+    /** "Oct 12, 8:00 AM", the year only when it is not this one. */
+    const shortWhen = (value) => {
+      const date = parseDate(value);
+      if (!date) return '—';
+      const options = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+      if (date.getFullYear() !== new Date().getFullYear()) options.year = 'numeric';
+      try {
+        return date.toLocaleString(getUiLocale(), options);
+      } catch {
+        return formatDateTime(value);
+      }
+    };
+
+    /** "Jun 12, 8:00 AM → Jun 14, 11:00 PM", or what is known of it. */
     const dateWindow = (event) => {
       if (!event.startAt && !event.endAt) return 'No dates yet';
       if (event.startAt && event.endAt) {
-        return `${formatDateTime(event.startAt)} → ${formatDateTime(event.endAt)}`;
+        return `${shortWhen(event.startAt)} → ${shortWhen(event.endAt)}`;
       }
-      return event.startAt ? `from ${formatDateTime(event.startAt)}` : `until ${formatDateTime(event.endAt)}`;
+      return event.startAt ? `from ${shortWhen(event.startAt)}` : `until ${shortWhen(event.endAt)}`;
     };
 
+    const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? '' : 's'}`;
+
     return {
-      state, FILTERS, filter, rows, counts, workflow, busy, exporting, expanded,
-      setStatus, toggle, rentalPdf, dateWindow,
+      state, FILTERS, plural, filter, rows, counts, workflow, busy, exporting, expanded,
+      setStatus, toggle, rentalPdf, dateWindow, shortWhen,
       formatDateTime, formatTotals, daysLabel, HIRE_LABEL, parseDate, getAsset, emit,
     };
   },
   template: `
-    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <div class="d-flex align-items-center gap-2 mb-3">
       <div class="btn-group btn-group-sm" role="group" aria-label="Filter events">
         <button v-for="tab in FILTERS" :key="tab.id" type="button" class="btn"
                 :class="filter === tab.id ? 'btn-secondary active' : 'btn-outline-secondary'"
+                :aria-pressed="filter === tab.id ? 'true' : 'false'"
                 @click="filter = tab.id">
           {{ tab.label }}
         </button>
       </div>
-      <span class="text-secondary small flex-grow-1">
-        {{ counts.open }} open · {{ counts.total }} in total
+      <span class="text-secondary small flex-grow-1 d-none d-sm-inline">
+        {{ counts.open }} open · {{ counts.total }} total
       </span>
-      <button class="btn btn-sm btn-primary" @click="emit('edit', null)">
-        <i class="bi bi-plus-lg"></i> New event
+      <span class="flex-grow-1 d-sm-none"></span>
+      <button class="btn btn-sm btn-primary" @click="emit('edit', null)" aria-label="New event">
+        <i class="bi bi-plus-lg"></i> New<span class="d-none d-sm-inline"> event</span>
       </button>
     </div>
 
     <div v-if="!rows.length" class="trax-empty">
       <i class="bi bi-calendar-event"></i>
-      <p class="mb-1"><strong>No events here</strong></p>
-      <p class="small mb-3">
-        An event is a job the gear goes out on — a festival, a conference, a shoot. Create one, then
-        pick it in the selection drawer when you check gear out or reserve it, and everything on the
-        job is listed together.
-      </p>
+      <strong>No events</strong>
+      <div class="small mt-1 mb-3">Group gear by job: a festival, a shoot, a conference.</div>
       <button class="btn btn-sm btn-primary" @click="emit('edit', null)">
         <i class="bi bi-plus-lg"></i> New event
       </button>
     </div>
 
-    <div v-else class="d-flex flex-column gap-3">
-      <article v-for="row in rows" :key="row.event.id" class="trax-card">
-        <div class="trax-card-pad d-flex align-items-start gap-2 flex-wrap">
-          <div class="flex-grow-1 min-w-0">
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <button class="trax-name-btn" @click="emit('edit', row.event.id)">
-                <strong>{{ row.event.name }}</strong>
+    <div v-else class="trax-list">
+      <article v-for="row in rows" :key="row.event.id" class="trax-row align-items-start flex-wrap">
+        <div class="trax-row-main">
+          <div class="d-flex align-items-start gap-2">
+            <div class="trax-row-title flex-grow-1 min-w-0 pt-1">
+              <button class="trax-name-btn text-truncate mw-100" @click="emit('edit', row.event.id)">
+                {{ row.event.name }}
               </button>
-              <!-- The status is a chip in its own colour, and the select next
-                   to it is how the job actually moves along. -->
-              <span class="trax-badge" :style="{ backgroundColor: row.status.color, color: '#fff' }">
-                {{ row.status.label }}
-              </span>
-              <span v-if="row.running" class="trax-kind-chip">
-                <i class="bi bi-broadcast"></i> running
-              </span>
-              <span v-if="row.event.client" class="text-secondary small">{{ row.event.client }}</span>
-            </div>
-
-            <div class="small text-secondary mt-1">
-              {{ dateWindow(row.event) }}
-              <span v-if="row.event.location"> · {{ row.event.location }}</span>
-              <span v-if="row.event.contact"> · {{ row.event.contact }}</span>
-            </div>
-
-            <div class="small text-secondary">
-              <strong>{{ row.booked.units }}</strong> unit(s) out on
-              {{ row.booked.lines.length }} line(s)<span v-if="row.booked.reservations.length">,
-              {{ row.booked.reservations.length }} reservation(s)</span>
-              <span v-if="row.booked.lines.length">
-                · <span class="trax-kind-chip">{{ HIRE_LABEL[row.hire] }}</span>
-                Value {{ formatTotals(row.value.totals) }} ·
-                Rental {{ daysLabel(row.days) }}: <strong>{{ formatTotals(row.rental.totals) }}</strong>
+              <span v-if="row.running" class="trax-badge status-FREE flex-shrink-0">
+                <span class="trax-badge-dot"></span> Running
               </span>
             </div>
+            <Menu :label="'More for ' + row.event.name">
+              <button class="trax-menu-item" @click="emit('edit', row.event.id)"
+                      :aria-label="'Edit ' + row.event.name">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
+              <button class="trax-menu-item"
+                      :disabled="exporting === row.event.id || !row.booked.lines.length"
+                      :aria-label="'Rental quote PDF for ' + row.event.name"
+                      @click="rentalPdf(row)">
+                <i class="bi bi-receipt"></i> Rental quote PDF
+              </button>
+            </Menu>
           </div>
 
-          <div class="d-flex align-items-center gap-1 flex-wrap">
-            <select class="form-select form-select-sm" style="width:10rem"
+          <div class="trax-row-meta">
+            <span>{{ dateWindow(row.event) }}</span>
+            <span v-if="row.event.client">{{ row.event.client }}</span>
+            <span v-if="row.event.location"><i class="bi bi-geo-alt"></i> {{ row.event.location }}</span>
+            <span v-if="row.event.contact"><i class="bi bi-person"></i> {{ row.event.contact }}</span>
+          </div>
+
+          <div class="trax-row-meta">
+            <span v-if="!row.booked.units && !row.booked.reservations.length">Nothing booked</span>
+            <span v-else>
+              {{ plural(row.booked.units, 'unit') }} out<span v-if="row.booked.reservations.length">
+              · {{ plural(row.booked.reservations.length, 'reservation') }}</span>
+            </span>
+            <template v-if="row.booked.lines.length">
+              <span class="trax-kind-chip">{{ HIRE_LABEL[row.hire] }}</span>
+              <span>Value {{ formatTotals(row.value.totals) }}</span>
+              <span>Rental · {{ daysLabel(row.days) }} <strong class="fw-semibold">{{ formatTotals(row.rental.totals) }}</strong></span>
+            </template>
+            <span v-if="exporting === row.event.id" class="spinner-border spinner-border-sm"></span>
+          </div>
+
+          <div v-if="row.event.notes" class="trax-row-notes">{{ row.event.notes }}</div>
+
+          <div class="d-flex align-items-center gap-2 flex-wrap mt-2">
+            <!-- The status is how the job moves along: the one edit made
+                 straight from the list, while somebody holds a flight case. -->
+            <span class="trax-color-dot" :style="{ color: row.status.color }" aria-hidden="true"></span>
+            <select class="trax-chip-select"
                     :value="row.event.status" :disabled="busy === row.event.id"
                     :aria-label="'Status of ' + row.event.name"
                     @change="setStatus(row, $event.target.value)">
@@ -216,58 +246,51 @@ export default {
                    or the select would silently show something else. -->
               <option v-if="!row.status.known" :value="row.status.id">{{ row.status.label }}</option>
             </select>
-            <button class="btn btn-sm btn-outline-secondary"
-                    :disabled="exporting === row.event.id || !row.booked.lines.length"
-                    :aria-label="'Rental quote PDF for ' + row.event.name"
-                    @click="rentalPdf(row)">
-              <span v-if="exporting === row.event.id" class="spinner-border spinner-border-sm"></span>
-              <i v-else class="bi bi-receipt"></i>
-            </button>
-            <button class="btn btn-sm btn-outline-secondary"
-                    :aria-label="'Edit ' + row.event.name" @click="emit('edit', row.event.id)">
-              <i class="bi bi-pencil"></i>
-            </button>
             <button v-if="row.booked.lines.length || row.booked.reservations.length"
-                    class="btn btn-sm btn-outline-secondary"
+                    class="btn btn-sm btn-link px-1 ms-auto"
+                    :aria-expanded="expanded[row.event.id] ? 'true' : 'false'"
                     :aria-label="'Show what is booked on ' + row.event.name"
                     @click="toggle(row.event.id)">
+              {{ expanded[row.event.id] ? 'Hide gear' : 'Show gear' }}
               <i class="bi" :class="expanded[row.event.id] ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
             </button>
           </div>
-        </div>
 
-        <!-- What is on the job, out of the records that name it. -->
-        <ul v-if="expanded[row.event.id]" class="list-group list-group-flush">
-          <li v-for="line in row.booked.lines" :key="'l' + line.lineId"
-              class="list-group-item bg-transparent d-flex align-items-center gap-2">
-            <i class="bi bi-box-arrow-right text-secondary"></i>
-            <button class="trax-name-btn flex-grow-1" @click="emit('open', line.assetId)">
-              {{ line.name || ('#' + line.assetId) }}
-            </button>
-            <span class="trax-kind-chip">×{{ line.qty }}</span>
-            <span v-if="line.unitNos?.length" class="trax-kind-chip font-monospace">
-              {{ line.unitNos.map(no => line.assetId + '.' + no).join(', ') }}
-            </span>
-            <span class="small text-secondary">
-              {{ line.customerName }} · due {{ formatDateTime(line.dueAt || line.returnDate) }}
-            </span>
-          </li>
+          <!-- What is on the job, out of the records that name it. -->
+          <div v-if="expanded[row.event.id]" class="trax-card mt-2">
+            <div v-for="line in row.booked.lines" :key="'l' + line.lineId" class="trax-row">
+              <i class="bi bi-box-arrow-right text-secondary"></i>
+              <div class="trax-row-main">
+                <div class="trax-row-title">
+                  <button class="trax-name-btn text-truncate mw-100" @click="emit('open', line.assetId)">
+                    {{ line.name || ('#' + line.assetId) }}
+                  </button>
+                </div>
+                <div class="trax-row-meta">
+                  <span>×{{ line.qty }}</span>
+                  <span v-if="line.unitNos?.length" class="trax-kind-chip font-monospace">
+                    {{ line.unitNos.map(no => line.assetId + '.' + no).join(', ') }}
+                  </span>
+                  <span>{{ line.customerName }}</span>
+                  <span>due {{ shortWhen(line.dueAt || line.returnDate) }}</span>
+                </div>
+              </div>
+            </div>
 
-          <li v-for="reservation in row.booked.reservations" :key="'r' + reservation.id"
-              class="list-group-item bg-transparent d-flex align-items-center gap-2">
-            <i class="bi bi-calendar-check text-secondary"></i>
-            <span class="flex-grow-1">
-              Reservation #{{ reservation.id }} · {{ reservation.customerName }}
-            </span>
-            <span class="trax-kind-chip">{{ (reservation.items || []).length }} item(s)</span>
-            <span class="small text-secondary">
-              {{ formatDateTime(reservation.startAt) }} → {{ formatDateTime(reservation.endAt) }}
-            </span>
-          </li>
-        </ul>
-
-        <div v-if="row.event.notes" class="trax-card-pad pt-0 small text-secondary">
-          {{ row.event.notes }}
+            <div v-for="reservation in row.booked.reservations" :key="'r' + reservation.id" class="trax-row">
+              <i class="bi bi-calendar-check text-secondary"></i>
+              <div class="trax-row-main">
+                <div class="trax-row-title">
+                  <span>{{ reservation.customerName }}</span>
+                  <span class="text-secondary fw-normal small">#{{ reservation.id }}</span>
+                </div>
+                <div class="trax-row-meta">
+                  <span>{{ plural((reservation.items || []).length, 'item') }}</span>
+                  <span>{{ shortWhen(reservation.startAt) }} → {{ shortWhen(reservation.endAt) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </article>
     </div>

@@ -42,6 +42,8 @@ export default {
 
     const onKeydown = (event) => {
       if (event.key === 'Escape') {
+        // An open menu or alert on top takes the Escape for itself.
+        if (document.querySelector('.trax-menu-list, [role="alertdialog"]')) return;
         event.stopPropagation();
         requestClose();
         return;
