@@ -221,6 +221,9 @@ export const state = reactive({
   // until it first opens), `stash` the selection that was there before, put
   // back when the edit is saved or dropped.
   reservationEdit: null,
+  // The booking whose hand-over signature is being asked for right now, or
+  // null. Set after a checkout so the counter is prompted, not left to remember.
+  signPrompt: null,
   view: 'inventory',
   filters: loadViewState(),
   expandedSets: {},
@@ -1174,6 +1177,16 @@ export function termsUrl(version = null) {
 }
 
 /** Clears it, and deletes the drawing. The only way a booking can be re-signed. */
+/** The customer was asked to sign at the counter and refused; `note` is optional. */
+export async function declineSignature(bookingId, note = '') {
+  return mutate('booking.declineSignature', { bookingId, note });
+}
+
+/** Opens the signature sheet for a booking (after a checkout, or from Checkouts). */
+export function askSignature(bookingId) {
+  state.signPrompt = Number(bookingId) || null;
+}
+
 export async function unsignBooking(bookingId) {
   return mutate('booking.unsign', { bookingId });
 }

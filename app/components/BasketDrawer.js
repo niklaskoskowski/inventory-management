@@ -2,7 +2,7 @@ import { ref, computed, watch } from 'vue';
 import {
   state, assetById, selectedItemIds, selectedItems, selectedExpanded, selectedUnitCount,
   mutate, toast, toggleSelected, clearSelection, getAsset,
-  getQuantity, setQuantity, getUnitChoice, toggleUnitChoice, stopReservationEdit,
+  getQuantity, setQuantity, getUnitChoice, toggleUnitChoice, stopReservationEdit, askSignature,
 } from '../store.js';
 import { findConflicts } from '../lib/schedule.js';
 import { valueOfLines } from '../lib/insights.js';
@@ -259,6 +259,8 @@ export default {
             + (data.mailed ? ' Confirmation sent.' : ' Confirmation email could not be sent.'),
             data.mailed ? 'success' : 'warning',
           );
+          // Straight on to the hand-over signature, while the customer is here.
+          if (data.bookingId) askSignature(data.bookingId);
         } else if (editing.value) {
           const id = editing.value.id;
           await mutate('reservation.update', {

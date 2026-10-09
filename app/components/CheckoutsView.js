@@ -1,7 +1,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import {
   state, mutate, toast, getAsset, load, eventById, openPreview,
-  signBooking, unsignBooking, termsUrl,
+  signBooking, unsignBooking, termsUrl, askSignature,
 } from '../store.js';
 import * as api from '../api.js';
 import {
@@ -15,7 +15,6 @@ import { exportBookingPdf, exportRentalPdf } from '../lib/pdf.js';
 import ConfirmDialog from './ui/ConfirmDialog.js';
 import Drawer from './ui/Drawer.js';
 import Menu from './ui/Menu.js';
-import SignaturePad from './SignaturePad.js';
 
 /**
  * The booking a scan asked for, parked until this view is on screen.
@@ -41,7 +40,7 @@ export function openCheckout(bookingId) {
  */
 export default {
   name: 'CheckoutsView',
-  components: { ConfirmDialog, Drawer, Menu, SignaturePad },
+  components: { ConfirmDialog, Drawer, Menu },
   emits: ['open'],
   setup(props, { emit }) {
     // Selection is by lineId now — an asset id can appear on several lines.
@@ -435,6 +434,7 @@ export default {
           // prints the rule to sign on paper.
           handedOverBy: booking?.handedOverBy || '',
           signature: booking?.signature || null,
+          signatureDeclined: booking?.signatureDeclined || null,
           terms: pdfTerms(booking),
           // Printed as a QR code: the sheet is the checklist the gear travels
           // with, and the code is how the customer gets from paper back to
@@ -575,7 +575,13 @@ export default {
     const signBusy = ref(false);
     const unsigning = ref(null);
 
+    // The same sheet the checkout opens: sign, record a decline, or later.
     const openSignature = (group) => {
+      const booking = bookingOf(group);
+      if (booking) {
+        askSignature(booking.id);
+        return;
+      }
       signing.value = group.key;
       // Prefilled with who the booking is for; whoever actually signs can
       // overwrite it, which is the point of asking at all.
@@ -765,6 +771,9 @@ export default {
               <span>{{ group.customerName }}</span>
               <i v-if="bookingOf(group) && bookingOf(group).signature" class="bi bi-pen text-secondary small"
                  :title="'Signed by ' + bookingOf(group).signature.name"></i>
+              <span v-else-if="bookingOf(group) && bookingOf(group).signatureDeclined" class="trax-kind-chip"
+                    title="Signature declined">Declined</span>
+              <span v-else-if="bookingOf(group)" class="trax-kind-chip" title="No hand-over signature yet">Not signed</span>
             </div>
             <div class="trax-row-meta">
               <span :class="{ 'text-danger': isOverdue(group.dueAt) }"
@@ -956,40 +965,24 @@ export default {
             </button>
           </div>
 
-          <div v-else-if="signing !== detail.key" class="trax-row">
-            <i class="bi bi-pen text-secondary"></i>
+          <div v-else-if="bookingOf(detail)" class="trax-row">
+            <i class="bi" :class="bookingOf(detail).signatureDeclined ? 'bi-x-circle text-danger' : 'bi-pen text-secondary'"></i>
             <div class="trax-row-main">
-              <div class="trax-row-title"><span>Not signed</span></div>
-              <div class="trax-row-meta">Or via the booking link</div>
+              <template v-if="bookingOf(detail).signatureDeclined">
+                <div class="trax-row-title"><span>Declined</span></div>
+                <div class="trax-row-meta">
+                  <span>{{ shortWhen(bookingOf(detail).signatureDeclined.at) }}</span>
+                  <span v-if="bookingOf(detail).signatureDeclined.actor">asked by {{ bookingOf(detail).signatureDeclined.actor }}</span>
+                  <span v-if="bookingOf(detail).signatureDeclined.note">{{ bookingOf(detail).signatureDeclined.note }}</span>
+                </div>
+              </template>
+              <div v-else class="trax-row-title"><span>Not signed</span></div>
             </div>
             <button class="btn btn-sm btn-outline-primary"
                     :aria-label="'Take a hand-over signature from ' + detail.customerName"
                     @click="openSignature(detail)">
               Sign now
             </button>
-          </div>
-
-          <!-- The pad: hand the tablet over, done. -->
-          <div v-else class="p-3">
-            <label class="form-label" :for="'sig-name-' + detail.key">Signed by</label>
-            <input class="form-control form-control-sm mb-2" :id="'sig-name-' + detail.key"
-                   v-model="signName" maxlength="200" placeholder="Name in block letters">
-            <SignaturePad :busy="signBusy" :locked="signLocked"
-                          @submit="saveSignature(detail, $event)" @cancel="closeSignature" />
-            <!-- The tick is the customer's, on the same screen they sign on; the
-                 version it was given for goes to the server with the drawing. -->
-            <div v-if="state.terms.active" class="form-check mt-2">
-              <input class="form-check-input" type="checkbox" :id="'sig-terms-' + detail.key"
-                     v-model="signTerms">
-              <label class="form-check-label small" :for="'sig-terms-' + detail.key">
-                I accept the
-                <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>
-                (v{{ state.terms.version }}, {{ shortWhen(state.terms.at) }}).
-              </label>
-            </div>
-            <p class="form-text mb-0">
-              Confirms receipt of the listed items<span v-if="state.terms.active"> and the terms</span>.
-            </p>
           </div>
         </div>
       </template>

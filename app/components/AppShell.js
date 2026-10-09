@@ -26,6 +26,7 @@ import BasketDrawer from './BasketDrawer.js';
 import LabelDrawer from './LabelDrawer.js';
 import ScanDrawer from './ScanDrawer.js';
 import BulkEditDrawer from './BulkEditDrawer.js';
+import SignatureSheet from './SignatureSheet.js';
 
 const NAV = [
   { id: 'dashboard', label: 'Overview', icon: 'bi-house', section: '' },
@@ -62,7 +63,7 @@ export default {
     ToastHost, Lightbox, Menu, Drawer, FilterBar, AssetTable, AssetCards, AssetSheet,
     DashboardView, CheckoutsView, ReservationsView, EventsView, EventSheet,
     CalendarView, InsightsView,
-    SettingsView, SetEditor, BasketDrawer, LabelDrawer, ScanDrawer, BulkEditDrawer,
+    SettingsView, SetEditor, BasketDrawer, LabelDrawer, ScanDrawer, BulkEditDrawer, SignatureSheet,
   },
   setup() {
     // Open drawers. Only one asset sheet at a time; `sheetId === 0` means "new".
@@ -553,6 +554,9 @@ export default {
     <ScanDrawer v-if="showScanner" @close="showScanner = false"
                 @open="openAsset" @basket="showBasket = true"
                 @booking="openHandover" />
+
+    <!-- The hand-over signature: asked for right after a checkout. -->
+    <SignatureSheet v-if="state.signPrompt" :key="state.signPrompt" />
 
     <ToastHost />
 

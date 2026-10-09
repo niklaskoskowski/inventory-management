@@ -2755,6 +2755,7 @@ try {
                     $replaced = $booking['signature']['file'] ?? null;
 
                     trax_update_booking($data, $bookingId, static function (array $b) use ($name, $file, $actor, $terms): array {
+                        $b['signatureDeclined'] = null;
                         $b['signature'] = [
                             'file'   => $file,
                             // What the signer typed, or who the booking is for
@@ -2793,6 +2794,42 @@ try {
                 trax_snapshot($result['data'], $result['checkouts']),
                 $result['result']
             ), $result['rev']);
+        }
+
+        case 'booking.declineSignature': {
+            // The customer was asked at the counter and would not sign. Not a
+            // signature — a note that one was asked for, by whom and when.
+            $bookingId = req_int($payload, 'bookingId');
+            $note      = trax_str($payload['note'] ?? '', 500);
+
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($bookingId, $note, $actor): array {
+                $booking = trax_find_booking($data['bookings'], $bookingId);
+                if ($booking === null) {
+                    throw new TraxInvalid("Booking #{$bookingId} not found.");
+                }
+                if (($booking['signature'] ?? null) !== null) {
+                    throw new TraxInvalid('That booking is already signed.');
+                }
+
+                trax_update_booking($data, $bookingId, static function (array $b) use ($note, $actor): array {
+                    $b['signatureDeclined'] = [
+                        'at'    => gmdate('Y-m-d\TH:i:s.000\Z'),
+                        'actor' => $actor,
+                        'note'  => $note,
+                    ];
+                    return $b;
+                });
+
+                trax_append_history($data, 'booking_signature_declined', [
+                    'customerName' => $booking['customerName'],
+                    'note'         => 'Signature declined' . ($note !== '' ? ': ' . $note : ''),
+                    'actor'        => $actor,
+                ]);
+
+                return ['bookingId' => $bookingId];
+            });
+
+            trax_ok(array_merge(trax_snapshot($result['data'], $result['checkouts']), $result['result']), $result['rev']);
         }
 
         case 'booking.unsign': {
@@ -3306,6 +3343,7 @@ try {
                     'customer'     => [$reservation['customerName'], $reservation['customerEmail']],
                     'notes'        => $reservation['notes'],
                     'units'        => array_sum(array_column($records, 'qty')),
+                    'bookingId'    => $booking['id'] ?? null,
                     'bookingToken' => $booking['token'] ?? null,
                 ];
             });
@@ -3329,6 +3367,7 @@ try {
                 'checkedOut' => $result['result']['units'],
                 'lines'      => count($result['result']['records']),
                 'blocked'    => $result['result']['blocked'],
+                'bookingId'  => $result['result']['bookingId'],
             ]), $result['rev']);
         }
 

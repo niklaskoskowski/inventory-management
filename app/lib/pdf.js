@@ -553,6 +553,16 @@ function handover(doc, y, model, signature, termsLines = []) {
     doc.text(model.signedName, 112, y + 20);
     if (model.signedAt) doc.text(model.signedAt, 112, y + 24);
     doc.setTextColor(0, 0, 0);
+  } else if (model.declinedAt) {
+    // Asked at the counter and refused: said on the paper, where the drawing would be.
+    doc.setFontSize(9);
+    doc.setTextColor(170, 40, 30);
+    doc.text('Signature declined by the customer', 112, y + 8);
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text(model.declinedAt, 112, y + 20);
+    if (model.declinedNote) doc.text(doc.splitTextToSize(model.declinedNote, 78)[0], 112, y + 24);
+    doc.setTextColor(0, 0, 0);
   }
 
   // Across the full width, under both halves: it is what the whole hand-over
@@ -1744,6 +1754,10 @@ export function buildBookingDocument(booking = {}) {
     signedName: String(booking.signature?.name || '').trim(),
     signedAt: booking.signature?.at ? formatDateTime(booking.signature.at) : '',
     signatureFile: String(booking.signature?.file || '').trim(),
+    // Refused at the counter: printed instead of an empty rule.
+    declinedAt: !booking.signature && booking.signatureDeclined?.at
+      ? formatDateTime(booking.signatureDeclined.at) : '',
+    declinedNote: String(booking.signatureDeclined?.note || '').trim(),
     // The terms this hand-over is given under, as one sentence. Empty prints
     // nothing — no terms in force, or a signature taken without them.
     termsNote: termsNoteOf(booking, reservation),

@@ -300,17 +300,18 @@ One per booking, the customer's alone — `signature` on the booking record:
 always known and never in dispute. `buildBookingDocument()` prints one rule instead of the four it
 used to (the *Packed by / Checked by* pair is gone).
 
-Captured in two places, landing in the same field:
+Taken **at the counter only** (`SignatureSheet.js` → `booking.sign`, multipart). A checkout —
+from the Selection or a converted reservation — opens the sheet straight away (`askSignature()` /
+`state.signPrompt`), and Checkouts → *Sign now* opens the same one. Three answers: **Sign**,
+**Customer declines** (`booking.declineSignature` → `signatureDeclined: {at, actor, note}` on the
+booking, cleared by a later signature; printed on the hand-over PDF in place of the drawing; a
+"Declined" chip in Checkouts) or **Later** (nothing stored; "Not signed" chip). The drawing is
+cropped to the ink before upload: everything downstream scales it to fit. `signedName` has to be
+listed in the multipart payload allow-list in `api.php`.
 
-- **At the counter**, from the checkout card (`SignaturePad.js` → `booking.sign`, multipart). The
-  drawing is cropped to the ink before upload: everything downstream scales it to fit, and the
-  empty pad around a signature would print it small. `signedName` has to be listed in the
-  multipart payload allow-list in `api.php` — a field that array does not name never reaches the
-  action.
-- **On the customer's own link** (`booking.php`, the one write that page accepts). The token in the
-  URL is the capability; on top of it a honeypot, a per-session attempt counter, and one signature
-  ever — re-checked under the lock so a double tap cannot produce two. Only `booking.unsign` (admin)
-  clears it. POST/redirect/GET, so a reload never re-posts.
+The customer's link (`booking.php`) shows the signature once there is one and takes no writes —
+signing for gear already in hand on one's own phone afterwards proved nothing. Older signatures
+with `source: CUSTOMER` stay valid and display as before.
 
 The bitmap goes through `trax_store_photo_as()` like every other image — sniffed, decoded and
 re-encoded by GD — into `uploads/` under `sig-<32 hex>.jpg`. Random because `uploads/` is served

@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue';
 import {
-  state, mutate, toast, getAsset, eventById, startReservationEdit,
+  state, mutate, toast, getAsset, eventById, startReservationEdit, askSignature,
 } from '../store.js';
 import {
   formatDateTime, parseDate, toLocalInput, formatTotals, getUiLocale,
@@ -127,6 +127,7 @@ export default {
           'success',
         );
         converting.value = null;
+        if (data.bookingId) askSignature(data.bookingId);
       } catch (error) {
         if (error.isBlocked) {
           // Keep the dialog open and show exactly what is in the way.

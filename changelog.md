@@ -10,6 +10,17 @@ only record. There is no git history to mine.
 
 ### Changed
 
+- **Signature at the counter, asked for right after the checkout.** Checking out (or converting a
+  reservation) opens a *Signature* sheet: sign, record that the customer declined (with who asked,
+  when and an optional reason — `booking.declineSignature`, `signatureDeclined` on the booking,
+  printed on the hand-over PDF), or *Later*. Checkouts marks bookings *Not signed* / *Declined*,
+  and *Sign now* opens the same sheet.
+- **The customer's booking link no longer offers signing** — it was asked after the gear had
+  already left. It still shows a signature taken at the counter.
+
+
+### Changed
+
 - **New look (preview):** an Apple-like design system in `app/app.css` — light and dark themes
   (automatic, or fixed per device via the account menu / More sheet, `app/lib/theme.js`,
   localStorage `traxTheme`, applied by `admin.php` before the first paint), Inter as the bundled

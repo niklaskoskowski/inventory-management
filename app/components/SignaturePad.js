@@ -25,6 +25,8 @@ export default {
     // Empty means nothing is in the way. The pad stays drawable either way:
     // the order the customer does things in is theirs.
     locked: { type: String, default: '' },
+    cancelLabel: { type: String, default: 'Cancel' },
+    submitLabel: { type: String, default: 'Save signature' },
   },
   emits: ['submit', 'cancel'],
   setup(props, { emit }) {
@@ -180,11 +182,11 @@ export default {
                 :disabled="busy || !drawn" @click="reset">Clear</button>
         <span class="small text-secondary flex-grow-1">{{ drawn ? '' : 'Sign above' }}</span>
         <button type="button" class="btn btn-sm btn-outline-secondary"
-                :disabled="busy" @click="emit('cancel')">Cancel</button>
+                :disabled="busy" @click="emit('cancel')">{{ cancelLabel }}</button>
         <button type="button" class="btn btn-sm btn-primary" :disabled="busy || !drawn || !!locked"
                 @click="submit">
           <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
-          Save signature
+          {{ submitLabel }}
         </button>
       </div>
     </div>

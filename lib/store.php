@@ -905,6 +905,23 @@ function trax_normalize_signature(mixed $raw): ?array
     ];
 }
 
+/** A refused signature: when, who asked, and what the customer said. Null when not refused. */
+function trax_normalize_signature_declined(mixed $raw): ?array
+{
+    if (!is_array($raw)) {
+        return null;
+    }
+    $at = trax_iso($raw['at'] ?? null);
+    if ($at === null) {
+        return null;
+    }
+    return [
+        'at'    => $at,
+        'actor' => trax_str($raw['actor'] ?? '', 120),
+        'note'  => trax_str($raw['note'] ?? '', 500),
+    ];
+}
+
 /** {version, at} of the accepted terms, or null. */
 function trax_normalize_signature_terms(mixed $raw): ?array
 {
@@ -996,6 +1013,9 @@ function trax_normalize_booking(mixed $raw): array
         'handedOverBy'  => trax_str($raw['handedOverBy'] ?? '', 120),
         // The customer's hand-over signature, or null.
         'signature'     => trax_normalize_signature($raw['signature'] ?? null),
+        // Asked at the counter and refused: {at, actor, note}, or null. Cleared
+        // by a signature taken later.
+        'signatureDeclined' => trax_normalize_signature_declined($raw['signatureDeclined'] ?? null),
         // What the reminder cron has already sent about this booking.
         'notified'      => trax_normalize_notified($raw['notified'] ?? null),
         // Condition photos taken at hand-over or check-in.

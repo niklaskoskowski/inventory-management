@@ -163,140 +163,8 @@ if (($_GET['qr'] ?? '') === '1') {
     exit;
 }
 
-/**
- * The one write this public page accepts: the customer signing for the gear.
- *
- * The token in the URL is the capability, exactly as it is for reading — and
- * anyone holding it can already see everything this would tell them. So what
- * is guarded here is not secrecy but abuse:
- *
- *   - only a CHECKOUT booking that is still open and not expired;
- *   - ONE signature, ever. A signed booking refuses a second one outright, so
- *     a link that leaks later cannot overwrite what was signed at the counter.
- *     Only the operator can clear it, from the admin, and that is deliberate.
- *   - a honeypot field, the same one index.php uses on its report form;
- *   - a per-session attempt counter, so a bot cannot sit on the endpoint;
- *   - the drawing goes through the ordinary image pipeline: sniffed, decoded
- *     and re-encoded by GD, so the bytes that land in uploads/ are ours;
- *   - when terms & conditions are in force, the box must be ticked AND the
- *     version the page showed must still be the one in force — re-checked
- *     under the lock by trax_signature_terms(), the same rule the counter uses.
- *
- * Answers are POST/redirect/GET, so a reload never re-posts a signature.
- */
-const TRAX_SIGN_MAX_TRIES = 8;
-
-function trax_booking_sign_redirect(string $token, string $flash): never
-{
-    header('Location: booking.php?t=' . urlencode($token) . ($flash === '' ? '' : '&s=' . $flash), true, 303);
-    exit;
-}
-
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'sign') {
-    require_once __DIR__ . '/lib/photo.php';
-    require_once __DIR__ . '/lib/public-session.php';
-
-    // A cross-site POST would need the token anyway, but a browser that tells
-    // us it was one is answered with nothing at all.
-    if (($_SERVER['HTTP_SEC_FETCH_SITE'] ?? 'same-origin') === 'cross-site') {
-        trax_booking_gone();
-    }
-
-    trax_public_session();
-    $tries = (int)($_SESSION['trax_sign_tries'] ?? 0);
-    if ($tries >= TRAX_SIGN_MAX_TRIES) {
-        trax_booking_sign_redirect($token, 'busy');
-    }
-    $_SESSION['trax_sign_tries'] = $tries + 1;
-
-    // The honeypot: a field no human can see and no human fills in. Answered
-    // like a success so a bot learns nothing from the difference.
-    if (trim((string)($_POST['website'] ?? '')) !== '') {
-        trax_booking_sign_redirect($token, 'ok');
-    }
-
-    // Everything this page will not sign, in one place. Each of these is the
-    // same answer as a bad token would give — no detail leaves this branch.
-    if ($booking['kind'] !== 'checkout'
-        || $booking['status'] !== 'OPEN'
-        || ($booking['signature'] ?? null) !== null
-        || !isset($_FILES['photos'])) {
-        trax_booking_sign_redirect($token, 'no');
-    }
-
-    $signedName   = trax_str($_POST['signedName'] ?? '', TRAX_MAX_NAME);
-    $acceptTerms  = ($_POST['acceptTerms'] ?? '') === '1';
-    $termsVersion = trax_int($_POST['termsVersion'] ?? null);
-    $bookingId    = (int)$booking['id'];
-
-    // Asked before anything is stored, so the common case — the box was not
-    // ticked, or the terms changed while the page was open — says why and
-    // leaves no orphan file behind. The lock below asks again.
-    $termsCheck = trax_signature_terms($data, $acceptTerms, $termsVersion);
-    if ($termsCheck['error'] !== null) {
-        trax_booking_sign_redirect($token, $termsCheck['error'] === 'accept' ? 'terms' : 'changed');
-    }
-
-    $file = trax_new_signature_name();
-
-    try {
-        $entries = trax_photo_batch_entries($_FILES['photos']);
-        if (count($entries) !== 1) {
-            throw new TraxInvalid('One signature.');
-        }
-        trax_store_photo_as($file, $entries[0]);
-    } catch (Throwable $e) {
-        trax_booking_sign_redirect($token, 'no');
-    }
-
-    $termsChanged = false;
-    try {
-        trax_mutate(null, static function (array &$data, array &$checkouts) use (
-            $bookingId, $signedName, $file, $acceptTerms, $termsVersion, &$termsChanged
-        ): array {
-            $current = trax_find_booking($data['bookings'], $bookingId);
-            // Re-checked under the lock: two taps on a slow phone must not
-            // produce two signatures, and the first one wins.
-            if ($current === null || ($current['signature'] ?? null) !== null) {
-                throw new TraxInvalid('Already signed.');
-            }
-
-            // And the terms again: they may have changed since the check above.
-            $terms = trax_signature_terms($data, $acceptTerms, $termsVersion);
-            if ($terms['error'] !== null) {
-                $termsChanged = true;
-                throw new TraxInvalid('Terms changed.');
-            }
-
-            trax_update_booking($data, $bookingId, static function (array $b) use ($signedName, $file, $terms): array {
-                $b['signature'] = [
-                    'file'   => $file,
-                    'name'   => $signedName !== '' ? $signedName : $b['customerName'],
-                    'at'     => gmdate('Y-m-d\TH:i:s.000\Z'),
-                    'source' => 'CUSTOMER',
-                    'actor'  => '',
-                    'terms'  => $terms['terms'],
-                ];
-                return $b;
-            });
-
-            trax_append_history($data, 'booking_signed', [
-                'customerName' => $current['customerName'],
-                'note'         => 'Hand-over signed on the customer link',
-                'actor'        => '',
-            ]);
-
-            return [];
-        });
-    } catch (Throwable $e) {
-        trax_delete_photo_files($file);
-        trax_booking_sign_redirect($token, $termsChanged ? 'changed' : 'no');
-    }
-
-    // Signed: the counter is spent, and the redirect below re-reads the page.
-    unset($_SESSION['trax_sign_tries']);
-    trax_booking_sign_redirect($token, 'ok');
-}
+// Signatures are taken at the counter only (admin → Checkouts); this page
+// shows one once it exists and takes no writes.
 
 // Condition photos, taken at hand-over or check-in. Only the four fields the
 // page renders are lifted across, and the filename is re-checked here rather
@@ -380,22 +248,8 @@ $view = [
         trax_booking_terms_ref($currentTerms['version'], $currentTerms['at']),
         ['html' => trax_markdown($currentTerms['text'])]
     ),
-    // Whether this page may still be signed — see the POST handler above for
-    // the same three conditions, which are the authority.
-    'canSign'      => $booking['kind'] === 'checkout'
-        && $booking['status'] === 'OPEN'
-        && ($booking['signature'] ?? null) === null,
 ];
 
-// What the redirect after a POST is telling the page to say, if anything.
-$signFlash = match ((string)($_GET['s'] ?? '')) {
-    'ok'    => ['ok', 'Thank you — your signature has been recorded.'],
-    'busy'  => ['warn', 'Too many attempts. Please reload the page and try again.'],
-    'no'    => ['warn', 'That could not be signed. Please reload the page and try again.'],
-    'terms' => ['warn', 'Please accept the terms & conditions before signing.'],
-    'changed' => ['warn', 'The terms & conditions were just updated. Please read the new version and sign again.'],
-    default => null,
-};
 
 $statusText = match ($view['status']) {
     'RETURNED'  => 'Returned',
@@ -471,6 +325,9 @@ $pdf = [
     'items'        => $pdfItems,
     // Printed as a QR code on the sheet, so the paper leads back here.
     'bookingUrl'   => trax_booking_url($token),
+    'signatureDeclined' => ($booking['signature'] ?? null) === null && ($booking['signatureDeclined'] ?? null) !== null
+        ? ['at' => (string)$booking['signatureDeclined']['at'], 'note' => (string)$booking['signatureDeclined']['note']]
+        : null,
     'signature'    => ($booking['signature'] ?? null) === null ? null : [
         'file' => (string)$booking['signature']['file'],
         'name' => (string)$booking['signature']['name'],
@@ -608,9 +465,7 @@ $pdfBranding = [
         </section>
     <?php endif; ?>
 
-    <!-- Hand-over. Either what was signed, or the pad to sign it on: one
-         signature per booking, the customer's own, and once it is there this
-         page will not take another. -->
+    <!-- Hand-over: the signature taken at the counter, when there is one. -->
     <?php if ($view['signature'] !== null): ?>
         <section class="bk-section">
             <h2 class="pub-eyebrow">Received by</h2>
@@ -627,62 +482,6 @@ $pdfBranding = [
                         of <?php echo esc($view['signature']['terms']['at']); ?>
                     </div>
                 <?php endif; ?>
-            </div>
-        </section>
-    <?php elseif ($view['canSign']): ?>
-        <section class="bk-section">
-            <h2 class="pub-eyebrow">Sign for the equipment</h2>
-            <div class="pub-card">
-                <form id="sig-form" method="post" enctype="multipart/form-data"
-                      action="booking.php?t=<?php echo esc($token); ?>">
-                    <input type="hidden" name="action" value="sign">
-                    <!-- Not a real field. Anything typed in it is a bot. -->
-                    <input class="sig-hp" type="text" name="website" tabindex="-1" autocomplete="off"
-                           aria-hidden="true">
-
-                    <label class="pub-field">
-                        <span class="pub-label">Your name</span>
-                        <input class="pub-input" id="sig-signed-name" name="signedName" type="text"
-                               maxlength="200" autocomplete="name"
-                               value="<?php echo esc($view['customerName']); ?>">
-                    </label>
-
-                    <span class="pub-label">Signature</span>
-                    <canvas id="sig-pad" class="sig-pad" aria-label="Signature pad"></canvas>
-                    <div class="kit mt-2" id="sig-hint">Draw your signature in the box.</div>
-
-                    <?php if ($view['terms'] !== null): ?>
-                        <!-- What the signature is given under. The version rides
-                             along, so a change to the terms while this page was
-                             open is caught rather than accepted unread. -->
-                        <input type="hidden" name="termsVersion"
-                               value="<?php echo esc((string)$view['terms']['version']); ?>">
-                        <details class="terms-box">
-                            <summary>
-                                Terms &amp; conditions · v<?php echo esc((string)$view['terms']['version']); ?>
-                            </summary>
-                            <div class="terms-body"><?php echo $view['terms']['html']; ?></div>
-                        </details>
-                        <label class="pub-check" for="sig-terms">
-                            <input type="checkbox" name="acceptTerms" value="1"
-                                   id="sig-terms" required>
-                            <span>I accept the
-                                <a class="terms-link" href="<?php echo esc($view['terms']['url']); ?>"
-                                   target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>.</span>
-                        </label>
-                    <?php endif; ?>
-
-                    <div class="bk-sign-actions">
-                        <button class="pub-btn pub-btn-ghost" type="button" id="sig-clear">
-                            Clear
-                        </button>
-                        <button class="pub-btn pub-btn-primary" type="submit" id="sig-send" disabled>
-                            Sign
-                        </button>
-                    </div>
-                    <p class="kit mt-2 bk-sign-note">Signing confirms you received the items above<?php
-                        if ($view['terms'] !== null): ?> and accept the terms<?php endif; ?>.</p>
-                </form>
             </div>
         </section>
     <?php endif; ?>
@@ -704,190 +503,6 @@ $pdfBranding = [
     <footer class="pub-foot">
         <a href="<?php echo esc(trax_terms_url()); ?>" target="_blank" rel="noopener noreferrer">Terms &amp; conditions</a>
     </footer>
-<?php endif; ?>
-<?php if ($signFlash !== null): ?>
-    <script>
-        // The redirect's own word on what just happened, shown once and then
-        // taken out of the URL so a reload does not repeat it.
-        (function () {
-            var hint = document.getElementById('sig-hint');
-            if (hint) {
-                hint.textContent = <?php echo json_encode($signFlash[1]); ?>;
-                hint.className = 'kit mt-2 ' + <?php echo json_encode($signFlash[0] === 'ok' ? 'sig-ok' : 'sig-warn'); ?>;
-            }
-            if (window.history && history.replaceState) {
-                history.replaceState(null, '', 'booking.php?t=' + encodeURIComponent(<?php echo json_encode($token); ?>));
-            }
-        }());
-    </script>
-<?php endif; ?>
-
-<?php if ($view['canSign']): ?>
-<script>
-/**
- * The signature pad.
- *
- * Pointer events, so a finger, a stylus and a mouse are one code path. The
- * canvas is backed at device resolution and drawn on in CSS pixels, or a
- * signature on a phone arrives as a staircase.
- *
- * The bitmap is white with dark ink and is posted as a FILE, through the same
- * upload pipeline every photo uses — nothing here invents a second way in.
- */
-(function () {
-    var pad = document.getElementById('sig-pad');
-    var form = document.getElementById('sig-form');
-    var send = document.getElementById('sig-send');
-    var clear = document.getElementById('sig-clear');
-    var hint = document.getElementById('sig-hint');
-    if (!pad || !form || !send || !clear) return;
-
-    // NOT form.action: the form carries a hidden field NAMED action, and a
-    // named control shadows the property of the same name — reading it back
-    // would hand us the input element instead of the URL to post to.
-    var endpoint = form.getAttribute('action');
-
-    var ctx = pad.getContext('2d');
-    var drawn = false;
-    var drawing = false;
-    var last = null;
-    // The box the ink occupies, so what is uploaded is the signature and not
-    // the empty pad around it — see the admin twin in SignaturePad.js.
-    var ink = null;
-
-    function mark(point) {
-        var edge = 6;
-        if (!ink) {
-            ink = { minX: point.x - edge, maxX: point.x + edge,
-                    minY: point.y - edge, maxY: point.y + edge };
-            return;
-        }
-        ink.minX = Math.min(ink.minX, point.x - edge);
-        ink.maxX = Math.max(ink.maxX, point.x + edge);
-        ink.minY = Math.min(ink.minY, point.y - edge);
-        ink.maxY = Math.max(ink.maxY, point.y + edge);
-    }
-
-    function reset() {
-        var ratio = window.devicePixelRatio || 1;
-        var width = pad.clientWidth || 300;
-        var height = pad.clientHeight || 170;
-        pad.width = Math.round(width * ratio);
-        pad.height = Math.round(height * ratio);
-        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, height);
-        ctx.strokeStyle = '#111827';
-        ctx.lineWidth = 2.2;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        drawn = false;
-        ink = null;
-        send.disabled = true;
-    }
-
-    function at(event) {
-        var box = pad.getBoundingClientRect();
-        return { x: event.clientX - box.left, y: event.clientY - box.top };
-    }
-
-    pad.addEventListener('pointerdown', function (event) {
-        event.preventDefault();
-        drawing = true;
-        last = at(event);
-        // A tap with no movement is still a mark, so it is drawn as a dot.
-        ctx.beginPath();
-        ctx.moveTo(last.x, last.y);
-        ctx.lineTo(last.x + 0.1, last.y);
-        ctx.stroke();
-        mark(last);
-        drawn = true;
-        send.disabled = false;
-
-        // Capture keeps the stroke alive when the finger leaves the box, and
-        // is the last thing done here on purpose: a browser that refuses it
-        // must not cost the customer the signature itself.
-        try { pad.setPointerCapture(event.pointerId); } catch (e) { /* fine */ }
-    });
-
-    pad.addEventListener('pointermove', function (event) {
-        if (!drawing) return;
-        event.preventDefault();
-        var point = at(event);
-        ctx.beginPath();
-        ctx.moveTo(last.x, last.y);
-        ctx.lineTo(point.x, point.y);
-        ctx.stroke();
-        mark(point);
-        last = point;
-    });
-
-    function stop(event) {
-        if (!drawing) return;
-        drawing = false;
-        try {
-            if (event && event.pointerId !== undefined && pad.hasPointerCapture(event.pointerId)) {
-                pad.releasePointerCapture(event.pointerId);
-            }
-        } catch (e) { /* nothing was captured; nothing to release */ }
-    }
-    pad.addEventListener('pointerup', stop);
-    pad.addEventListener('pointercancel', stop);
-    pad.addEventListener('pointerleave', stop);
-
-    clear.addEventListener('click', reset);
-    // Resizing wipes the pad: the bitmap has to be rebuilt at the new size, and
-    // silently keeping a stretched drawing would be worse than asking again.
-    window.addEventListener('resize', reset);
-    reset();
-
-    form.addEventListener('submit', function (event) {
-        event.preventDefault();
-        if (!drawn || send.disabled) return;
-        send.disabled = true;
-        if (hint) hint.textContent = 'Sending…';
-
-        // Cropped to the ink, for the same reason the admin pad crops: this
-        // picture is scaled to fit everywhere it is shown, and storing mostly
-        // white means printing the signature small.
-        var ratio = window.devicePixelRatio || 1;
-        var left = Math.max(0, Math.floor(ink.minX * ratio));
-        var top = Math.max(0, Math.floor(ink.minY * ratio));
-        var right = Math.min(pad.width, Math.ceil(ink.maxX * ratio));
-        var bottom = Math.min(pad.height, Math.ceil(ink.maxY * ratio));
-        var cropW = Math.max(1, right - left);
-        var cropH = Math.max(1, bottom - top);
-        var out = document.createElement('canvas');
-        out.width = cropW;
-        out.height = cropH;
-        var outCtx = out.getContext('2d');
-        outCtx.fillStyle = '#ffffff';
-        outCtx.fillRect(0, 0, cropW, cropH);
-        outCtx.drawImage(pad, left, top, cropW, cropH, 0, 0, cropW, cropH);
-
-        out.toBlob(function (blob) {
-            if (!blob) {
-                if (hint) hint.textContent = 'That did not work. Please try again.';
-                send.disabled = false;
-                return;
-            }
-            var body = new FormData(form);
-            // Named `photos` because that is what the server's upload helper
-            // reads; it is one file and it is checked as one.
-            body.append('photos', blob, 'signature.png');
-            fetch(endpoint, { method: 'POST', body: body, credentials: 'same-origin' })
-                // Where the server's redirect landed, flash and all — that is
-                // how "please accept the terms" reaches the page. The bare
-                // endpoint only when a browser does not report it.
-                .then(function (response) { window.location.replace(response.url || endpoint); })
-                .catch(function () {
-                    if (hint) hint.textContent = 'That did not work. Please try again.';
-                    send.disabled = false;
-                });
-        }, 'image/png');
-    });
-}());
-</script>
 <?php endif; ?>
 <script type="module">
 /**
