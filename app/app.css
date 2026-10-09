@@ -813,11 +813,6 @@ button,
   margin: 0;
 }
 
-.trax-topbar-compact {
-  display: none;
-}
-
-.trax-large-title { display: none; }
 
 .trax-content {
   padding: 1.25rem 1.5rem 2rem;
@@ -2056,51 +2051,15 @@ kbd {
     display: none;
   }
 
-  /* A compact bar that holds the actions; the page title is large, in the
-     content, and the bar takes it over once it scrolls away. */
+  /* One compact bar: the title on the left, the actions on the right. */
   .trax-topbar {
-    padding: 0.45rem 0.75rem;
-    padding-top: calc(0.45rem + env(safe-area-inset-top));
-    min-height: calc(2.9rem + env(safe-area-inset-top));
+    padding: 0.5rem 0.75rem 0.5rem 1rem;
+    padding-top: calc(0.5rem + env(safe-area-inset-top));
+    min-height: calc(3.1rem + env(safe-area-inset-top));
   }
 
-  .trax-topbar-heading { display: none; }
-
-  .trax-topbar-compact {
-    display: block;
-    position: absolute;
-    left: 50%;
-    bottom: 0.85rem;
-    transform: translateX(-50%);
-    font-size: 1rem;
-    font-weight: 650;
-    letter-spacing: -0.015em;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    pointer-events: none;
-    white-space: nowrap;
-  }
-
-  .trax-topbar.is-scrolled .trax-topbar-compact { opacity: 1; }
-
-  .trax-large-title {
-    display: block;
-    padding: 0 0.25rem 0.75rem;
-  }
-
-  .trax-large-title h1 {
-    font-size: 2rem;
-    font-weight: 750;
-    letter-spacing: -0.035em;
-    line-height: 1.1;
-    margin: 0;
-  }
-
-  .trax-large-title p {
-    font-size: 0.875rem;
-    color: var(--trax-muted);
-    margin: 0.2rem 0 0;
-  }
+  .trax-topbar-title { font-size: 1.5rem; letter-spacing: -0.03em; }
+  .trax-topbar-sub { display: none; }
 
   .trax-content {
     padding: 0.35rem 1rem calc(var(--trax-tabbar-h) + 1.5rem);

@@ -376,8 +376,6 @@ export default {
             <h1 class="trax-topbar-title">{{ currentNav.label }}</h1>
             <p v-if="subtitle" class="trax-topbar-sub">{{ subtitle }}</p>
           </div>
-          <span class="trax-topbar-compact" aria-hidden="true">{{ currentNav.label }}</span>
-          <span class="flex-grow-1 d-lg-none"></span>
 
           <button class="trax-icon-btn d-none d-lg-inline-flex" @click="load()"
                   :disabled="state.loading" title="Reload" aria-label="Reload data">
@@ -409,11 +407,6 @@ export default {
         </header>
 
         <main class="trax-content">
-          <div class="trax-large-title">
-            <h1>{{ currentNav.label }}</h1>
-            <p v-if="subtitle">{{ subtitle }}</p>
-          </div>
-
           <div v-if="state.booting" class="trax-empty">
             <div class="spinner-border spinner-border-sm"></div>
           </div>
