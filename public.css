@@ -204,6 +204,16 @@ code {
   flex: 0 0 auto;
 }
 
+/* The uploaded in-tool logo (settings.branding.appLogoLight/Dark). */
+.pub-logo {
+  display: block;
+  height: 28px;
+  width: auto;
+  max-width: 180px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
 .pub-wordmark {
   font-size: 1rem;
   font-weight: 600;
@@ -948,6 +958,17 @@ textarea.pub-input {
 }
 
 .pub-appicon img { width: 100%; height: 100%; display: block; }
+
+/* Sign-in: the uploaded logo in place of the app-icon tile. */
+.pub-solo-logo-wrap { margin-bottom: 1rem; display: flex; justify-content: center; }
+.pub-solo-logo {
+  display: block;
+  max-height: 64px;
+  max-width: 220px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
 
 .pub-solo-title {
   margin: 0;

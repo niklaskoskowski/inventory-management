@@ -189,7 +189,9 @@ function trax_run_backup(string $root, string $backupRoot, ?callable $log = null
 
             if (is_file($localConfig)) $files += bk_copyFileSafe($localConfig, $tempDir . '/config/config.local.php');
 
-            foreach (['logo.png','favicon.png'] as $name) {
+            // logo.png / favicon.png plus the in-tool logos Settings uploads (brand-logo-*).
+            $brandNames = array_merge(['logo.png','favicon.png'], array_map('basename', glob($root . '/brand-logo-*') ?: []));
+            foreach ($brandNames as $name) {
                 $src = $root . '/' . $name;
                 if (is_file($src)) $files += bk_copyFileSafe($src, $tempDir . '/branding/' . $name);
             }

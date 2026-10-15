@@ -209,6 +209,8 @@ if ($isPost) {
             // printer.batchAdd: which batch, and the label's place in it.
             'batchId'   => trax_str($_POST['batchId'] ?? '', 64),
             'index'     => trax_int($_POST['index'] ?? null),
+            // branding.uploadLogo: which theme's logo. Same rule.
+            'variant'   => trax_str($_POST['variant'] ?? '', 10),
         ];
         // Absent (every existing client) still means null, i.e. no rev check.
         $clientRev = trax_int($_POST['rev'] ?? null);
@@ -3845,6 +3847,20 @@ try {
 
         // --- Settings ------------------------------------------------------
 
+        // The in-tool logo. Only the file is stored here: the name goes back
+        // to Settings, lands in the draft and is saved with the save bar like
+        // every other branding field — so an upload never changes the live
+        // look until the operator saves.
+        case 'branding.uploadLogo': {
+            $current = trax_normalize_settings(trax_read_data()['settings'] ?? null);
+            try {
+                $file = trax_store_brand_logo((string)($payload['variant'] ?? ''), $_FILES['photo'] ?? null, $current);
+            } catch (TraxInvalid $e) {
+                trax_fail('BAD_REQUEST', $e->getMessage());
+            }
+            trax_ok(['file' => $file]);
+        }
+
         case 'settings.update': {
             $patch = is_array($payload['patch'] ?? null) ? $payload['patch'] : [];
             if ($patch === []) {
@@ -3894,6 +3910,15 @@ try {
                 $whatsappError = trax_whatsapp_error($patch['branding']['whatsapp']);
                 if ($whatsappError !== null) {
                     trax_fail('BAD_REQUEST', 'WhatsApp number: ' . $whatsappError);
+                }
+            }
+
+            // And for the accent colours: a typo would otherwise be saved as
+            // "default" without a word.
+            foreach (['accentLight' => 'Accent colour (light)', 'accentDark' => 'Accent colour (dark)'] as $key => $label) {
+                $value = $patch['branding'][$key] ?? null;
+                if (is_string($value) && $value !== '' && trax_hex_color($value) === null) {
+                    trax_fail('BAD_REQUEST', $label . ': use a hex colour like #1F2937.');
                 }
             }
 

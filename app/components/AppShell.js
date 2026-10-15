@@ -1,10 +1,11 @@
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import {
   state, load, setView, clearSelection, overdueCheckouts, activeReservations,
   selectedItemIds, selectedUnitCount, sets, toast,
 } from '../store.js';
 import * as api from '../api.js';
 import { theme, setThemePref, THEME_OPTIONS } from '../lib/theme.js';
+import { applyAccent } from '../lib/accent.js';
 import ToastHost from './ui/ToastHost.js';
 import Menu from './ui/Menu.js';
 import Drawer from './ui/Drawer.js';
@@ -131,6 +132,22 @@ export default {
      * first snapshot lands, when state.settings is still DEFAULT_SETTINGS.
      */
     const appName = computed(() => state.settings?.branding?.appName || 'Assets');
+
+    /**
+     * The uploaded sidebar logo for the current theme; the dark one falls back
+     * to the light one (and the other way round), '' when none is set.
+     */
+    const appLogo = computed(() => {
+      const b = state.settings?.branding || {};
+      return (theme.dark ? (b.appLogoDark || b.appLogoLight) : (b.appLogoLight || b.appLogoDark)) || '';
+    });
+    const logoOnly = computed(() => state.settings?.branding?.appLogoMode === 'logo');
+
+    // A saved accent change applies at once, not on the next reload.
+    watch(
+      () => [state.settings?.branding?.accentLight, state.settings?.branding?.accentDark],
+      () => applyAccent(state.settings?.branding),
+    );
 
     /**
      * Who is signed in, for the sidebar footer.
@@ -295,7 +312,7 @@ export default {
       showMore, scrolled, tabActive, onTab, go, navItem, subtitle,
       theme, setThemePref, THEME_OPTIONS,
       sheetId, sheetOpen, labelId, showBasket, showScanner, showBulk,
-      showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName,
+      showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName, appLogo, logoOnly,
       selectedItemIds, selectedUnitCount, account, loadAccount, csrf: api.csrf,
       openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, editKit, openLabel, labelTarget,
       showEventSheet, eventSheetId, openEvent,
@@ -308,11 +325,17 @@ export default {
     <div class="trax-shell">
       <!-- Sidebar -->
       <nav class="trax-sidebar" aria-label="Main">
-        <a class="trax-brand" href="admin.php">
-          <img v-if="state.settings?.branding?.faviconFile" class="trax-app-icon"
-               :src="state.settings.branding.faviconFile" alt="">
-          <span v-else class="trax-app-icon"><i class="bi bi-box-seam"></i></span>
-          <span class="text-truncate">{{ appName }}</span>
+        <a class="trax-brand" href="admin.php" :title="appName">
+          <template v-if="appLogo">
+            <img class="trax-brand-logo" :class="{ 'is-solo': logoOnly }" :src="appLogo" :alt="logoOnly ? appName : ''">
+            <span v-if="!logoOnly" class="text-truncate">{{ appName }}</span>
+          </template>
+          <template v-else>
+            <img v-if="state.settings?.branding?.faviconFile" class="trax-app-icon"
+                 :src="state.settings.branding.faviconFile" alt="">
+            <span v-else class="trax-app-icon"><i class="bi bi-box-seam"></i></span>
+            <span class="text-truncate">{{ appName }}</span>
+          </template>
         </a>
 
         <template v-for="section in NAV_SECTIONS" :key="section.title">

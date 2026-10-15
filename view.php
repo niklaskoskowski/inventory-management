@@ -58,10 +58,9 @@ function pub_e(string $value): string
 
 <header class="pub-top">
     <div class="pub-top-inner pub-main-wide">
-<?php if ($favicon !== ''): ?>
-        <img class="pub-mark" src="<?php echo pub_e($favicon); ?>" alt="" width="26" height="26">
-<?php endif; ?>
-        <span class="pub-wordmark"><?php echo pub_e($appName); ?></span>
+        <?php echo trax_brand_header_html($appName, $favicon !== ''
+            ? '<img class="pub-mark" src="' . pub_e($favicon) . '" alt="" width="26" height="26">'
+            : ''); ?>
     </div>
 </header>
 

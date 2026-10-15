@@ -468,6 +468,9 @@ function createPreRestoreSnapshot(
     if (isset($want['branding'])) {
         $filesCopied += copyFileSafe($paths['logo_file'], $dir . '/branding/logo.png');
         $filesCopied += copyFileSafe($paths['favicon_file'], $dir . '/branding/favicon.png');
+        foreach (glob($root . '/brand-logo-*') ?: [] as $brandLogo) {
+            $filesCopied += copyFileSafe($brandLogo, $dir . '/branding/' . basename($brandLogo));
+        }
     }
 
     if (isset($want['config'])) {
@@ -557,13 +560,25 @@ function restoreBranding(string $backupDir, array $paths): int
 
     $count = 0;
 
-    foreach ([
+    $targets = [
         'logo.png' => $paths['logo_file'],
         'favicon.png' => $paths['favicon_file'],
-    ] as $filename => $destination) {
+    ];
+    // The in-tool logos (Settings → Branding uploads). Only names of the shape
+    // the uploader writes, so a crafted backup cannot drop a .php in the root.
+    foreach (glob($sourceDir . '/brand-logo-*') ?: [] as $brandLogo) {
+        $name = basename($brandLogo);
+        if (preg_match('/^brand-logo-(light|dark)-[0-9a-f]{8,32}\.(png|jpg|webp)$/', $name) === 1) {
+            $targets[$name] = dirname($paths['logo_file']) . '/' . $name;
+        }
+    }
+
+    foreach ($targets as $filename => $destination) {
         $source = $sourceDir . '/' . $filename;
         if (is_file($source)) {
-            $count += copyFileSafe($source, $destination);
+            // The in-tool logos are served to the browser directly.
+            $count += copyFileSafe($source, $destination,
+                str_starts_with($filename, 'brand-logo-') ? RESTORE_PUBLIC_MODES : RESTORE_PRIVATE_MODES);
         }
     }
 

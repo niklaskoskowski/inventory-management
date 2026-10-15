@@ -6,6 +6,23 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-10-15 — branch `UI-test`
+
+### Added
+
+- **More branding: in-tool logo and accent colour, per theme.** Settings → Branding gets an
+  *In-app logo* section — upload a light-mode and a dark-mode logo (PNG/JPEG/WebP, max 2 MB; the
+  dark one falls back to the light one) and choose *Logo + name* or *Logo only*. The logo shows in
+  the sidebar, on the sign-in page and in the headers of the public pages (asset page, view,
+  terms, booking), switching with the colour scheme. *Accent colour* replaces the system blue of
+  buttons, links and the active item, separately for light and dark; empty is the default. Uploaded
+  logos are included in backups and restores.
+
+### Fixed
+
+- **Sign out in the account menu did nothing.** The menu closed on the click and Vue removed the
+  sign-out form before the browser submitted it. The menu now closes one task later.
+
 ## 2026-10-09 — branch `UI-test`
 
 ### Fixed

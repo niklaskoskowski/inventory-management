@@ -1215,7 +1215,37 @@ export default {
       }
     };
 
+    // --- In-tool logo ---------------------------------------------------
+    // The upload stores the file only; its name lands in the draft and goes
+    // live with the save bar, like every other branding field.
+    const logoBusy = ref('');
+    const uploadLogo = async (variant, event) => {
+      const input = event.target;
+      const file = input.files?.[0];
+      input.value = '';
+      if (!file) return;
+      logoBusy.value = variant;
+      try {
+        const body = await api.upload('branding.uploadLogo', file, { variant });
+        const key = variant === 'dark' ? 'appLogoDark' : 'appLogoLight';
+        draft.value.branding[key] = body.data?.file || '';
+      } catch (error) {
+        toast(error.message, 'danger');
+      } finally {
+        logoBusy.value = '';
+      }
+    };
+    const clearLogo = (variant) => {
+      draft.value.branding[variant === 'dark' ? 'appLogoDark' : 'appLogoLight'] = '';
+    };
+    const LOGO_MODES = [
+      { id: 'logoName', label: 'Logo + name' },
+      { id: 'logo', label: 'Logo only' },
+    ];
+    const ACCENT_DEFAULTS = { light: '#007AFF', dark: '#0A84FF' };
+
     return {
+      logoBusy, uploadLogo, clearLogo, LOGO_MODES, ACCENT_DEFAULTS,
       settings, taxonomyUsage,
       SECTIONS, AUTH_MODES, theme, setThemePref, THEME_OPTIONS, TAXONOMIES, CUSTOMER_MAIL, CRON_MAIL, HOURS, LOCALES,
       section, draft, busy, patch, dirty, save, revert,
@@ -1735,6 +1765,71 @@ export default {
           </label>
           <input id="set-labelheading" class="form-control form-control-sm trax-set-ctl is-wide"
                  v-model="draft.branding.labelHeading" maxlength="40" placeholder="PROPERTY OF">
+        </div>
+      </div>
+
+      <div class="trax-list-header">In-app logo</div>
+      <div class="trax-list">
+        <div v-for="variant in ['light', 'dark']" :key="variant" class="trax-row flex-wrap">
+          <span class="trax-set-label">
+            {{ variant === 'light' ? 'Light mode' : 'Dark mode' }}
+            <span class="trax-set-hint">{{ variant === 'light' ? 'PNG, JPEG or WebP · max 2 MB' : 'Empty uses the light logo' }}</span>
+          </span>
+          <div class="d-flex align-items-center gap-2 ms-auto">
+            <div class="trax-logo-preview" :class="'is-' + variant">
+              <img v-if="draft.branding[variant === 'dark' ? 'appLogoDark' : 'appLogoLight'] || (variant === 'dark' && draft.branding.appLogoLight)"
+                   :src="draft.branding[variant === 'dark' ? 'appLogoDark' : 'appLogoLight'] || draft.branding.appLogoLight"
+                   :class="{ 'is-fallback': variant === 'dark' && !draft.branding.appLogoDark }" alt="">
+              <span v-else class="trax-set-hint">No logo</span>
+            </div>
+            <label class="btn btn-sm btn-outline-secondary mb-0" :class="{ disabled: logoBusy }">
+              <span v-if="logoBusy === variant" class="spinner-border spinner-border-sm"></span>
+              <i v-else class="bi bi-upload"></i> Upload
+              <input type="file" class="d-none" accept="image/png,image/jpeg,image/webp"
+                     :disabled="!!logoBusy" @change="uploadLogo(variant, $event)">
+            </label>
+            <button v-if="draft.branding[variant === 'dark' ? 'appLogoDark' : 'appLogoLight']" type="button"
+                    class="btn btn-sm btn-outline-danger" title="Remove" aria-label="Remove logo"
+                    @click="clearLogo(variant)"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+        <div class="trax-row flex-wrap">
+          <span class="trax-set-label">
+            Show <span class="trax-set-hint">Sidebar and public pages</span>
+          </span>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Logo display">
+            <button v-for="option in LOGO_MODES" :key="option.id" type="button"
+                    class="btn btn-outline-secondary" :class="{ active: draft.branding.appLogoMode === option.id }"
+                    :aria-pressed="draft.branding.appLogoMode === option.id ? 'true' : 'false'"
+                    @click="draft.branding.appLogoMode = option.id">{{ option.label }}</button>
+          </div>
+        </div>
+      </div>
+      <p class="trax-set-foot">Used in the sidebar, on the sign-in page and on the public pages. Without a logo the favicon and app name show as before.</p>
+
+      <div class="trax-list-header">Accent colour</div>
+      <div class="trax-list">
+        <div v-for="variant in ['light', 'dark']" :key="variant" class="trax-row">
+          <label class="trax-set-label" :for="'set-accent-' + variant">
+            {{ variant === 'light' ? 'Light mode' : 'Dark mode' }}
+            <span class="trax-set-hint">Buttons, links, active item</span>
+          </label>
+          <div class="d-flex gap-2 trax-set-ctl is-wide">
+            <input :id="'set-accent-' + variant" type="color"
+                   class="form-control form-control-color form-control-sm flex-shrink-0"
+                   :value="draft.branding[variant === 'dark' ? 'accentDark' : 'accentLight'] || ACCENT_DEFAULTS[variant]"
+                   @input="draft.branding[variant === 'dark' ? 'accentDark' : 'accentLight'] = $event.target.value.toUpperCase()">
+            <input class="form-control form-control-sm font-monospace"
+                   v-model="draft.branding[variant === 'dark' ? 'accentDark' : 'accentLight']"
+                   :aria-label="'Accent colour hex, ' + variant + ' mode'"
+                   :placeholder="'Default ' + ACCENT_DEFAULTS[variant]" maxlength="7">
+            <button v-if="draft.branding[variant === 'dark' ? 'accentDark' : 'accentLight']" type="button"
+                    class="btn btn-sm btn-outline-secondary flex-shrink-0" title="Back to default"
+                    aria-label="Reset accent colour"
+                    @click="draft.branding[variant === 'dark' ? 'accentDark' : 'accentLight'] = ''">
+              <i class="bi bi-arrow-counterclockwise"></i>
+            </button>
+          </div>
         </div>
       </div>
 

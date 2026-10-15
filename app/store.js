@@ -124,6 +124,11 @@ const DEFAULT_SETTINGS = {
     logoFile: '',
     faviconFile: 'favicon.png',
     labelHeading: 'PROPERTY OF',
+    appLogoLight: '',
+    appLogoDark: '',
+    appLogoMode: 'logoName',
+    accentLight: '',
+    accentDark: '',
     // The number behind the WhatsApp button on the public asset page. Empty
     // here only until the first snapshot lands; empty THERE means no button.
     whatsapp: '',

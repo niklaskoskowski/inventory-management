@@ -2121,6 +2121,168 @@ function trax_logo_file(mixed $value, string $default = '', bool $allowUrl = fal
     return $s;
 }
 
+/** File-name prefix of the uploaded in-tool logos, per theme. */
+const TRAX_BRAND_LOGO_PREFIX = 'brand-logo-';
+
+/** Upload ceiling for an in-tool logo. Same as the installer's. */
+const TRAX_BRAND_LOGO_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * An uploaded in-tool logo's file name, or ''.
+ *
+ * Narrower than trax_logo_file(): only names branding.uploadLogo itself
+ * produces (brand-logo-<light|dark>-<hex>.<png|jpg|webp>) and only while the
+ * file exists. A hand-edited setting cannot point the sidebar at data.json.
+ */
+function trax_brand_logo_file(mixed $value): string
+{
+    $s = trax_str($value, 120);
+    if (preg_match('/^' . TRAX_BRAND_LOGO_PREFIX . '(light|dark)-[0-9a-f]{8,32}\.(png|jpg|webp)$/', $s) !== 1) {
+        return '';
+    }
+    return is_file(dirname(__DIR__) . '/' . $s) ? $s : '';
+}
+
+/**
+ * Stores an uploaded in-tool logo in the project root and returns its name.
+ *
+ * The name carries a content hash, so a replaced logo is a new URL and no
+ * browser keeps showing the old one. SVG is refused on purpose: it is served
+ * from this origin and opened directly it would run script in the admin's
+ * session. Older logos of the same variant that the saved settings no longer
+ * name are removed; the current one stays until a save replaces it.
+ *
+ * @throws TraxInvalid
+ */
+function trax_store_brand_logo(string $variant, mixed $file, array $settings): string
+{
+    if (!in_array($variant, ['light', 'dark'], true)) {
+        throw new TraxInvalid('Unknown logo variant.');
+    }
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
+        || !is_uploaded_file((string)($file['tmp_name'] ?? ''))) {
+        throw new TraxInvalid('The logo did not upload.');
+    }
+    $size = (int)($file['size'] ?? 0);
+    if ($size <= 0 || $size > TRAX_BRAND_LOGO_MAX_BYTES) {
+        throw new TraxInvalid('The logo must be at most 2 MB.');
+    }
+
+    $info = @getimagesize((string)$file['tmp_name']);
+    $ext  = match ($info[2] ?? null) {
+        IMAGETYPE_PNG  => 'png',
+        IMAGETYPE_JPEG => 'jpg',
+        IMAGETYPE_WEBP => 'webp',
+        default        => null,
+    };
+    if ($ext === null) {
+        throw new TraxInvalid('The logo must be a PNG, JPEG or WebP image.');
+    }
+
+    $bytes = @file_get_contents((string)$file['tmp_name']);
+    if ($bytes === false) {
+        throw new TraxInvalid('The logo could not be read.');
+    }
+
+    $root = dirname(__DIR__);
+    $name = TRAX_BRAND_LOGO_PREFIX . $variant . '-' . substr(hash('sha256', $bytes), 0, 16) . '.' . $ext;
+    trax_write_atomic($root . '/' . $name, $bytes);
+    @chmod($root . '/' . $name, 0644);
+
+    $keep = [$name, (string)($settings['branding']['appLogoLight'] ?? ''), (string)($settings['branding']['appLogoDark'] ?? '')];
+    foreach (glob($root . '/' . TRAX_BRAND_LOGO_PREFIX . $variant . '-*') ?: [] as $old) {
+        if (!in_array(basename($old), $keep, true)) {
+            @unlink($old);
+        }
+    }
+
+    return $name;
+}
+
+/** [light, dark] in-tool logo; dark falls back to light, both '' when unset. */
+function trax_brand_logos(): array
+{
+    $light = (string)trax_setting('branding.appLogoLight', '');
+    $dark  = (string)trax_setting('branding.appLogoDark', '');
+    if ($light === '') {
+        $light = $dark;
+    }
+    return [$light, $dark !== '' ? $dark : $light];
+}
+
+/**
+ * The in-tool logo as a <picture> that follows the system colour scheme, for
+ * the pages that do (sign-in, public pages). '' when no logo is set.
+ */
+function trax_brand_logo_picture(string $class, string $alt = ''): string
+{
+    [$light, $dark] = trax_brand_logos();
+    if ($light === '') {
+        return '';
+    }
+    $e = static fn(string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+    $source = $dark !== $light
+        ? '<source srcset="' . $e($dark) . '" media="(prefers-color-scheme: dark)">'
+        : '';
+    return '<picture>' . $source . '<img class="' . $e($class) . '" src="' . $e($light) . '" alt="' . $e($alt) . '"></picture>';
+}
+
+/**
+ * The brand block of a public page header: the uploaded logo (with the name
+ * after it in 'logoName' mode), or — no logo set — `$fallbackMark` (already
+ * escaped HTML: the favicon or a tile) followed by the name, as before.
+ */
+function trax_brand_header_html(string $name, string $fallbackMark = ''): string
+{
+    $e    = static fn(string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+    $word = '<span class="pub-wordmark">' . $e($name) . '</span>';
+    $logo = trax_brand_logo_picture('pub-logo', $name);
+    if ($logo === '') {
+        return $fallbackMark . $word;
+    }
+    return trax_setting('branding.appLogoMode', 'logoName') === 'logo' ? $logo : $logo . $word;
+}
+
+/**
+ * The CSS that swaps the admin UI's accent for the configured one, or ''.
+ *
+ * The four accent tokens app.css defines per theme are derived from the one
+ * colour, so an operator picks a single swatch per theme. app/lib/accent.js
+ * holds the same derivation for a live change after Settings → Save; keep
+ * the two in step.
+ */
+function trax_accent_css(string $light, string $dark, bool $bySystem = false): string
+{
+    $css = '';
+    foreach (['light' => $light, 'dark' => $dark] as $theme => $hex) {
+        if (preg_match('/^#[0-9A-Fa-f]{6}$/', $hex) !== 1) {
+            continue;
+        }
+        $rgb = [hexdec(substr($hex, 1, 2)), hexdec(substr($hex, 3, 2)), hexdec(substr($hex, 5, 2))];
+        $mix = static function (array $c, int $to, float $t): string {
+            $out = array_map(static fn(int $v): int => (int)round($v + ($to - $v) * $t), $c);
+            return sprintf('#%02x%02x%02x', ...$out);
+        };
+        $lum = (0.2126 * $rgb[0] + 0.7152 * $rgb[1] + 0.0722 * $rgb[2]) / 255;
+        $isDark = $theme === 'dark';
+        // The admin keys its theme off data-bs-theme; public.css pages (the
+        // sign-in) follow the system scheme instead.
+        $open  = $bySystem
+            ? ($isDark ? '@media (prefers-color-scheme: dark){:root{' : ':root{')
+            : "[data-bs-theme='{$theme}']{";
+        $close = $bySystem && $isDark ? '}}' : '}';
+        $css .= $open
+            . '--trax-accent:' . strtolower($hex) . ';'
+            . '--trax-accent-hover:' . $mix($rgb, $isDark ? 255 : 0, $isDark ? 0.15 : 0.12) . ';'
+            . '--trax-accent-soft:rgba(' . implode(',', $rgb) . ',' . ($isDark ? '0.18' : '0.11') . ');'
+            . '--trax-accent-text:' . ($isDark ? $mix($rgb, 255, 0.3) : $mix($rgb, 0, 0.12)) . ';'
+            . '--trax-on-accent:' . ($lum > 0.6 ? '#000000' : '#ffffff') . ';'
+            . '--bs-primary-rgb:' . implode(',', $rgb) . ';'
+            . $close;
+    }
+    return $css;
+}
+
 /**
  * Normalises the operator's mail-template overrides.
  *
@@ -2218,6 +2380,22 @@ function trax_normalize_settings(mixed $raw): array
             // outside English change it here; it is the one label string that
             // is not derived from the asset.
             'labelHeading' => trax_str($branding['labelHeading'] ?? '', 40) ?: 'PROPERTY OF',
+            // The in-tool logo, one per theme — uploaded through Settings
+            // (branding.uploadLogo) into the project root. Local files only:
+            // they sit in the admin sidebar, the sign-in page and the public
+            // headers, none of which should depend on another host. An empty
+            // dark logo means "use the light one in dark mode too".
+            'appLogoLight' => trax_brand_logo_file($branding['appLogoLight'] ?? null),
+            'appLogoDark'  => trax_brand_logo_file($branding['appLogoDark'] ?? null),
+            // How the logo sits next to the app name: 'logo' alone, or
+            // 'logoName' — the logo followed by the name as today.
+            'appLogoMode'  => in_array($branding['appLogoMode'] ?? null, ['logo', 'logoName'], true)
+                ? $branding['appLogoMode']
+                : 'logoName',
+            // The admin UI's accent (buttons, links, the active nav item), one
+            // per theme. Empty is a real value: the built-in system blue.
+            'accentLight'  => trax_hex_color($branding['accentLight'] ?? null) ?? '',
+            'accentDark'   => trax_hex_color($branding['accentDark'] ?? null) ?? '',
             // The number behind the public page's WhatsApp button. Registered
             // HERE or it is dropped on the next unrelated write, like the mail
             // templates above. An empty string is a real, kept value — it means

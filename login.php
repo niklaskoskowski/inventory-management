@@ -102,6 +102,8 @@ $brandColor = (string)trax_setting('branding.brandColor', '#1F2937');
 // the favicon exists, so '' means "draw the brand tile instead".
 $appName    = (string)trax_setting('branding.appName', 'Assets');
 $favicon    = (string)trax_setting('branding.faviconFile', '');
+// The uploaded in-tool logo, light/dark; '' keeps the app-icon tile.
+$logo       = trax_brand_logo_picture('pub-solo-logo', $appName);
 
 /** Escapes for HTML text and attributes. Mirrors the esc() idiom in booking.php / view.php. */
 function esc(mixed $value): string
@@ -124,12 +126,17 @@ header('Content-Type: text/html; charset=utf-8');
 <?php endif; ?>
 <link rel="stylesheet" href="public.css">
 <link rel="stylesheet" href="vendor/bootstrap-icons.css">
-<style>:root { --trax-brand: <?php echo esc($brandColor); ?>; }</style>
+<style>:root { --trax-brand: <?php echo esc($brandColor); ?>; }<?php
+echo trax_accent_css((string)trax_setting('branding.accentLight', ''), (string)trax_setting('branding.accentDark', ''), true);
+?></style>
 </head>
 <body class="pub-page pub-solo">
   <main class="pub-solo-main">
     <div class="pub-card">
       <div class="pub-solo-head">
+<?php if ($logo !== ''): ?>
+        <div class="pub-solo-logo-wrap"><?php echo $logo; ?></div>
+<?php else: ?>
         <div class="pub-appicon" aria-hidden="true">
 <?php if ($favicon !== ''): ?>
           <img src="<?php echo esc($favicon); ?>" alt="" width="64" height="64">
@@ -137,6 +144,7 @@ header('Content-Type: text/html; charset=utf-8');
           <i class="bi bi-box-seam"></i>
 <?php endif; ?>
         </div>
+<?php endif; ?>
         <h1 class="pub-solo-title">Sign in</h1>
         <p class="pub-solo-sub"><?php echo esc($appName); ?></p>
       </div>

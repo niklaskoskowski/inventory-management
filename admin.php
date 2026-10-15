@@ -31,6 +31,10 @@ $csrf = trax_csrf_token();
 $appName    = (string)trax_setting('branding.appName', 'Assets');
 $brandColor = (string)trax_setting('branding.brandColor', '#1F2937');
 $favicon    = (string)trax_setting('branding.faviconFile', '');
+$accentCss  = trax_accent_css(
+    (string)trax_setting('branding.accentLight', ''),
+    (string)trax_setting('branding.accentDark', '')
+);
 
 /** Short-hand for the escaping this file does on every interpolation. */
 function admin_e(string $value): string
@@ -168,6 +172,9 @@ function import_map_json(): string
     <link rel="stylesheet" href="vendor/bootstrap.min.css">
     <link rel="stylesheet" href="vendor/bootstrap-icons.css">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(asset_version('app/app.css'), ENT_QUOTES, 'UTF-8'); ?>">
+    <!-- settings.branding.accentLight/Dark, after app.css so it wins. Always
+         present: app/lib/accent.js rewrites it when Settings saves a change. -->
+    <style id="trax-accent"><?php echo $accentCss; ?></style>
 </head>
 <body>
 

@@ -665,6 +665,22 @@ button,
 
 .trax-brand:hover { color: var(--trax-text); }
 
+/* settings.branding.appLogoLight/Dark: next to the name, or alone. */
+.trax-brand-logo {
+  display: block;
+  height: 30px;
+  width: auto;
+  max-width: 110px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.trax-brand-logo.is-solo {
+  height: auto;
+  max-height: 40px;
+  max-width: 100%;
+}
+
 .trax-app-icon {
   width: 30px;
   height: 30px;
@@ -2006,6 +2022,23 @@ button,
 }
 
 /* The brand colour has to be visible on something, not just in a swatch. */
+/* Settings → Branding: each logo on the background it will sit on. */
+.trax-logo-preview {
+  width: 104px;
+  height: 44px;
+  border-radius: var(--trax-radius-sm);
+  border: 1px solid var(--trax-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  flex: 0 0 auto;
+}
+.trax-logo-preview.is-light { background: #ebebf0; }
+.trax-logo-preview.is-dark { background: #111113; }
+.trax-logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.trax-logo-preview img.is-fallback { opacity: 0.55; }
+
 .trax-brand-preview {
   border-radius: var(--trax-radius);
   padding: 1.5rem 1rem;

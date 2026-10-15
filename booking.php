@@ -366,8 +366,8 @@ $pdfBranding = [
 <body class="pub-page">
 <header class="pub-top">
     <div class="pub-top-inner">
-        <span class="pub-appicon bk-mark" style="background: <?php echo esc($view['brandColor']); ?>;" aria-hidden="true"><i class="bi bi-box-seam"></i></span>
-        <span class="pub-wordmark"><?php echo esc($view['orgName']); ?></span>
+        <?php echo trax_brand_header_html($view['orgName'],
+            '<span class="pub-appicon bk-mark" style="background: ' . esc($view['brandColor']) . ';" aria-hidden="true"><i class="bi bi-box-seam"></i></span>'); ?>
     </div>
 </header>
 

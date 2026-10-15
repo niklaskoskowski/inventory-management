@@ -206,7 +206,8 @@ moment the gear came back.
 `trax_normalize_settings()` (`lib/store.php:1167-1264`), four groups: `email.*`
 (addresses, per-mail kill switches, editable subject/body `templates`),
 `branding.*` (`appName`, `orgName`, `brandColor`, `publicPath`, `logoFile`,
-`faviconFile`, `labelHeading`, `whatsapp`), `defaults.*` (`loanDays`, `dueHour`,
+`faviconFile`, `labelHeading`, `whatsapp`, `appLogoLight`, `appLogoDark`, `appLogoMode`,
+`accentLight`, `accentDark`), `defaults.*` (`loanDays`, `dueHour`,
 `reservationStartHour`, `warrantyMonths` — 0..120, default 24, months added to a purchase date to
 auto-fill the warranty date in the asset sheet, `0` off —, `currency`, `allowPartialDefault`,
 `overdueGraceDays`, `locale`, `dateFormat`), `rental.*` and `inspection.*` (see below),
@@ -220,6 +221,18 @@ it in the browser, and a host that sends no CORS header simply leaves the header
 **label** renderers read a local file off disk (`trax_label_logo_image()`, basename only), so a URL
 means a label prints the organisation name instead. `faviconFile` stays local-only — it goes into a
 `<link>` on pages that should not depend on a second host.
+
+The **in-tool logo** (`appLogoLight`/`appLogoDark`) is uploaded in Settings → Branding through
+`branding.uploadLogo` (multipart, `variant` light|dark, PNG/JPEG/WebP ≤ 2 MB, no SVG — it would be
+served from this origin). The file lands in the project root as
+`brand-logo-<variant>-<sha256 prefix>.<ext>` (gitignored, in backups under `branding/`) and only the
+name returns; it goes live with the save bar. `trax_brand_logo_file()` accepts only that name shape.
+An empty dark logo falls back to the light one. It shows in the sidebar, on `login.php` and in the
+public headers (`trax_brand_header_html()`, `<picture>` with a `prefers-color-scheme` source);
+`appLogoMode` is `logoName` (logo + name) or `logo` (logo only). `accentLight`/`accentDark` replace
+the admin UI's system blue: `trax_accent_css()` derives the four `--trax-accent*` tokens, admin.php
+renders `<style id="trax-accent">`, `app/lib/accent.js` (same derivation) rewrites it after a save;
+the sign-in page uses it too. Empty means the default blue.
 
 ## Rental pricing
 
@@ -610,7 +623,7 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
   `asset.deletePhoto`, `asset.uploadConditionPhotos|deleteConditionPhoto`,
   `asset.uploadDocuments|deleteDocument`, `set.create|update|delete`,
   `checkout.create|extend|checkin`, `reservation.create|update|convert|cancel|restore`,
-  `booking.resend|uploadPhotos|deletePhoto`, `settings.update`,
+  `booking.resend|uploadPhotos|deletePhoto`, `settings.update`, `branding.uploadLogo`,
   `auth.changePassword|testInclude|configUpdate`, `taxonomy.rename|merge|delete`, `label.mark`.
 - **`label.mark`**: `{id, unitNo, labeled}` for one label or `{items: [{id, unitNo}], labeled}`
   for many (up to `TRAX_MAX_LABEL_MARKS` = 2000) — all checked before any is changed, one write,

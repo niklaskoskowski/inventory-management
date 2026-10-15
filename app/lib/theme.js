@@ -21,7 +21,12 @@ function readPref() {
   }
 }
 
-export const theme = reactive({ pref: readPref(), dark: false });
+// dark starts from what admin.php's pre-paint script already set, so anything
+// keyed off it (the sidebar logo) is right before applyTheme() first runs.
+export const theme = reactive({
+  pref: readPref(),
+  dark: typeof document !== 'undefined' && document.documentElement.getAttribute('data-bs-theme') === 'dark',
+});
 
 /** Sets data-bs-theme (Bootstrap and app.css both key off it) and the bar colour. */
 export function applyTheme() {
