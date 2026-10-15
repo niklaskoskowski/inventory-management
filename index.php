@@ -173,7 +173,7 @@ function pub_e(string $value): string
 
   <!-- Vendored, not CDN: the folder must work as uploaded. public.css is
        self-contained and carries the iOS 16px focus-zoom fix. -->
-  <link rel="stylesheet" href="public.css">
+  <link rel="stylesheet" href="<?php echo trax_public_css(); ?>">
   <link rel="stylesheet" href="vendor/bootstrap-icons.css">
   <style>:root{--trax-brand:<?php echo pub_e($brandColor); ?>;}</style>
   <?php echo trax_accent_style_tags(); ?>

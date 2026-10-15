@@ -55,7 +55,7 @@ function trax_booking_gone(): never
         <meta name="robots" content="noindex, nofollow">
         <meta name="color-scheme" content="light dark">
         <title>Link not available</title>
-        <link rel="stylesheet" href="public.css">
+        <link rel="stylesheet" href="<?php echo trax_public_css(); ?>">
         <link rel="stylesheet" href="vendor/bootstrap-icons.css">
         </head>
         <body class="pub-page pub-solo">
@@ -361,7 +361,7 @@ $pdfBranding = [
     <!-- All styling lives in public.css; the only inline style is the accent
          (trax_accent_style_tags(), no at-rule). api_test.sh asserts the
          rendered page contains no at-sign at all. -->
-    <link rel="stylesheet" href="public.css">
+    <link rel="stylesheet" href="<?php echo trax_public_css(); ?>">
     <link rel="stylesheet" href="vendor/bootstrap-icons.css">
     <?php echo trax_accent_style_tags(); ?>
 </head>

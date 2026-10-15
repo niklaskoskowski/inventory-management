@@ -918,3 +918,13 @@ function trax_mail_template_keys(): array
 {
     return array_keys(trax_mail_templates());
 }
+
+/**
+ * public.css with its modification time as a version, so a changed stylesheet
+ * is fetched again instead of served from a phone's cache next to new markup.
+ */
+function trax_public_css(): string
+{
+    $mtime = @filemtime(__DIR__ . '/../public.css');
+    return 'public.css' . ($mtime ? '?v=' . $mtime : '');
+}

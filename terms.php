@@ -83,7 +83,7 @@ $heading = 'Terms & conditions';
 <?php if ($favicon !== ''): ?>
     <link rel="icon" type="image/png" href="<?php echo pub_e($favicon); ?>">
 <?php endif; ?>
-    <link rel="stylesheet" href="public.css">
+    <link rel="stylesheet" href="<?php echo trax_public_css(); ?>">
     <link rel="stylesheet" href="vendor/bootstrap-icons.css">
     <style>:root{--trax-brand:<?php echo pub_e($brandColor); ?>;}</style>
     <?php echo trax_accent_style_tags(); ?>

@@ -56,7 +56,7 @@ if (trax_is_installed()) {
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="light dark">
 <title>Already installed</title>
-<link rel="stylesheet" href="public.css">
+<link rel="stylesheet" href="<?php echo trax_public_css(); ?>">
 <link rel="stylesheet" href="vendor/bootstrap-icons.css">
 <style>:root { --trax-brand: <?php echo install_e($brandColor); ?>; }</style>
 </head>
@@ -217,7 +217,7 @@ header('Content-Type: text/html; charset=utf-8');
 <meta name="color-scheme" content="light dark">
 <title>Install · Step <?php echo $step; ?> of <?php echo TRAX_INSTALL_STEPS; ?></title>
 <!-- public.css carries the whole look, including the installer (ins-*). -->
-<link rel="stylesheet" href="public.css">
+<link rel="stylesheet" href="<?php echo trax_public_css(); ?>">
 <link rel="stylesheet" href="vendor/bootstrap-icons.css">
 <style>:root { --trax-brand: <?php echo install_e(trax_hex_color($state['brandColor']) ?? '#1F2937'); ?>; }</style>
 </head>

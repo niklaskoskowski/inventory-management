@@ -28,6 +28,9 @@ only record. There is no git history to mine.
 
 ### Fixed
 
+- **Huge logo on the sign-in page on phones.** public.css was linked without a version, so a phone
+  kept the cached stylesheet without the logo sizing next to the new markup. Every public.css
+  page now links it with its modification time (`trax_public_css()`).
 - **Sign out in the account menu did nothing.** The menu closed on the click and Vue removed the
   sign-out form before the browser submitted it. The menu now closes one task later.
 
