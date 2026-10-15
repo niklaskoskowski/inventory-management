@@ -689,8 +689,13 @@ button,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(160deg, #3b9bff 0%, #0062e3 100%);
-  color: #fff;
+  /* The accent (settings.branding.accent*), lighter at the top like the
+     system-blue tile it replaces. The flat colour is the fallback. */
+  background: var(--trax-accent);
+  background: linear-gradient(160deg,
+    color-mix(in srgb, var(--trax-accent) 78%, #fff) 0%,
+    color-mix(in srgb, var(--trax-accent) 88%, #000) 100%);
+  color: var(--trax-on-accent);
   font-size: 0.95rem;
   box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.25), 0 1px 2px rgba(0, 0, 0, 0.15);
   object-fit: cover;

@@ -2314,7 +2314,9 @@ function trax_accent_vars(string $hex, bool $isDark): string
         . '--trax-accent-soft:rgba(' . implode(',', $rgb) . ',' . ($isDark ? '0.18' : '0.11') . ');'
         . '--trax-accent-text:' . ($isDark ? $mix($rgb, 255, 0.3) : $mix($rgb, 0, 0.12)) . ';'
         . '--trax-on-accent:' . ($lum > 0.6 ? '#000000' : '#ffffff') . ';'
-        . '--bs-primary-rgb:' . implode(',', $rgb) . ';';
+        . '--bs-primary-rgb:' . implode(',', $rgb) . ';'
+        . '--bs-focus-ring-color:rgba(' . implode(',', $rgb) . ',' . ($isDark ? '0.45' : '0.35') . ');'
+        . '--bs-link-color-rgb:' . implode(',', sscanf($isDark ? $mix($rgb, 255, 0.3) : $mix($rgb, 0, 0.12), '#%02x%02x%02x')) . ';';
 }
 
 /** The admin's accent CSS, keyed off data-bs-theme. '' when both are default. */

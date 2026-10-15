@@ -28,6 +28,9 @@ only record. There is no git history to mine.
 
 ### Fixed
 
+- **Menu icons stayed blue with a custom accent.** The icon tiles in the phone *More* menu (and the
+  default app icon) had a hard-coded blue gradient; they now use the accent. The focus ring and
+  Bootstrap's link colour follow the accent too.
 - **Huge logo on the sign-in page on phones.** public.css was linked without a version, so a phone
   kept the cached stylesheet without the logo sizing next to the new markup. Every public.css
   page now links it with its modification time (`trax_public_css()`).
