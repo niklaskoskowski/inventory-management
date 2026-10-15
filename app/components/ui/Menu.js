@@ -46,9 +46,12 @@ export default {
       root.value?.querySelector('.trax-menu-item')?.focus();
     };
 
-    // A pick closes the menu; the item's own @click still runs.
+    // A pick closes the menu; the item's own @click still runs. Deferred a
+    // task: closing unmounts the list in a microtask, before the browser runs
+    // the default action — a submit button inside a <form> (Sign out) would
+    // otherwise find its form detached and silently not submit.
     const onPick = (event) => {
-      if (event.target.closest('.trax-menu-item')) close();
+      if (event.target.closest('.trax-menu-item')) setTimeout(close);
     };
 
     onBeforeUnmount(close);
