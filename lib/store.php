@@ -2244,43 +2244,58 @@ function trax_brand_header_html(string $name, string $fallbackMark = ''): string
 }
 
 /**
- * The CSS that swaps the admin UI's accent for the configured one, or ''.
+ * The accent tokens for one colour, as CSS declarations, or '' for no colour.
  *
- * The four accent tokens app.css defines per theme are derived from the one
- * colour, so an operator picks a single swatch per theme. app/lib/accent.js
- * holds the same derivation for a live change after Settings → Save; keep
- * the two in step.
+ * The four accent tokens app.css and public.css define per theme are derived
+ * from the one colour, so an operator picks a single swatch per theme.
+ * app/lib/accent.js holds the same derivation for a live change after
+ * Settings → Save; keep the two in step.
  */
-function trax_accent_css(string $light, string $dark, bool $bySystem = false): string
+function trax_accent_vars(string $hex, bool $isDark): string
+{
+    if (preg_match('/^#[0-9A-Fa-f]{6}$/', $hex) !== 1) {
+        return '';
+    }
+    $rgb = [hexdec(substr($hex, 1, 2)), hexdec(substr($hex, 3, 2)), hexdec(substr($hex, 5, 2))];
+    $mix = static function (array $c, int $to, float $t): string {
+        $out = array_map(static fn(int $v): int => (int)round($v + ($to - $v) * $t), $c);
+        return sprintf('#%02x%02x%02x', ...$out);
+    };
+    $lum = (0.2126 * $rgb[0] + 0.7152 * $rgb[1] + 0.0722 * $rgb[2]) / 255;
+    return '--trax-accent:' . strtolower($hex) . ';'
+        . '--trax-accent-hover:' . $mix($rgb, $isDark ? 255 : 0, $isDark ? 0.15 : 0.12) . ';'
+        . '--trax-accent-soft:rgba(' . implode(',', $rgb) . ',' . ($isDark ? '0.18' : '0.11') . ');'
+        . '--trax-accent-text:' . ($isDark ? $mix($rgb, 255, 0.3) : $mix($rgb, 0, 0.12)) . ';'
+        . '--trax-on-accent:' . ($lum > 0.6 ? '#000000' : '#ffffff') . ';'
+        . '--bs-primary-rgb:' . implode(',', $rgb) . ';';
+}
+
+/** The admin's accent CSS, keyed off data-bs-theme. '' when both are default. */
+function trax_accent_css(string $light, string $dark): string
 {
     $css = '';
     foreach (['light' => $light, 'dark' => $dark] as $theme => $hex) {
-        if (preg_match('/^#[0-9A-Fa-f]{6}$/', $hex) !== 1) {
-            continue;
+        $vars = trax_accent_vars($hex, $theme === 'dark');
+        if ($vars !== '') {
+            $css .= "[data-bs-theme='{$theme}']{" . $vars . '}';
         }
-        $rgb = [hexdec(substr($hex, 1, 2)), hexdec(substr($hex, 3, 2)), hexdec(substr($hex, 5, 2))];
-        $mix = static function (array $c, int $to, float $t): string {
-            $out = array_map(static fn(int $v): int => (int)round($v + ($to - $v) * $t), $c);
-            return sprintf('#%02x%02x%02x', ...$out);
-        };
-        $lum = (0.2126 * $rgb[0] + 0.7152 * $rgb[1] + 0.0722 * $rgb[2]) / 255;
-        $isDark = $theme === 'dark';
-        // The admin keys its theme off data-bs-theme; public.css pages (the
-        // sign-in) follow the system scheme instead.
-        $open  = $bySystem
-            ? ($isDark ? '@media (prefers-color-scheme: dark){:root{' : ':root{')
-            : "[data-bs-theme='{$theme}']{";
-        $close = $bySystem && $isDark ? '}}' : '}';
-        $css .= $open
-            . '--trax-accent:' . strtolower($hex) . ';'
-            . '--trax-accent-hover:' . $mix($rgb, $isDark ? 255 : 0, $isDark ? 0.15 : 0.12) . ';'
-            . '--trax-accent-soft:rgba(' . implode(',', $rgb) . ',' . ($isDark ? '0.18' : '0.11') . ');'
-            . '--trax-accent-text:' . ($isDark ? $mix($rgb, 255, 0.3) : $mix($rgb, 0, 0.12)) . ';'
-            . '--trax-on-accent:' . ($lum > 0.6 ? '#000000' : '#ffffff') . ';'
-            . '--bs-primary-rgb:' . implode(',', $rgb) . ';'
-            . $close;
     }
     return $css;
+}
+
+/**
+ * The accent for the public.css pages (sign-in, asset page, view, terms,
+ * booking), which follow the system colour scheme. Two <style> elements, the
+ * dark one gated by its media attribute rather than an at-rule: booking.php's
+ * rendered page must not contain an at-sign at all (api_test.sh asserts it).
+ * Emit after public.css so it wins.
+ */
+function trax_accent_style_tags(): string
+{
+    $light = trax_accent_vars((string)trax_setting('branding.accentLight', ''), false);
+    $dark  = trax_accent_vars((string)trax_setting('branding.accentDark', ''), true);
+    return ($light !== '' ? '<style>:root{' . $light . '}</style>' : '')
+        . ($dark !== '' ? '<style media="(prefers-color-scheme: dark)">:root{' . $dark . '}</style>' : '');
 }
 
 /**

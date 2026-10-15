@@ -125,6 +125,17 @@ export default {
       return text.charAt(0).toUpperCase() + text.slice(1);
     };
 
+    /**
+     * Value by category, capped: with every category listed the card grew
+     * taller than everything else on the page put together. Already sorted
+     * by value, so the cap keeps the ones that matter.
+     */
+    const CATEGORY_CAP = 6;
+    const showAllCategories = ref(false);
+    const categoryRows = computed(() => (showAllCategories.value
+      ? value.value.byCategory
+      : value.value.byCategory.slice(0, CATEGORY_CAP)));
+
     const recent = computed(() =>
       [...state.history]
         .sort((a, b) => (parseDate(b.at) || 0) - (parseDate(a.at) || 0))
@@ -154,7 +165,7 @@ export default {
     };
 
     return {
-      state, byStatus, value, zeroLabel, unpricedTop, totalUnits, unitsOut,
+      state, byStatus, value, zeroLabel, categoryRows, showAllCategories, CATEGORY_CAP, unpricedTop, totalUnits, unitsOut,
       upcoming, dueSoon, warrantyExpiring, recent, inspectionDue,
       STATE_CLASS, STATE_LABEL, TEST_DOT, formatDate, upcomingUnits, activityLabel,
       exportingInsurance, insurancePdf,
@@ -346,7 +357,7 @@ export default {
                 {{ exportingInsurance ? 'Building…' : 'PDF' }}
               </button>
             </div>
-            <div v-for="row in value.byCategory" :key="row.category" class="trax-row">
+            <div v-for="row in categoryRows" :key="row.category" class="trax-row">
               <div class="trax-row-main">
                 <div class="trax-row-title"><span>{{ row.category }}</span></div>
                 <div class="trax-row-meta">
@@ -357,6 +368,13 @@ export default {
               <span class="trax-row-end"><strong>{{ formatTotals(row.totals, zeroLabel) }}</strong></span>
             </div>
             <div v-if="!value.byCategory.length" class="trax-row trax-row-empty">No items yet</div>
+            <button v-if="value.byCategory.length > CATEGORY_CAP" type="button"
+                    class="trax-row is-tappable trax-row-empty justify-content-center"
+                    :aria-expanded="showAllCategories ? 'true' : 'false'"
+                    @click="showAllCategories = !showAllCategories">
+              {{ showAllCategories ? 'Show less' : 'Show all ' + value.byCategory.length }}
+              <i class="bi ms-1" :class="showAllCategories ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+            </button>
           </section>
 
           <!-- What is missing from the total, one tap from being fixed. -->

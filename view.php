@@ -53,6 +53,7 @@ function pub_e(string $value): string
     <link rel="stylesheet" href="public.css">
     <link rel="stylesheet" href="vendor/bootstrap-icons.css">
     <style>:root{--trax-brand:<?php echo pub_e($brandColor); ?>;}</style>
+    <?php echo trax_accent_style_tags(); ?>
 </head>
 <body class="pub-page">
 

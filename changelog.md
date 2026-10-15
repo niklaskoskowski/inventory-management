@@ -16,7 +16,10 @@ only record. There is no git history to mine.
   the sidebar, on the sign-in page and in the headers of the public pages (asset page, view,
   terms, booking), switching with the colour scheme. *Accent colour* replaces the system blue of
   buttons, links and the active item, separately for light and dark; empty is the default. Uploaded
-  logos are included in backups and restores.
+  logos are included in backups and restores. The accent also applies to the sign-in page and the
+  public pages (asset page, view, terms, booking), following the system colour scheme.
+- **Overview: "Value by category" capped at six.** With every category listed, the card made the
+  overview scroll on and on; the rest sit behind *Show all N*.
 
 ### Fixed
 

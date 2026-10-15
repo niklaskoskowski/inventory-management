@@ -232,7 +232,9 @@ public headers (`trax_brand_header_html()`, `<picture>` with a `prefers-color-sc
 `appLogoMode` is `logoName` (logo + name) or `logo` (logo only). `accentLight`/`accentDark` replace
 the admin UI's system blue: `trax_accent_css()` derives the four `--trax-accent*` tokens, admin.php
 renders `<style id="trax-accent">`, `app/lib/accent.js` (same derivation) rewrites it after a save;
-the sign-in page uses it too. Empty means the default blue.
+the sign-in and public pages get it through `trax_accent_style_tags()` (two `<style>` elements, the
+dark one gated by its `media` attribute — no at-rule, since booking.php must render without an
+at-sign). Empty means the default blue.
 
 ## Rental pricing
 

@@ -126,9 +126,8 @@ header('Content-Type: text/html; charset=utf-8');
 <?php endif; ?>
 <link rel="stylesheet" href="public.css">
 <link rel="stylesheet" href="vendor/bootstrap-icons.css">
-<style>:root { --trax-brand: <?php echo esc($brandColor); ?>; }<?php
-echo trax_accent_css((string)trax_setting('branding.accentLight', ''), (string)trax_setting('branding.accentDark', ''), true);
-?></style>
+<style>:root { --trax-brand: <?php echo esc($brandColor); ?>; }</style>
+<?php echo trax_accent_style_tags(); ?>
 </head>
 <body class="pub-page pub-solo">
   <main class="pub-solo-main">

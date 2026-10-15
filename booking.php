@@ -358,10 +358,12 @@ $pdfBranding = [
     <meta name="robots" content="noindex, nofollow">
     <meta name="color-scheme" content="light dark">
     <title>Your booking · <?php echo esc($view['orgName']); ?></title>
-    <!-- All styling lives in public.css. Deliberately no inline style block:
-         api_test.sh asserts the rendered page contains no at-sign at all. -->
+    <!-- All styling lives in public.css; the only inline style is the accent
+         (trax_accent_style_tags(), no at-rule). api_test.sh asserts the
+         rendered page contains no at-sign at all. -->
     <link rel="stylesheet" href="public.css">
     <link rel="stylesheet" href="vendor/bootstrap-icons.css">
+    <?php echo trax_accent_style_tags(); ?>
 </head>
 <body class="pub-page">
 <header class="pub-top">
