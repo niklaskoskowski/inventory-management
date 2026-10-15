@@ -397,6 +397,8 @@ export default {
       <div class="trax-main">
         <header class="trax-topbar" :class="{ 'is-scrolled': scrolled }">
           <div class="trax-topbar-heading flex-grow-1 min-w-0">
+            <!-- No sidebar on a phone: the logo sits above the large title. -->
+            <img v-if="isNarrow && appLogo" class="trax-topbar-logo" :src="appLogo" :alt="appName">
             <h1 class="trax-topbar-title">{{ currentNav.label }}</h1>
             <p v-if="subtitle" class="trax-topbar-sub">{{ subtitle }}</p>
           </div>

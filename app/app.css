@@ -815,6 +815,15 @@ button,
 
 .trax-topbar { transition: background-color 0.2s ease, border-color 0.2s ease; }
 
+.trax-topbar-logo {
+  display: block;
+  height: 22px;
+  width: auto;
+  max-width: 60vw;
+  object-fit: contain;
+  margin-bottom: 0.3rem;
+}
+
 .trax-topbar-title {
   font-size: 1.3rem;
   font-weight: 700;
@@ -2036,6 +2045,7 @@ button,
 }
 .trax-logo-preview.is-light { background: #ebebf0; }
 .trax-logo-preview.is-dark { background: #111113; }
+.trax-logo-preview.is-label { background: #ffffff; }
 .trax-logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .trax-logo-preview img.is-fallback { opacity: 0.55; }
 

@@ -209,7 +209,7 @@ if ($isPost) {
             // printer.batchAdd: which batch, and the label's place in it.
             'batchId'   => trax_str($_POST['batchId'] ?? '', 64),
             'index'     => trax_int($_POST['index'] ?? null),
-            // branding.uploadLogo: which theme's logo. Same rule.
+            // branding.uploadLogo: light|dark (in-tool) or label. Same rule.
             'variant'   => trax_str($_POST['variant'] ?? '', 10),
         ];
         // Absent (every existing client) still means null, i.e. no rev check.

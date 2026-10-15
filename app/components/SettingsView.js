@@ -1219,6 +1219,7 @@ export default {
     // The upload stores the file only; its name lands in the draft and goes
     // live with the save bar, like every other branding field.
     const logoBusy = ref('');
+    const LOGO_KEYS = { light: 'appLogoLight', dark: 'appLogoDark', label: 'logoFile' };
     const uploadLogo = async (variant, event) => {
       const input = event.target;
       const file = input.files?.[0];
@@ -1227,8 +1228,7 @@ export default {
       logoBusy.value = variant;
       try {
         const body = await api.upload('branding.uploadLogo', file, { variant });
-        const key = variant === 'dark' ? 'appLogoDark' : 'appLogoLight';
-        draft.value.branding[key] = body.data?.file || '';
+        draft.value.branding[LOGO_KEYS[variant]] = body.data?.file || '';
       } catch (error) {
         toast(error.message, 'danger');
       } finally {
@@ -1236,7 +1236,7 @@ export default {
       }
     };
     const clearLogo = (variant) => {
-      draft.value.branding[variant === 'dark' ? 'appLogoDark' : 'appLogoLight'] = '';
+      draft.value.branding[LOGO_KEYS[variant]] = '';
     };
     const LOGO_MODES = [
       { id: 'logoName', label: 'Logo + name' },
@@ -1855,9 +1855,30 @@ export default {
       <div class="trax-list-header">Images</div>
       <div class="trax-list">
         <div class="trax-row">
+          <span class="trax-set-label"
+                title="Printed on every label and in the header of exported PDFs.">
+            Label/PDF logo <span class="trax-set-hint">PNG or JPEG · max 2 MB</span>
+          </span>
+          <div class="d-flex align-items-center gap-2 ms-auto">
+            <div class="trax-logo-preview is-label">
+              <img v-if="draft.branding.logoFile" :src="draft.branding.logoFile" alt="">
+              <span v-else class="trax-set-hint">No logo</span>
+            </div>
+            <label class="btn btn-sm btn-outline-secondary mb-0" :class="{ disabled: logoBusy }">
+              <span v-if="logoBusy === 'label'" class="spinner-border spinner-border-sm"></span>
+              <i v-else class="bi bi-upload"></i> Upload
+              <input type="file" class="d-none" accept="image/png,image/jpeg"
+                     :disabled="!!logoBusy" @change="uploadLogo('label', $event)">
+            </label>
+            <button v-if="draft.branding.logoFile" type="button"
+                    class="btn btn-sm btn-outline-danger" title="Remove" aria-label="Remove label/PDF logo"
+                    @click="clearLogo('label')"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+        <div class="trax-row">
           <label class="trax-set-label" for="set-logo"
                  title="Labels are drawn on the server and need a local file; a URL prints the organisation name instead. PDFs load either, if the host allows CORS.">
-            Logo <span class="trax-set-hint">PNG/JPEG file or https URL</span>
+            Label/PDF logo file <span class="trax-set-hint">Set by Upload · or https URL</span>
           </label>
           <input id="set-logo" class="form-control form-control-sm trax-set-ctl is-wide font-monospace"
                  v-model="draft.branding.logoFile" placeholder="logo.png">
@@ -1870,7 +1891,7 @@ export default {
                  v-model="draft.branding.faviconFile" placeholder="favicon.png">
         </div>
       </div>
-      <p class="trax-set-foot">Labels need a logo file on the server; a URL prints the name as text.</p>
+      <p class="trax-set-foot">Labels need a logo file on the server (Upload does that); a URL prints the name as text.</p>
     </div>
 
     <!-- Labels ------------------------------------------------------------ -->

@@ -2156,7 +2156,9 @@ function trax_brand_logo_file(mixed $value): string
  */
 function trax_store_brand_logo(string $variant, mixed $file, array $settings): string
 {
-    if (!in_array($variant, ['light', 'dark'], true)) {
+    // light/dark: the in-tool logo. label: settings.branding.logoFile, the
+    // label and PDF artwork — PNG/JPEG only, the two both renderers read.
+    if (!in_array($variant, ['light', 'dark', 'label'], true)) {
         throw new TraxInvalid('Unknown logo variant.');
     }
     if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
@@ -2175,8 +2177,10 @@ function trax_store_brand_logo(string $variant, mixed $file, array $settings): s
         IMAGETYPE_WEBP => 'webp',
         default        => null,
     };
-    if ($ext === null) {
-        throw new TraxInvalid('The logo must be a PNG, JPEG or WebP image.');
+    if ($ext === null || ($variant === 'label' && $ext === 'webp')) {
+        throw new TraxInvalid($variant === 'label'
+            ? 'The label/PDF logo must be a PNG or JPEG image.'
+            : 'The logo must be a PNG, JPEG or WebP image.');
     }
 
     $bytes = @file_get_contents((string)$file['tmp_name']);
@@ -2189,7 +2193,12 @@ function trax_store_brand_logo(string $variant, mixed $file, array $settings): s
     trax_write_atomic($root . '/' . $name, $bytes);
     @chmod($root . '/' . $name, 0644);
 
-    $keep = [$name, (string)($settings['branding']['appLogoLight'] ?? ''), (string)($settings['branding']['appLogoDark'] ?? '')];
+    $keep = [
+        $name,
+        (string)($settings['branding']['appLogoLight'] ?? ''),
+        (string)($settings['branding']['appLogoDark'] ?? ''),
+        (string)($settings['branding']['logoFile'] ?? ''),
+    ];
     foreach (glob($root . '/' . TRAX_BRAND_LOGO_PREFIX . $variant . '-*') ?: [] as $old) {
         if (!in_array(basename($old), $keep, true)) {
             @unlink($old);

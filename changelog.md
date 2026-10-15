@@ -21,6 +21,10 @@ only record. There is no git history to mine.
 - **Overview: "Value by category" capped at six.** With every category listed, the card made the
   overview scroll on and on; the rest sit behind *Show all N*.
 - **Overview: "Recent activity" shows the last 5 entries** (was 8).
+- **Label/PDF logo is uploadable.** Settings → Branding → Images → *Label/PDF logo*: upload a PNG
+  or JPEG (max 2 MB) with preview and remove; no more copying `logo.png` onto the server. The file
+  field stays for a URL.
+- **In-tool logo on phones.** Without a sidebar, the logo sits above the large page title.
 
 ### Fixed
 
