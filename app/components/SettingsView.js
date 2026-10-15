@@ -1219,7 +1219,9 @@ export default {
     // The upload stores the file only; its name lands in the draft and goes
     // live with the save bar, like every other branding field.
     const logoBusy = ref('');
-    const LOGO_KEYS = { light: 'appLogoLight', dark: 'appLogoDark', label: 'logoFile' };
+    const LOGO_KEYS = {
+      light: 'appLogoLight', dark: 'appLogoDark', label: 'logoFile', favicon: 'faviconFile',
+    };
     const uploadLogo = async (variant, event) => {
       const input = event.target;
       const file = input.files?.[0];
@@ -1854,7 +1856,7 @@ export default {
 
       <div class="trax-list-header">Images</div>
       <div class="trax-list">
-        <div class="trax-row">
+        <div class="trax-row flex-wrap">
           <span class="trax-set-label"
                 title="Printed on every label and in the header of exported PDFs.">
             Label/PDF logo <span class="trax-set-hint">PNG or JPEG · max 2 MB</span>
@@ -1875,23 +1877,30 @@ export default {
                     @click="clearLogo('label')"><i class="bi bi-trash"></i></button>
           </div>
         </div>
-        <div class="trax-row">
-          <label class="trax-set-label" for="set-logo"
-                 title="Labels are drawn on the server and need a local file; a URL prints the organisation name instead. PDFs load either, if the host allows CORS.">
-            Label/PDF logo file <span class="trax-set-hint">Set by Upload · or https URL</span>
-          </label>
-          <input id="set-logo" class="form-control form-control-sm trax-set-ctl is-wide font-monospace"
-                 v-model="draft.branding.logoFile" placeholder="logo.png">
-        </div>
-        <div class="trax-row">
-          <label class="trax-set-label" for="set-favicon">
-            Favicon <span class="trax-set-hint">PNG in the project root</span>
-          </label>
-          <input id="set-favicon" class="form-control form-control-sm trax-set-ctl is-wide font-monospace"
-                 v-model="draft.branding.faviconFile" placeholder="favicon.png">
+        <div class="trax-row flex-wrap">
+          <span class="trax-set-label">
+            Favicon <span class="trax-set-hint">Tab, home screen, phone header · square works best</span>
+          </span>
+          <div class="d-flex align-items-center gap-2 ms-auto">
+            <div class="trax-logo-preview is-icon">
+              <img v-if="draft.branding.faviconFile" :src="draft.branding.faviconFile" alt="">
+              <span v-else class="trax-set-hint">None</span>
+            </div>
+            <label class="btn btn-sm btn-outline-secondary mb-0" :class="{ disabled: logoBusy }">
+              <span v-if="logoBusy === 'favicon'" class="spinner-border spinner-border-sm"></span>
+              <i v-else class="bi bi-upload"></i> Upload
+              <input type="file" class="d-none" accept="image/png,image/jpeg,image/webp"
+                     :disabled="!!logoBusy" @change="uploadLogo('favicon', $event)">
+            </label>
+            <button v-if="draft.branding.faviconFile && draft.branding.faviconFile !== 'favicon.png'" type="button"
+                    class="btn btn-sm btn-outline-secondary" title="Back to the default favicon"
+                    aria-label="Reset favicon" @click="draft.branding.faviconFile = 'favicon.png'">
+              <i class="bi bi-arrow-counterclockwise"></i>
+            </button>
+          </div>
         </div>
       </div>
-      <p class="trax-set-foot">Labels need a logo file on the server (Upload does that); a URL prints the name as text.</p>
+      <p class="trax-set-foot">The favicon (PNG, JPEG or WebP, max 2 MB) is resized to a 180 px square.</p>
     </div>
 
     <!-- Labels ------------------------------------------------------------ -->

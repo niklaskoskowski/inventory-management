@@ -2158,7 +2158,8 @@ function trax_store_brand_logo(string $variant, mixed $file, array $settings): s
 {
     // light/dark: the in-tool logo. label: settings.branding.logoFile, the
     // label and PDF artwork — PNG/JPEG only, the two both renderers read.
-    if (!in_array($variant, ['light', 'dark', 'label'], true)) {
+    // favicon: settings.branding.faviconFile, re-encoded to a square PNG.
+    if (!in_array($variant, ['light', 'dark', 'label', 'favicon'], true)) {
         throw new TraxInvalid('Unknown logo variant.');
     }
     if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
@@ -2187,6 +2188,10 @@ function trax_store_brand_logo(string $variant, mixed $file, array $settings): s
     if ($bytes === false) {
         throw new TraxInvalid('The logo could not be read.');
     }
+    if ($variant === 'favicon') {
+        $bytes = trax_favicon_png($bytes);
+        $ext   = 'png';
+    }
 
     $root = dirname(__DIR__);
     $name = TRAX_BRAND_LOGO_PREFIX . $variant . '-' . substr(hash('sha256', $bytes), 0, 16) . '.' . $ext;
@@ -2198,6 +2203,7 @@ function trax_store_brand_logo(string $variant, mixed $file, array $settings): s
         (string)($settings['branding']['appLogoLight'] ?? ''),
         (string)($settings['branding']['appLogoDark'] ?? ''),
         (string)($settings['branding']['logoFile'] ?? ''),
+        (string)($settings['branding']['faviconFile'] ?? ''),
     ];
     foreach (glob($root . '/' . TRAX_BRAND_LOGO_PREFIX . $variant . '-*') ?: [] as $old) {
         if (!in_array(basename($old), $keep, true)) {
@@ -2206,6 +2212,38 @@ function trax_store_brand_logo(string $variant, mixed $file, array $settings): s
     }
 
     return $name;
+}
+
+/**
+ * An uploaded image as a 180 px square PNG — the apple-touch-icon size — the
+ * picture contain-fitted and centred on transparency, so a non-square upload
+ * is not cropped and the <link type="image/png"> is always true.
+ *
+ * @throws TraxInvalid
+ */
+function trax_favicon_png(string $bytes): string
+{
+    $source = @imagecreatefromstring($bytes);
+    if ($source === false) {
+        throw new TraxInvalid('The favicon could not be read.');
+    }
+    $size = 180;
+    $out  = imagecreatetruecolor($size, $size);
+    imagealphablending($out, false);
+    imagesavealpha($out, true);
+    imagefilledrectangle($out, 0, 0, $size - 1, $size - 1, imagecolorallocatealpha($out, 0, 0, 0, 127));
+    imagealphablending($out, true);
+
+    $w     = imagesx($source);
+    $h     = imagesy($source);
+    $scale = min($size / $w, $size / $h);
+    $tw    = max(1, (int)round($w * $scale));
+    $th    = max(1, (int)round($h * $scale));
+    imagecopyresampled($out, $source, (int)round(($size - $tw) / 2), (int)round(($size - $th) / 2), 0, 0, $tw, $th, $w, $h);
+
+    ob_start();
+    imagepng($out, null, 9);
+    return (string)ob_get_clean();
 }
 
 /** [light, dark] in-tool logo; dark falls back to light, both '' when unset. */

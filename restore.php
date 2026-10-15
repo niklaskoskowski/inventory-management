@@ -568,7 +568,7 @@ function restoreBranding(string $backupDir, array $paths): int
     // the uploader writes, so a crafted backup cannot drop a .php in the root.
     foreach (glob($sourceDir . '/brand-logo-*') ?: [] as $brandLogo) {
         $name = basename($brandLogo);
-        if (preg_match('/^brand-logo-(light|dark|label)-[0-9a-f]{8,32}\.(png|jpg|webp)$/', $name) === 1) {
+        if (preg_match('/^brand-logo-(light|dark|label|favicon)-[0-9a-f]{8,32}\.(png|jpg|webp)$/', $name) === 1) {
             $targets[$name] = dirname($paths['logo_file']) . '/' . $name;
         }
     }

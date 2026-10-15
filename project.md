@@ -224,7 +224,8 @@ means a label prints the organisation name instead. `faviconFile` stays local-on
 
 The **in-tool logo** (`appLogoLight`/`appLogoDark`) is uploaded in Settings → Branding through
 `branding.uploadLogo` (multipart, `variant` light|dark, PNG/JPEG/WebP ≤ 2 MB, no SVG; `variant`
-label sets `logoFile`, the label/PDF logo, PNG/JPEG only — it would be
+label sets `logoFile`, the label/PDF logo, PNG/JPEG only; `variant` favicon sets `faviconFile`,
+re-encoded by `trax_favicon_png()` to a 180 px square PNG — it would be
 served from this origin). The file lands in the project root as
 `brand-logo-<variant>-<sha256 prefix>.<ext>` (gitignored, in backups under `branding/`) and only the
 name returns; it goes live with the save bar. `trax_brand_logo_file()` accepts only that name shape.
