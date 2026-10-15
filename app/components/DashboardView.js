@@ -139,7 +139,7 @@ export default {
     const recent = computed(() =>
       [...state.history]
         .sort((a, b) => (parseDate(b.at) || 0) - (parseDate(a.at) || 0))
-        .slice(0, 8),
+        .slice(0, 5),
     );
 
     /**

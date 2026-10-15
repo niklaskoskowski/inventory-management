@@ -20,6 +20,7 @@ only record. There is no git history to mine.
   public pages (asset page, view, terms, booking), following the system colour scheme.
 - **Overview: "Value by category" capped at six.** With every category listed, the card made the
   overview scroll on and on; the rest sit behind *Show all N*.
+- **Overview: "Recent activity" shows the last 5 entries** (was 8).
 
 ### Fixed
 
