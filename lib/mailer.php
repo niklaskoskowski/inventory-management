@@ -358,7 +358,7 @@ function trax_mail_html(string $subject, string $text, ?string $logoSrc): string
         . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;"><tr><td align="center" style="padding:32px 16px;">'
         . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">'
         . '<tr><td style="padding:0 4px 20px;">' . $header . '</td></tr>'
-        . '<tr><td style="background:#ffffff;border-radius:12px;padding:28px 28px 16px;border-top:3px solid ' . $accent . ';">'
+        . '<tr><td style="background:#ffffff;border-radius:12px;padding:28px 28px 16px;">'
         . '<h1 style="margin:0 0 20px;font-size:20px;line-height:1.3;font-weight:700;color:#111827;">' . $e($subject) . '</h1>'
         . $out
         . '</td></tr>'
