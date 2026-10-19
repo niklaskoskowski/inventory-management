@@ -36,6 +36,9 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Small polish.** The sidebar avatar sits centred under the Settings icon with the name aligned
+  to the link labels; the sign-in page drops the app name under "Sign in" when the logo already
+  shows it; the mail signature line shows the app name only (no organisation).
 - **Email split into two settings pages.** The side menu shows *Email* with two sub-items:
   *Settings* (addresses, customer and scheduled mail switches) and *Content* (mail texts with
   preview, footer). On a phone they appear as *Email settings* / *Email content* in the tab row.

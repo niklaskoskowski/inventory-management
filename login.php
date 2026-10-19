@@ -145,7 +145,9 @@ header('Content-Type: text/html; charset=utf-8');
         </div>
 <?php endif; ?>
         <h1 class="pub-solo-title">Sign in</h1>
+<?php if ($logo === ''): ?>
         <p class="pub-solo-sub"><?php echo esc($appName); ?></p>
+<?php endif; ?>
       </div>
 
       <?php if ($error !== ''): ?>

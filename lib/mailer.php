@@ -266,7 +266,6 @@ function trax_mail_html(string $subject, string $text, ?string $logoSrc, string 
     $accent = (string)trax_setting('branding.accentLight', '') ?: (string)trax_setting('branding.brandColor', '#1F2937');
     $accent = trax_hex_color($accent) ?? '#1F2937';
     $appName = (string)trax_setting('branding.appName', 'Assets');
-    $orgName = (string)trax_setting('branding.orgName', '') ?: $appName;
     $font    = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
     $link = static function (string $escaped) use ($accent): string {
@@ -376,8 +375,7 @@ function trax_mail_html(string $subject, string $text, ?string $logoSrc, string 
             ? '<tr><td style="padding:20px 4px 0;font-size:13px;line-height:1.55;color:#6b7280;">'
                 . nl2br($link($e($footer)), false) . '</td></tr>'
             : '')
-        . '<tr><td style="padding:' . ($footer !== '' ? '10px' : '20px') . ' 4px 0;font-size:12px;line-height:1.5;color:#9ca3af;">' . $e($orgName)
-        . ($orgName !== $appName ? ' · ' . $e($appName) : '') . '</td></tr>'
+        . '<tr><td style="padding:' . ($footer !== '' ? '10px' : '20px') . ' 4px 0;font-size:12px;line-height:1.5;color:#9ca3af;">' . $e($appName) . '</td></tr>'
         . '</table></td></tr></table></body></html>';
 }
 
