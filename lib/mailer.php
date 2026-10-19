@@ -117,28 +117,30 @@ function trax_send_mail(array $to, string $subject, string $body, ?string $from 
         : $from;
     $domain = substr(strrchr($from, '@') ?: '@localhost', 1);
 
+    // The message: the text as written (the templates are plain text and
+    // stay the source of truth) plus an HTML rendering of the same text with
+    // the logo, as multipart/alternative — wrapped in multipart/related when
+    // the logo travels inline (cid:), so no client has to fetch an image.
+    $logo = trax_mail_logo();
+    $cid  = 'logo.' . bin2hex(random_bytes(6)) . '@' . $domain;
+    $html = trax_mail_html($subject, $body, $logo === null ? null : ($logo['url'] ?? 'cid:' . $cid));
+    $mime = trax_mail_mime($body, $html, ($logo !== null && isset($logo['bytes'])) ? $logo + ['cid' => $cid] : null);
+
     $headers = implode("\r\n", [
         'From: ' . $fromHeader,
         'Reply-To: ' . $from,
         'Date: ' . date('r'),
         'Message-ID: <' . bin2hex(random_bytes(12)) . '.' . time() . '@' . $domain . '>',
         'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
-        // Declared and true: the body is 7-bit clean quoted-printable. A bare
-        // UTF-8 body under an implied 7bit header is what spam filters score
-        // as CTE_8BIT_MISMATCH.
-        'Content-Transfer-Encoding: quoted-printable',
+        'Content-Type: ' . $mime['type'],
         'X-Mailer: AssetTool',
     ]);
 
     // Subject is header data: encode it so UTF-8 survives and CR/LF cannot escape.
     $subject = mb_encode_mimeheader(trax_mail_header_safe($subject), 'UTF-8', 'B', "\r\n");
 
-    // Body is not header data. Encoded with CRLF line ends, which quoted-
-    // printable keeps as real line breaks (a bare \n would become =0A), then
-    // handed to sendmail with plain \n, which it expects.
-    $body = str_replace(["\r\n", "\r", "\n"], ["\n", "\n", "\r\n"], $body);
-    $body = str_replace("\r\n", "\n", quoted_printable_encode($body));
+    // Handed to sendmail with plain \n line ends, which it expects.
+    $body = str_replace("\r\n", "\n", $mime['body']);
 
     $sink = trax_mail_sink_path();
     if ($sink !== null) {
@@ -151,6 +153,218 @@ function trax_send_mail(array $to, string $subject, string $body, ?string $from 
     $params = TRAX_MAIL_ENVELOPE_FROM ? '-f' . $from : '';
 
     return @mail(implode(', ', $recipients), $subject, $body, $headers, $params);
+}
+
+/**
+ * Text as a 7-bit quoted-printable part body. CRLF line ends, which
+ * quoted-printable keeps as real line breaks (a bare \n would become =0A).
+ * Declared and true: a bare UTF-8 body under an implied 7bit header is what
+ * spam filters score as CTE_8BIT_MISMATCH.
+ */
+function trax_mail_qp(string $text): string
+{
+    return quoted_printable_encode(str_replace(["\r\n", "\r", "\n"], ["\n", "\n", "\r\n"], $text));
+}
+
+/**
+ * The MIME body: text + HTML alternatives, and the inline logo if given.
+ *
+ * @param array{bytes:string, mime:string, name:string, cid:string}|null $logo
+ * @return array{type:string, body:string}
+ */
+function trax_mail_mime(string $text, string $html, ?array $logo): array
+{
+    $alt = 'alt-' . bin2hex(random_bytes(8));
+    $alternative = "--{$alt}\r\n"
+        . "Content-Type: text/plain; charset=UTF-8\r\n"
+        . "Content-Transfer-Encoding: quoted-printable\r\n\r\n"
+        . trax_mail_qp($text) . "\r\n"
+        . "--{$alt}\r\n"
+        . "Content-Type: text/html; charset=UTF-8\r\n"
+        . "Content-Transfer-Encoding: quoted-printable\r\n\r\n"
+        . trax_mail_qp($html) . "\r\n"
+        . "--{$alt}--\r\n";
+    $altType = 'multipart/alternative; boundary="' . $alt . '"';
+
+    if ($logo === null) {
+        return ['type' => $altType, 'body' => $alternative];
+    }
+
+    $rel = 'rel-' . bin2hex(random_bytes(8));
+    $body = "--{$rel}\r\n"
+        . "Content-Type: {$altType}\r\n\r\n"
+        . $alternative
+        . "--{$rel}\r\n"
+        . "Content-Type: {$logo['mime']}; name=\"{$logo['name']}\"\r\n"
+        . "Content-Transfer-Encoding: base64\r\n"
+        . "Content-ID: <{$logo['cid']}>\r\n"
+        . "Content-Disposition: inline; filename=\"{$logo['name']}\"\r\n\r\n"
+        . chunk_split(base64_encode($logo['bytes']), 76, "\r\n")
+        . "--{$rel}--\r\n";
+
+    return ['type' => 'multipart/related; type="multipart/alternative"; boundary="' . $rel . '"', 'body' => $body];
+}
+
+/**
+ * The mail logo: the in-tool light logo, else the label/PDF logo — local PNG
+ * or JPEG only (WebP shows as a broken image in Outlook), embedded inline.
+ * A label/PDF logo that is an https URL is referenced instead. Null: no logo,
+ * the header shows the app name.
+ *
+ * @return array{bytes:string, mime:string, name:string}|array{url:string}|null
+ */
+function trax_mail_logo(): ?array
+{
+    $root = dirname(__DIR__);
+    foreach ([(string)trax_setting('branding.appLogoLight', ''), (string)trax_setting('branding.logoFile', '')] as $file) {
+        if ($file === '') {
+            continue;
+        }
+        if (preg_match('#^https://#i', $file) === 1) {
+            return ['url' => $file];
+        }
+        $path = $root . '/' . basename($file);
+        $info = is_file($path) ? @getimagesize($path) : false;
+        $mime = match ($info[2] ?? null) {
+            IMAGETYPE_PNG  => 'image/png',
+            IMAGETYPE_JPEG => 'image/jpeg',
+            default        => null,
+        };
+        $bytes = $mime !== null ? @file_get_contents($path) : false;
+        if ($mime !== null && is_string($bytes) && $bytes !== '' && strlen($bytes) <= 512 * 1024) {
+            return ['bytes' => $bytes, 'mime' => $mime, 'name' => $mime === 'image/png' ? 'logo.png' : 'logo.jpg'];
+        }
+    }
+    return null;
+}
+
+/**
+ * The HTML version of a plain-text mail: the same words, laid out.
+ *
+ * The templates are plain text the operator edits, so the layout is read off
+ * the text rather than written into it:
+ *   "Label: https://…"  → a button (the booking link)
+ *   "Label: value"      → a row of a small details table
+ *   "- item"            → a list
+ *   "Heading:"          → a section heading
+ *   anything else       → a paragraph, with URLs linked
+ * Inline styles and tables only — what mail clients actually render.
+ */
+function trax_mail_html(string $subject, string $text, ?string $logoSrc): string
+{
+    $e      = static fn(string $v): string => htmlspecialchars($v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $accent = (string)trax_setting('branding.accentLight', '') ?: (string)trax_setting('branding.brandColor', '#1F2937');
+    $accent = trax_hex_color($accent) ?? '#1F2937';
+    $appName = (string)trax_setting('branding.appName', 'Assets');
+    $orgName = (string)trax_setting('branding.orgName', '') ?: $appName;
+    $font    = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
+    $link = static function (string $escaped) use ($accent): string {
+        return (string)preg_replace(
+            '#https?://[^\s<>"\']+#',
+            '<a href="$0" style="color:' . $accent . ';text-decoration:underline;">$0</a>',
+            $escaped
+        );
+    };
+
+    $out    = '';
+    $list   = [];
+    $rows   = [];
+    $para   = [];
+    // Consecutive plain lines are one paragraph (a multi-line note), so they
+    // are collected and written together.
+    $flushPara = static function () use (&$para, &$out, $e, $link): void {
+        if ($para !== []) {
+            $out .= '<p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#111827;">'
+                . implode('<br>', array_map(static fn(string $l): string => $link($e($l)), $para)) . '</p>';
+            $para = [];
+        }
+    };
+    $flush  = static function () use (&$list, &$rows, &$out, $e, $link, $flushPara): void {
+        $flushPara();
+        if ($list !== []) {
+            $out .= '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 16px;border:1px solid #e5e7eb;border-radius:8px;border-collapse:separate;">';
+            foreach ($list as $i => $item) {
+                $border = $i > 0 ? 'border-top:1px solid #e5e7eb;' : '';
+                $out .= '<tr><td style="padding:10px 14px;font-size:14px;color:#111827;' . $border . '">' . $link($e($item)) . '</td></tr>';
+            }
+            $out .= '</table>';
+            $list = [];
+        }
+        if ($rows !== []) {
+            $out .= '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">';
+            foreach ($rows as [$label, $value]) {
+                $out .= '<tr><td style="padding:4px 12px 4px 0;font-size:14px;color:#6b7280;white-space:nowrap;vertical-align:top;width:1%;">'
+                    . $e($label) . '</td><td style="padding:4px 0;font-size:14px;color:#111827;font-weight:600;">'
+                    . $link($e($value)) . '</td></tr>';
+            }
+            $out .= '</table>';
+            $rows = [];
+        }
+    };
+
+    foreach (preg_split('/\R/', trim($text)) ?: [] as $raw) {
+        $line = trim($raw);
+        if ($line === '') {
+            // A blank line ends a list or a paragraph, but not the details
+            // table: "Customer: …", blank, "Return Date: …" is one table.
+            $flushPara();
+            if ($list !== []) {
+                $flush();
+            }
+            continue;
+        }
+        if (preg_match('/^[-•]\s+(.*)$/u', $line, $m) === 1) {
+            if ($rows !== []) { $flush(); }
+            $list[] = $m[1];
+            continue;
+        }
+        if ($list !== []) {
+            $flush();
+        }
+        if (preg_match('#^([^:]{1,60}):\s+(https?://\S+)$#u', $line, $m) === 1) {
+            $flush();
+            $out .= '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px;"><tr>'
+                . '<td style="border-radius:8px;background:' . $accent . ';">'
+                . '<a href="' . $e($m[2]) . '" style="display:inline-block;padding:11px 20px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">'
+                . $e($m[1]) . '</a></td></tr></table>';
+            continue;
+        }
+        if (preg_match('/^([^:]{1,40}):\s+(.+)$/u', $line, $m) === 1 && !preg_match('#^https?$#i', $m[1])) {
+            $flushPara();
+            $rows[] = [$m[1], $m[2]];
+            continue;
+        }
+        if (preg_match('/^([^:]{1,60}):$/u', $line, $m) === 1) {
+            $flush();
+            $out .= '<p style="margin:16px 0 6px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">' . $e($m[1]) . '</p>';
+            continue;
+        }
+        if ($rows !== []) {
+            $flush();
+        }
+        $para[] = $line;
+    }
+    $flush();
+
+    $header = $logoSrc !== null
+        ? '<img src="' . $e($logoSrc) . '" alt="' . $e($appName) . '" height="36" style="display:block;height:36px;width:auto;max-width:220px;border:0;">'
+        : '<span style="font-size:18px;font-weight:700;color:#111827;">' . $e($appName) . '</span>';
+
+    return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+        . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        . '<meta name="color-scheme" content="light"><title>' . $e($subject) . '</title></head>'
+        . '<body style="margin:0;padding:0;background:#f4f4f5;font-family:' . $font . ';">'
+        . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;"><tr><td align="center" style="padding:32px 16px;">'
+        . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">'
+        . '<tr><td style="padding:0 4px 20px;">' . $header . '</td></tr>'
+        . '<tr><td style="background:#ffffff;border-radius:12px;padding:28px 28px 16px;border-top:3px solid ' . $accent . ';">'
+        . '<h1 style="margin:0 0 20px;font-size:20px;line-height:1.3;font-weight:700;color:#111827;">' . $e($subject) . '</h1>'
+        . $out
+        . '</td></tr>'
+        . '<tr><td style="padding:20px 4px 0;font-size:12px;line-height:1.5;color:#9ca3af;">' . $e($orgName)
+        . ($orgName !== $appName ? ' · ' . $e($appName) : '') . '</td></tr>'
+        . '</table></td></tr></table></body></html>';
 }
 
 /**

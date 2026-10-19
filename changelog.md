@@ -26,6 +26,11 @@ only record. There is no git history to mine.
   with preview; no more copying files onto the server. The two manual file-name fields are gone.
 - **App icon on phones.** Without a sidebar, the favicon sits next to the page title.
 
+- **HTML e-mails with logo.** Every mail now goes out as HTML with a plain-text alternative: logo
+  on top (embedded, so no client has to load an image), the subject as title, details as a small
+  table, items as a list, the booking link as a button in the accent colour, organisation in the
+  footer. Built from the existing text templates, so edited templates keep working unchanged.
+
 ### Fixed
 
 - **Menu icons stayed blue with a custom accent.** The icon tiles in the phone *More* menu (and the
