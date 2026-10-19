@@ -276,22 +276,26 @@ $dueLabel = $view['kind'] === 'reservation' ? 'Reserved until' : 'Return by';
  * customer's copy has no business carrying it. Dates go out RAW here, not
  * formatted, because the builder formats them itself.
  */
-/** {version, at, url} for the sheet's terms line, or null. */
-function trax_booking_pdf_terms(array $booking, ?array $current): ?array
+/**
+ * {version, at, url} for the sheet's terms (or privacy notice) line, or null:
+ * what the signature recorded once signed, the version in force before.
+ */
+function trax_booking_pdf_terms(array $booking, ?array $current, string $kind = 'terms'): ?array
 {
+    $url = static fn (int $v): string => $kind === 'privacy' ? trax_privacy_url($v) : trax_terms_url($v);
     $signature = $booking['signature'] ?? null;
     if ($signature !== null) {
-        $terms = $signature['terms'] ?? null;
+        $terms = $signature[$kind] ?? null;
         return $terms === null ? null : [
             'version' => (int)$terms['version'],
             'at'      => $terms['at'] ?? null,
-            'url'     => trax_terms_url((int)$terms['version']),
+            'url'     => $url((int)$terms['version']),
         ];
     }
     return $current === null ? null : [
         'version' => $current['version'],
         'at'      => $current['at'],
-        'url'     => trax_terms_url($current['version']),
+        'url'     => $url($current['version']),
     ];
 }
 
@@ -336,6 +340,7 @@ $pdf = [
     // The terms line under the signature: what was accepted when signed, what
     // signing would accept when not. Nothing when neither applies.
     'terms'        => trax_booking_pdf_terms($booking, $currentTerms),
+    'privacy'      => trax_booking_pdf_terms($booking, trax_legal_current($data, 'privacy'), 'privacy'),
 ];
 
 /**
@@ -501,9 +506,18 @@ $pdfBranding = [
     </p>
 </main>
 
-<?php if ($currentTerms !== null): ?>
+<?php $currentPrivacy = trax_legal_current($data, 'privacy'); ?>
+<?php if ($currentTerms !== null || $currentPrivacy !== null): ?>
     <footer class="pub-foot">
+    <?php if ($currentTerms !== null): ?>
         <a href="<?php echo esc(trax_terms_url()); ?>" target="_blank" rel="noopener noreferrer">Terms &amp; conditions</a>
+    <?php endif; ?>
+    <?php if ($currentTerms !== null && $currentPrivacy !== null): ?>
+        <span class="pub-foot-sep" aria-hidden="true">·</span>
+    <?php endif; ?>
+    <?php if ($currentPrivacy !== null): ?>
+        <a href="<?php echo esc(trax_privacy_url()); ?>" target="_blank" rel="noopener noreferrer">Privacy notice</a>
+    <?php endif; ?>
     </footer>
 <?php endif; ?>
 <script type="module">

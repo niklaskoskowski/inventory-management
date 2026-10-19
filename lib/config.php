@@ -608,6 +608,12 @@ function trax_terms_url(?int $version = null): string
     return trax_base_url() . '/terms.php' . ($version === null ? '' : '?v=' . $version);
 }
 
+/** privacy.php, or one version of it — the privacy notice, same scheme as the terms. */
+function trax_privacy_url(?int $version = null): string
+{
+    return trax_base_url() . '/privacy.php' . ($version === null ? '' : '?v=' . $version);
+}
+
 // --- Mail templates --------------------------------------------------------
 //
 // The eight transactional mails, as editable templates. This registry is the

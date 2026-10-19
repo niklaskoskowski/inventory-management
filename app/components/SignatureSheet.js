@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue';
 import {
-  state, toast, signBooking, declineSignature, termsUrl, getAsset,
+  state, toast, signBooking, declineSignature, termsUrl, privacyUrl, getAsset,
 } from '../store.js';
 import { formatDateTime } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
@@ -35,7 +35,11 @@ export default {
 
     const units = computed(() => items.value.reduce((sum, item) => sum + item.qty, 0));
 
-    const locked = computed(() => (state.terms.active && !acceptTerms.value ? 'Accept the terms first.' : ''));
+    // One tick for both documents: the terms are accepted and the privacy
+    // notice acknowledged in the same step, whichever of them is published.
+    const legalActive = computed(() => Boolean(state.terms.active || state.privacy?.active));
+    const locked = computed(() => (legalActive.value && !acceptTerms.value
+      ? (state.terms.active ? 'Accept the terms first.' : 'Acknowledge the privacy notice first.') : ''));
 
     const close = () => { state.signPrompt = null; };
 
@@ -43,7 +47,9 @@ export default {
       if (!booking.value) return;
       busy.value = true;
       try {
-        await signBooking(booking.value.id, name.value.trim(), blob, state.terms.active ? state.terms.version : null);
+        await signBooking(booking.value.id, name.value.trim(), blob,
+          state.terms.active ? state.terms.version : null,
+          state.privacy?.active ? state.privacy.version : null);
         toast('Signed.', 'success');
         close();
       } catch {
@@ -69,7 +75,7 @@ export default {
 
     return {
       state, booking, name, acceptTerms, busy, declining, declineNote, items, units, locked,
-      close, save, decline, termsUrl, formatDateTime,
+      close, save, decline, termsUrl, privacyUrl, legalActive, formatDateTime,
     };
   },
   template: `
@@ -102,12 +108,19 @@ export default {
           <SignaturePad :busy="busy" :locked="locked" cancel-label="Later" submit-label="Sign"
                         @submit="save" @cancel="close" />
 
-          <div v-if="state.terms.active" class="form-check mt-3">
+          <div v-if="legalActive" class="form-check mt-3">
             <input class="form-check-input" type="checkbox" id="sign-terms" v-model="acceptTerms">
             <label class="form-check-label small" for="sign-terms">
-              I accept the
-              <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>
-              (v{{ state.terms.version }}).
+              <template v-if="state.terms.active">
+                I accept the
+                <a :href="termsUrl()" target="_blank" rel="noopener noreferrer">terms &amp; conditions</a>
+                (v{{ state.terms.version }})<template v-if="state.privacy?.active"> and </template><template v-else>.</template>
+              </template>
+              <template v-if="state.privacy?.active">
+                {{ state.terms.active ? 'have' : 'I have' }} read the
+                <a :href="privacyUrl()" target="_blank" rel="noopener noreferrer">privacy notice</a>
+                (v{{ state.privacy.version }}).
+              </template>
             </label>
           </div>
           <p class="form-text">Confirms receipt of the items above.</p>

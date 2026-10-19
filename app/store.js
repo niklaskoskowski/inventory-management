@@ -211,6 +211,8 @@ export const state = reactive({
   // list without text (terms.php?v=N shows those). `version` is what a counter
   // signature sends back, so the server can tell the customer saw these.
   terms: { version: 0, at: null, actor: '', text: '', textDe: '', active: false, versions: [] },
+  // The privacy notice: the same shape, its own archive.
+  privacy: { version: 0, at: null, actor: '', text: '', textDe: '', active: false, versions: [] },
   meta: {},
 
   selected: [],
@@ -788,6 +790,7 @@ function applySnapshot(data) {
     setUiLocale(data.settings?.defaults?.locale);
   }
   if (data.terms && typeof data.terms === 'object') state.terms = data.terms;
+  if (data.privacy && typeof data.privacy === 'object') state.privacy = data.privacy;
   if (data.meta) state.meta = data.meta;
 }
 
@@ -962,20 +965,20 @@ export async function deleteInspection(assetId, inspectionId) {
 /**
  * Stores the drawn signature. `blob` is what the pad produced.
  *
- * `termsVersion` is the version of the terms the customer was shown and
- * ticked, or null when none are in force. The server refuses the signature
- * when that is no longer the version in force.
+ * `termsVersion` / `privacyVersion` are the versions of the terms and the
+ * privacy notice the customer was shown and ticked (one tick covers both), or
+ * null when that document is not in force. The server refuses the signature
+ * when either is no longer the version in force.
  */
-export async function signBooking(bookingId, name, blob, termsVersion = null) {
+export async function signBooking(bookingId, name, blob, termsVersion = null, privacyVersion = null) {
   state.loading = true;
   try {
     // `signedName`, not `name`: the multipart payload in api.php is an
     // allow-list, and a field it does not name never reaches the action.
     const fields = { bookingId, signedName: name };
-    if (termsVersion) {
-      fields.acceptTerms = '1';
-      fields.termsVersion = termsVersion;
-    }
+    if (termsVersion || privacyVersion) fields.acceptTerms = '1';
+    if (termsVersion) fields.termsVersion = termsVersion;
+    if (privacyVersion) fields.privacyVersion = privacyVersion;
     const body = await api.uploadMany('booking.sign', [blob], fields);
     applySnapshot(body.data);
     state.rev = body.rev ?? state.rev;
@@ -1169,10 +1172,22 @@ export async function saveTerms(text, textDe = '') {
   return mutate('terms.update', { text, textDe });
 }
 
+/** Publishes a new version of 'terms' or 'privacy' (the privacy notice). */
+export async function saveLegal(kind, text, textDe = '') {
+  return mutate(kind === 'privacy' ? 'privacy.update' : 'terms.update', { text, textDe });
+}
+
 /** The server's rendering of `text`, exactly as terms.php would show it. */
 export async function previewTerms(text) {
   const body = await api.post('terms.preview', { text });
   return String(body.data?.html || '');
+}
+
+/** `<origin><publicPath>privacy.php`, or with `?v=N` for one version. */
+export function privacyUrl(version = null) {
+  const origin = (typeof location === 'object' && location.origin) || '';
+  const base = state.settings?.branding?.publicPath || '/';
+  return `${origin}${base}privacy.php${version ? `?v=${version}` : ''}`;
 }
 
 /** `<origin><publicPath>terms.php`, or with `?v=N` for one version. */

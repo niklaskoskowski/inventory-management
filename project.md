@@ -350,6 +350,14 @@ textDe, active, versions: [{version, at, actor, empty, langs}]}` — the newest 
 rest without text. `terms.php` shows an English | Deutsch switch when a version has both, picks
 `?lang=` or the browser's `Accept-Language`, and translates its own few words.
 
+The **privacy notice** is the same thing a second time: archive `data.privacy.versions` (same
+shape), `privacy.update`, snapshot `privacy`, public `privacy.php` (which sets `$legalKind` and
+includes `terms.php`), Settings → Privacy (the Terms editor, driven by `legalKind`). The helpers
+are generic — `trax_legal_latest|current|version|published($data, $kind)`,
+`trax_signature_legal()`; the `trax_terms_*` names are thin wrappers. At a hand-over one tick
+covers both: `booking.sign` takes `privacyVersion` beside `termsVersion`, both must be the
+versions in force, and the signature stores `privacy: {version, at}` next to `terms`.
+
 - **Written** only by `terms.update` (Settings → Terms, `{text, textDe}`; a client that omits
   `textDe` keeps the German text in force). A save that changes either text appends the next
   version; unchanged texts are refused, an over-long one is refused rather than cut.
@@ -633,7 +641,7 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
   `asset.deletePhoto`, `asset.uploadConditionPhotos|deleteConditionPhoto`,
   `asset.uploadDocuments|deleteDocument`, `set.create|update|delete`,
   `checkout.create|extend|checkin`, `reservation.create|update|convert|cancel|restore`,
-  `booking.resend|uploadPhotos|deletePhoto`, `settings.update`, `branding.uploadLogo`, `mail.preview` (saves nothing: the HTML of a mail from a subject/body),
+  `booking.resend|uploadPhotos|deletePhoto`, `settings.update`, `branding.uploadLogo`, `terms.update|privacy.update`, `mail.preview` (saves nothing: the HTML of a mail from a subject/body),
   `auth.changePassword|testInclude|configUpdate`, `taxonomy.rename|merge|delete`, `label.mark`.
 - **`label.mark`**: `{id, unitNo, labeled}` for one label or `{items: [{id, unitNo}], labeled}`
   for many (up to `TRAX_MAX_LABEL_MARKS` = 2000) — all checked before any is changed, one write,

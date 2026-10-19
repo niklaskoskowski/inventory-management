@@ -485,14 +485,25 @@ const TERMS_LINE = 3.4;
  * unsigned, it tells whoever signs the paper what they are agreeing to.
  */
 function termsNoteOf(booking, reservation) {
-  const terms = booking.terms;
-  if (reservation || !terms?.version) return '';
-  const when = terms.at ? ` of ${formatDate(terms.at)}` : '';
-  const where = terms.url ? ` (${terms.url})` : '';
-  const what = `terms & conditions, version ${terms.version}${when}${where}`;
-  return booking.signature
-    ? `Signed subject to the ${what}.`
-    : `By signing, the customer accepts the ${what}.`;
+  if (reservation) return '';
+  const ref = (doc, name) => {
+    if (!doc?.version) return '';
+    const when = doc.at ? ` of ${formatDate(doc.at)}` : '';
+    const where = doc.url ? ` (${doc.url})` : '';
+    return `${name}, version ${doc.version}${when}${where}`;
+  };
+  // `booking.privacy` is the privacy notice, same shape, acknowledged in the
+  // same step as the terms.
+  const terms = ref(booking.terms, 'terms & conditions');
+  const privacy = ref(booking.privacy, 'privacy notice');
+  if (!terms && !privacy) return '';
+  if (booking.signature) {
+    if (terms && privacy) return `Signed subject to the ${terms}, having read the ${privacy}.`;
+    return terms ? `Signed subject to the ${terms}.` : `Signed having read the ${privacy}.`;
+  }
+  if (terms && privacy) return `By signing, the customer accepts the ${terms} and confirms having read the ${privacy}.`;
+  return terms ? `By signing, the customer accepts the ${terms}.`
+    : `By signing, the customer confirms having read the ${privacy}.`;
 }
 
 /**

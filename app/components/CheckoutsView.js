@@ -1,7 +1,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import {
   state, mutate, toast, getAsset, load, eventById, openPreview,
-  signBooking, unsignBooking, termsUrl, askSignature,
+  signBooking, unsignBooking, termsUrl, privacyUrl, askSignature,
 } from '../store.js';
 import * as api from '../api.js';
 import {
@@ -419,6 +419,16 @@ export default {
       return { version: state.terms.version, at: state.terms.at, url: termsUrl(state.terms.version) };
     };
 
+    /** The same for the privacy notice, acknowledged in the same step. */
+    const pdfPrivacy = (booking) => {
+      if (booking?.signature) {
+        const shown = booking.signature.privacy;
+        return shown ? { version: shown.version, at: shown.at, url: privacyUrl(shown.version) } : null;
+      }
+      if (!state.privacy?.active) return null;
+      return { version: state.privacy.version, at: state.privacy.at, url: privacyUrl(state.privacy.version) };
+    };
+
     /** The handover sheet for one customer's open lines. */
     const bookingPdf = async (group) => {
       exporting.value = true;
@@ -436,6 +446,7 @@ export default {
           signature: booking?.signature || null,
           signatureDeclined: booking?.signatureDeclined || null,
           terms: pdfTerms(booking),
+          privacy: pdfPrivacy(booking),
           // Printed as a QR code: the sheet is the checklist the gear travels
           // with, and the code is how the customer gets from paper back to
           // their own page — to sign, or to pull the sheet again.
@@ -566,10 +577,10 @@ export default {
     // The customer's tick against the terms in force. Reset with every pad,
     // and whenever the terms change under an open one.
     const signTerms = ref(false);
-    watch(() => state.terms.version, () => { signTerms.value = false; });
+    watch(() => [state.terms.version, state.privacy?.version], () => { signTerms.value = false; });
     const signLocked = computed(() => (
-      state.terms.active && !signTerms.value
-        ? 'The customer has to accept the terms first.'
+      (state.terms.active || state.privacy?.active) && !signTerms.value
+        ? 'The customer has to accept the terms and privacy notice first.'
         : ''
     ));
     const signBusy = ref(false);
@@ -603,6 +614,7 @@ export default {
           signName.value.trim(),
           blob,
           state.terms.active ? state.terms.version : null,
+          state.privacy?.active ? state.privacy.version : null,
         );
         toast('Signature stored.', 'success');
         closeSignature();
@@ -838,7 +850,7 @@ export default {
           <strong>{{ plural(detail.units, 'unit') }} · {{ plural(detail.lines.length, 'line') }}</strong>
         </div>
         <div class="trax-kv">
-          <span>Hire</span>
+          <span>Type</span>
           <strong>{{ HIRE_LABEL[detail.hire] }}</strong>
         </div>
         <div v-if="detail.event" class="trax-kv">

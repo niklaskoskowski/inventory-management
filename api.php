@@ -130,6 +130,7 @@ function trax_snapshot(array $data, array $checkouts): array
         'events'       => $data['events'] ?? [],
         'settings'     => trax_normalize_settings($data['settings'] ?? null),
         'terms'        => trax_terms_snapshot($data),
+        'privacy'      => trax_terms_snapshot($data, 'privacy'),
     ];
 }
 
@@ -138,9 +139,9 @@ function trax_snapshot(array $data, array $checkouts): array
  * and the rest of the archive as a list without its text. Every version stays
  * readable on terms.php?v=N, so the texts do not need to ride in every answer.
  */
-function trax_terms_snapshot(array $data): array
+function trax_terms_snapshot(array $data, string $kind = 'terms'): array
 {
-    $latest = trax_terms_latest($data);
+    $latest = trax_legal_latest($data, $kind);
 
     return [
         // 0 before the first save. Sent back with a counter signature, so the
@@ -150,14 +151,14 @@ function trax_terms_snapshot(array $data): array
         'actor'    => $latest['actor'] ?? '',
         'text'     => $latest['text'] ?? '',
         'textDe'   => $latest['textDe'] ?? '',
-        'active'   => trax_terms_current($data) !== null,
+        'active'   => trax_legal_current($data, $kind) !== null,
         'versions' => array_map(static fn (array $entry): array => [
             'version' => $entry['version'],
             'at'      => $entry['at'],
             'actor'   => $entry['actor'],
             'empty'   => !trax_terms_has_text($entry),
             'langs'   => trax_terms_languages($entry),
-        ], $data['terms']['versions'] ?? []),
+        ], $data[$kind]['versions'] ?? []),
     ];
 }
 
@@ -198,6 +199,8 @@ if ($isPost) {
             // Same rule: listed here to reach booking.sign at all.
             'acceptTerms'  => ($_POST['acceptTerms'] ?? '') === '1',
             'termsVersion' => trax_int($_POST['termsVersion'] ?? null),
+            // The privacy notice version shown with them. Same rule.
+            'privacyVersion' => trax_int($_POST['privacyVersion'] ?? null),
             'bookingId'    => trax_int($_POST['bookingId'] ?? null),
             'note'      => trax_str($_POST['note'] ?? ''),
             // The operator's label for a document batch. It has to be listed
@@ -2721,6 +2724,7 @@ try {
             $name         = trax_str($payload['signedName'] ?? '', TRAX_MAX_NAME);
             $acceptTerms  = ($payload['acceptTerms'] ?? false) === true;
             $termsVersion = trax_int($payload['termsVersion'] ?? null);
+            $privacyVersion = trax_int($payload['privacyVersion'] ?? null);
 
             if (!isset($_FILES['photos'])) {
                 trax_fail('BAD_REQUEST', 'No signature was sent.');
@@ -2738,7 +2742,7 @@ try {
 
             try {
                 $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
-                    $bookingId, $name, $file, $actor, $acceptTerms, $termsVersion
+                    $bookingId, $name, $file, $actor, $acceptTerms, $termsVersion, $privacyVersion
                 ): array {
                     $booking = trax_find_booking($data['bookings'], $bookingId);
                     if ($booking === null) {
@@ -2755,10 +2759,20 @@ try {
                         throw new TraxInvalid('The terms & conditions were changed since this page was loaded. '
                             . 'Reload, let the customer read the new version and sign again.');
                     }
+                    // The privacy notice is acknowledged with the same tick,
+                    // under the same rule: the version shown must be in force.
+                    $privacy = trax_signature_legal($data, 'privacy', $acceptTerms, $privacyVersion);
+                    if ($privacy['error'] === 'accept') {
+                        throw new TraxInvalid('The customer has to acknowledge the privacy notice before signing.');
+                    }
+                    if ($privacy['error'] === 'changed') {
+                        throw new TraxInvalid('The privacy notice was changed since this page was loaded. '
+                            . 'Reload, let the customer read the new version and sign again.');
+                    }
 
                     $replaced = $booking['signature']['file'] ?? null;
 
-                    trax_update_booking($data, $bookingId, static function (array $b) use ($name, $file, $actor, $terms): array {
+                    trax_update_booking($data, $bookingId, static function (array $b) use ($name, $file, $actor, $terms, $privacy): array {
                         $b['signatureDeclined'] = null;
                         $b['signature'] = [
                             'file'   => $file,
@@ -2769,6 +2783,7 @@ try {
                             'source' => 'ADMIN',
                             'actor'  => $actor,
                             'terms'  => $terms['terms'],
+                            'privacy' => $privacy['ref'],
                         ];
                         return $b;
                     });
@@ -3964,7 +3979,11 @@ try {
         // Every save that changes the text publishes a new version; the old
         // ones stay in the archive, because signatures point at them.
 
-        case 'terms.update': {
+        case 'terms.update':
+        case 'privacy.update': {
+            // One code path for both documents; only the archive differs.
+            $kind  = $action === 'privacy.update' ? 'privacy' : 'terms';
+            $title = $kind === 'privacy' ? 'Privacy notice' : 'Terms & conditions';
             $raw = $payload['text'] ?? null;
             if (!is_string($raw)) {
                 trax_fail('BAD_REQUEST', 'No text was sent.');
@@ -3979,21 +3998,21 @@ try {
             // last paragraph is worse than one that is not saved.
             foreach (['English' => $raw, 'German' => (string)$rawDe] as $lang => $candidate) {
                 if (mb_strlen(trim(str_replace(["\r\n", "\r"], "\n", $candidate))) > TRAX_MAX_TERMS) {
-                    trax_fail('BAD_REQUEST', "The {$lang} terms are longer than " . TRAX_MAX_TERMS . ' characters.');
+                    trax_fail('BAD_REQUEST', "The {$lang} text is longer than " . TRAX_MAX_TERMS . ' characters.');
                 }
             }
             $text   = trax_terms_text($raw);
             $textDe = $rawDe === null ? null : trax_terms_text($rawDe);
 
-            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($text, $textDe, $actor): array {
-                $latest = trax_terms_latest($data);
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($text, $textDe, $actor, $kind, $title): array {
+                $latest = trax_legal_latest($data, $kind);
                 $textDe ??= $latest['textDe'] ?? '';
                 if (($latest['text'] ?? '') === $text && ($latest['textDe'] ?? '') === $textDe) {
-                    throw new TraxInvalid('The terms are unchanged.');
+                    throw new TraxInvalid("The {$title} text is unchanged.");
                 }
 
                 $version = ($latest['version'] ?? 0) + 1;
-                $data['terms']['versions'][] = [
+                $data[$kind]['versions'][] = [
                     'version' => $version,
                     'at'      => gmdate('Y-m-d\TH:i:s.000\Z'),
                     'actor'   => $actor,
@@ -4001,10 +4020,10 @@ try {
                     'textDe'  => $textDe,
                 ];
 
-                trax_append_history($data, 'terms_updated', [
+                trax_append_history($data, $kind === 'privacy' ? 'privacy_updated' : 'terms_updated', [
                     'note'  => ($text === '' && $textDe === '')
-                        ? "Terms & conditions withdrawn (version {$version})"
-                        : "Terms & conditions published (version {$version})",
+                        ? "{$title} withdrawn (version {$version})"
+                        : "{$title} published (version {$version})",
                     'actor' => $actor,
                 ]);
 

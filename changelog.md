@@ -36,6 +36,12 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Privacy notice, same scheme as the terms.** Settings → Privacy edits it (English | Deutsch,
+  versions, preview, Publish/Withdraw — the same editor as Terms). `privacy.php` shows it with the
+  language switch; footer links on the asset page, live view, booking page and terms page. At a
+  hand-over it is acknowledged in the same step: one tick ("I accept the terms (vN) and have read
+  the privacy notice (vM)"), the server checks both versions are still in force, and the signature
+  stores `privacy: {version, at}` next to `terms`. The hand-over PDF names both.
 - **Booking type: Internal / Loan / Rental.** The basket's price switch is now *Type* with three
   kinds — Internal (internal equipment issue), Loan (free of charge) and Rental (charged) — and,
   for a rental, *Dry hire* / *Full service* underneath. New stored mode `INTERNAL`, priced at 0

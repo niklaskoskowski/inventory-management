@@ -268,6 +268,10 @@ function pub_e(string $value): string
   <span class="pub-foot-sep" aria-hidden="true">·</span>
   <a href="terms.php">Terms</a>
 <?php endif; ?>
+<?php if (trax_legal_published('privacy') !== null): ?>
+  <span class="pub-foot-sep" aria-hidden="true">·</span>
+  <a href="privacy.php">Privacy</a>
+<?php endif; ?>
 </footer>
 
 <dialog id="lostContactModal" class="pub-modal" aria-labelledby="lostContactTitle"

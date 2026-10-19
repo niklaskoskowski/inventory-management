@@ -1,6 +1,6 @@
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue';
 import {
-  state, settings, taxonomyUsage, mutate, toast, saveTerms, previewTerms, termsUrl, markLabeled,
+  state, settings, taxonomyUsage, mutate, toast, saveLegal, previewTerms, termsUrl, privacyUrl, markLabeled,
   markLabeledMany, assetById, printerEnabled, printerStatus, buildLabelBatch, printLabelBatch, cancelLabelBatch,
   batchPrefs as loadBatchPrefs, saveBatchPrefs,
 } from '../store.js';
@@ -46,6 +46,7 @@ const SECTIONS = [
   { id: 'labels', label: 'Labels', icon: 'bi-qr-code' },
   { id: 'printer', label: 'Printer', icon: 'bi-printer' },
   { id: 'terms', label: 'Terms', icon: 'bi-file-earmark-text' },
+  { id: 'privacy', label: 'Privacy', icon: 'bi-shield-check' },
   { id: 'account', label: 'Account', icon: 'bi-person-lock' },
   { id: 'authentication', label: 'Sign-in', icon: 'bi-shield-lock' },
 ];
@@ -1047,47 +1048,66 @@ export default {
       if (builtBatch) cancelLabelBatch(builtBatch.id);
     });
 
-    // --- Terms & conditions ---
+    // --- Terms & conditions / Privacy notice ---
     // Not part of the settings draft: every save publishes a VERSION, which
-    // signatures point at, so it has its own action (terms.update), its own
-    // save bar and no "save along with the branding" by accident.
+    // signatures point at, so each has its own action (terms.update,
+    // privacy.update), its own save bar and no "save along with the branding"
+    // by accident. Both pages share this one editor: everything below reads
+    // the document of the section that is open (legalKind).
 
     /** Server-side the text is trimmed with LF line ends; compare the same way. */
     const termsNormal = (text) => String(text ?? '').replace(/\r\n?/g, '\n').trim();
+
+    const LEGAL_EMPTY = { version: 0, at: null, actor: '', text: '', textDe: '', active: false, versions: [] };
+    const legalKind = computed(() => (section.value === 'privacy' ? 'privacy' : 'terms'));
+    /** The published state of the open document (state.terms / state.privacy). */
+    const legalState = computed(() => state[legalKind.value] || LEGAL_EMPTY);
+    const legalLabel = computed(() => (legalKind.value === 'privacy' ? 'privacy notice' : 'terms'));
+    const legalUrl = (version = null) => (legalKind.value === 'privacy' ? privacyUrl(version) : termsUrl(version));
 
     // Two texts, one version: English and German. The editor shows one at a
     // time; termsDraft is whichever tab is open, so the textarea, its counter
     // and the preview need not know there are two.
     const TERMS_LANGS = [{ id: 'en', label: 'English' }, { id: 'de', label: 'Deutsch' }];
-    const termsLang = ref('en');
-    const termsDrafts = ref({ en: state.terms.text || '', de: state.terms.textDe || '' });
+    const draftsOf = (kind) => ({ en: state[kind]?.text || '', de: state[kind]?.textDe || '' });
+    const legalEditors = reactive({
+      terms: { lang: 'en', drafts: draftsOf('terms') },
+      privacy: { lang: 'en', drafts: draftsOf('privacy') },
+    });
+    const termsLang = computed({
+      get: () => legalEditors[legalKind.value].lang,
+      set: (value) => { legalEditors[legalKind.value].lang = value; },
+    });
+    const termsDrafts = computed(() => legalEditors[legalKind.value].drafts);
     const termsDraft = computed({
       get: () => termsDrafts.value[termsLang.value],
       set: (value) => { termsDrafts.value[termsLang.value] = value; },
     });
-    // A new version — ours or another operator's — replaces the draft.
-    watch(() => state.terms.version, () => {
-      termsDrafts.value = { en: state.terms.text || '', de: state.terms.textDe || '' };
-    });
+    // A new version — ours or another operator's — replaces that draft.
+    for (const kind of ['terms', 'privacy']) {
+      watch(() => state[kind]?.version, () => { legalEditors[kind].drafts = draftsOf(kind); });
+    }
 
     const termsBusy = ref(false);
     const termsMax = computed(() => state.meta?.termsMax || 30000);
-    const termsDirty = computed(() => termsNormal(termsDrafts.value.en) !== termsNormal(state.terms.text)
-      || termsNormal(termsDrafts.value.de) !== termsNormal(state.terms.textDe));
-    /** Saving both texts empty while terms are in force takes them down. */
-    const termsWithdraw = computed(() => state.terms.active
+    const termsDirty = computed(() => termsNormal(termsDrafts.value.en) !== termsNormal(legalState.value.text)
+      || termsNormal(termsDrafts.value.de) !== termsNormal(legalState.value.textDe));
+    /** Saving both texts empty while the document is in force takes it down. */
+    const termsWithdraw = computed(() => legalState.value.active
       && termsNormal(termsDrafts.value.en) === '' && termsNormal(termsDrafts.value.de) === '');
     const termsLangDirty = (lang) => termsNormal(termsDrafts.value[lang])
-      !== termsNormal(lang === 'de' ? state.terms.textDe : state.terms.text);
-    const termsVersions = computed(() => [...(state.terms.versions || [])].reverse());
+      !== termsNormal(lang === 'de' ? legalState.value.textDe : legalState.value.text);
+    const termsVersions = computed(() => [...(legalState.value.versions || [])].reverse());
 
     const saveTermsDraft = async () => {
       termsBusy.value = true;
       try {
-        await saveTerms(termsDrafts.value.en, termsDrafts.value.de);
-        toast(state.terms.active
-          ? `Terms published as version ${state.terms.version}.`
-          : 'Terms withdrawn. Nothing is shown or accepted any more.', 'success');
+        const kind = legalKind.value;
+        const name = kind === 'privacy' ? 'Privacy notice' : 'Terms';
+        await saveLegal(kind, termsDrafts.value.en, termsDrafts.value.de);
+        toast(state[kind].active
+          ? `${name} published as version ${state[kind].version}.`
+          : `${name} withdrawn. Nothing is shown or accepted any more.`, 'success');
       } catch {
         /* toast already raised by the store */
       } finally {
@@ -1096,7 +1116,7 @@ export default {
     };
 
     const revertTerms = () => {
-      termsDrafts.value = { en: state.terms.text || '', de: state.terms.textDe || '' };
+      legalEditors[legalKind.value].drafts = draftsOf(legalKind.value);
     };
 
     // The preview is the server's renderer, so it is exactly what terms.php
@@ -1108,7 +1128,7 @@ export default {
     let previewSeq = 0;
     const refreshPreview = () => {
       clearTimeout(previewTimer);
-      if (section.value !== 'terms') return;
+      if (section.value !== 'terms' && section.value !== 'privacy') return;
       previewTimer = setTimeout(async () => {
         const seq = ++previewSeq;
         const text = termsNormal(termsDraft.value);
@@ -1341,6 +1361,7 @@ export default {
       markPrintedLabeled,
       LABEL_FORMATS, LABEL_STATES, labelFormat, labelState, labelCounts, labelFileCount,
       labelZip, downloadAllLabels, labelPreviews, toggleLabeled,
+      legalKind, legalState, legalLabel, legalUrl,
       state, termsDraft, termsDrafts, termsLang, TERMS_LANGS, termsLangDirty, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
       saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
@@ -2425,19 +2446,19 @@ export default {
     </div>
 
     <!-- Terms & conditions ---------------------------------------------- -->
-    <div v-else-if="section === 'terms'" class="row g-4">
+    <div v-else-if="section === 'terms' || section === 'privacy'" class="row g-4">
       <div class="col-12 col-xl-6">
         <div class="trax-list">
           <div class="trax-row">
-            <template v-if="state.terms.active">
+            <template v-if="legalState.active">
               <i class="bi bi-check-circle-fill text-success"></i>
               <span class="trax-set-label">
-                Version {{ state.terms.version }} in force
+                Version {{ legalState.version }} in force
                 <span class="trax-set-hint">
-                  {{ formatDateTime(state.terms.at) }}<span v-if="state.terms.actor"> · {{ state.terms.actor }}</span>
+                  {{ formatDateTime(legalState.at) }}<span v-if="legalState.actor"> · {{ legalState.actor }}</span>
                 </span>
               </span>
-              <a class="btn btn-sm btn-outline-secondary" :href="termsUrl()" target="_blank"
+              <a class="btn btn-sm btn-outline-secondary" :href="legalUrl()" target="_blank"
                  rel="noopener noreferrer">
                 <i class="bi bi-box-arrow-up-right"></i> Open
               </a>
@@ -2451,7 +2472,9 @@ export default {
             </template>
           </div>
         </div>
-        <p class="trax-set-foot">Customers accept them when signing for a hand-over.</p>
+        <p class="trax-set-foot">{{ legalKind === 'privacy'
+          ? 'Customers acknowledge it with the same tick as the terms when signing for a hand-over.'
+          : 'Customers accept them when signing for a hand-over.' }}</p>
 
         <div class="trax-list-header">
           <label for="set-terms" class="mb-0">Text (Markdown)</label>
@@ -2472,7 +2495,9 @@ export default {
           <div class="trax-row trax-set-stack">
             <textarea id="set-terms" class="form-control form-control-sm font-monospace" rows="18"
                       spellcheck="true" :maxlength="termsMax" v-model="termsDraft"
-                      placeholder="# Terms &amp; conditions&#10;&#10;## 1. Scope&#10;These terms apply to every hire …"></textarea>
+                      :placeholder="legalKind === 'privacy'
+                        ? '# Privacy notice\\n\\n## 1. Controller\\nWho processes your data …'
+                        : '# Terms & conditions\\n\\n## 1. Scope\\nThese terms apply to every hire …'"></textarea>
           </div>
         </div>
         <p class="trax-set-foot">
@@ -2486,7 +2511,7 @@ export default {
           <div class="trax-list">
             <div v-for="entry in termsVersions" :key="entry.version" class="trax-row">
               <span class="trax-set-label">
-                <a v-if="!entry.empty" :href="termsUrl(entry.version)" target="_blank"
+                <a v-if="!entry.empty" :href="legalUrl(entry.version)" target="_blank"
                    rel="noopener noreferrer">Version {{ entry.version }}</a>
                 <span v-if="!entry.empty && entry.langs" class="ms-1 text-secondary small">
                   {{ entry.langs.map((l) => l.toUpperCase()).join(' · ') }}
@@ -2496,7 +2521,7 @@ export default {
                   {{ formatDateTime(entry.at) }}<span v-if="entry.actor"> · {{ entry.actor }}</span>
                 </span>
               </span>
-              <span v-if="entry.version === state.terms.version && state.terms.active"
+              <span v-if="entry.version === legalState.version && legalState.active"
                     class="trax-kind-chip">in force</span>
             </div>
           </div>
@@ -2776,12 +2801,12 @@ export default {
     <!-- Account and Authentication are not part of the settings draft: they
          write users.json and lib/config.local.php, and each saves itself.
          Terms neither: a save there publishes a version, so it has its own bar. -->
-    <div v-if="section === 'terms'" class="trax-selection-bar">
+    <div v-if="section === 'terms' || section === 'privacy'" class="trax-selection-bar">
       <span v-if="termsWithdraw" class="small text-warning-emphasis">
-        Both texts empty withdraws the terms.
+        Both texts empty withdraws the {{ legalLabel }}.
       </span>
       <span v-else-if="termsDirty" class="small">
-        Publishes <strong>version {{ state.terms.version + 1 }}</strong>
+        Publishes <strong>version {{ legalState.version + 1 }}</strong>
       </span>
       <span v-else class="text-secondary small">No changes</span>
       <span class="flex-grow-1"></span>
@@ -2792,7 +2817,7 @@ export default {
       <button class="btn btn-sm" :class="termsWithdraw ? 'btn-outline-danger' : 'btn-primary'"
               :disabled="!termsDirty || termsBusy" @click="saveTermsDraft()">
         <span v-if="termsBusy" class="spinner-border spinner-border-sm me-1"></span>
-        {{ termsWithdraw ? 'Withdraw terms' : 'Publish' }}
+        {{ termsWithdraw ? 'Withdraw ' + legalLabel : 'Publish' }}
       </button>
     </div>
     <div v-else-if="section !== 'taxonomy' && section !== 'account' && section !== 'authentication'

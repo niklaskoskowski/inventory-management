@@ -902,6 +902,9 @@ function trax_normalize_signature(mixed $raw): ?array
         // existed). A version number, not the text: the text lives once, in
         // the archive under data.terms, and terms.php?v=N shows it back.
         'terms'  => trax_normalize_signature_terms($raw['terms'] ?? null),
+        // The privacy notice the signer was shown and acknowledged in the
+        // same step, same shape; the archive is data.privacy.
+        'privacy' => trax_normalize_signature_terms($raw['privacy'] ?? null),
     ];
 }
 
@@ -2615,24 +2618,29 @@ function trax_normalize_terms(mixed $raw): array
     return ['versions' => array_values($versions)];
 }
 
-/** The newest version, published or withdrawn, or null before the first save. */
-function trax_terms_latest(array $data): ?array
+// The two legal documents share one shape and one set of rules: 'terms'
+// (accepted at a hand-over) and 'privacy' (the privacy notice, acknowledged in
+// the same step). Each is an archive under $data[$kind]['versions'].
+const TRAX_LEGAL_KINDS = ['terms', 'privacy'];
+
+/** The newest version of one document, published or withdrawn, or null. */
+function trax_legal_latest(array $data, string $kind): ?array
 {
-    $versions = $data['terms']['versions'] ?? [];
+    $versions = $data[$kind]['versions'] ?? [];
     return $versions === [] ? null : $versions[array_key_last($versions)];
 }
 
-/** The terms in force: the newest version, when it says anything. */
-function trax_terms_current(array $data): ?array
+/** The version in force: the newest, when it says anything. */
+function trax_legal_current(array $data, string $kind): ?array
 {
-    $latest = trax_terms_latest($data);
+    $latest = trax_legal_latest($data, $kind);
     return trax_terms_has_text($latest) ? $latest : null;
 }
 
 /** One version by number, or null. */
-function trax_terms_version(array $data, int $version): ?array
+function trax_legal_version(array $data, string $kind, int $version): ?array
 {
-    foreach ($data['terms']['versions'] ?? [] as $entry) {
+    foreach ($data[$kind]['versions'] ?? [] as $entry) {
         if ($entry['version'] === $version) {
             return $entry;
         }
@@ -2641,53 +2649,77 @@ function trax_terms_version(array $data, int $version): ?array
 }
 
 /**
- * The terms in force, read straight off disk once per request.
- *
- * For the public pages that only need to know whether to link them: the
- * footer of index.php and view.php, which otherwise never load the data.
+ * The version in force, read straight off disk once per request — for the
+ * public pages that only need to know whether to link it.
  */
+function trax_legal_published(string $kind): ?array
+{
+    static $current = [];
+    if (!array_key_exists($kind, $current)) {
+        $raw = trax_read_json_file(TRAX_DATA_FILE, []);
+        $current[$kind] = trax_legal_current([
+            $kind => trax_normalize_terms(is_array($raw) ? ($raw[$kind] ?? null) : null),
+        ], $kind);
+    }
+    return $current[$kind];
+}
+
+/** The newest version, published or withdrawn, or null before the first save. */
+function trax_terms_latest(array $data): ?array
+{
+    return trax_legal_latest($data, 'terms');
+}
+
+/** The terms in force: the newest version, when it says anything. */
+function trax_terms_current(array $data): ?array
+{
+    return trax_legal_current($data, 'terms');
+}
+
+/** One version by number, or null. */
+function trax_terms_version(array $data, int $version): ?array
+{
+    return trax_legal_version($data, 'terms', $version);
+}
+
+/** The terms in force, read off disk once per request (footer links). */
 function trax_terms_published(): ?array
 {
-    static $current = false;
-    if ($current === false) {
-        $raw     = trax_read_json_file(TRAX_DATA_FILE, []);
-        $current = trax_terms_current([
-            'terms' => trax_normalize_terms(is_array($raw) ? ($raw['terms'] ?? null) : null),
-        ]);
-    }
-    return $current;
+    return trax_legal_published('terms');
 }
 
 /**
- * What a signature records about the terms, or why it may not be taken.
+ * What a signature records about one document, or why it may not be taken.
  *
- * Returns ['terms' => {version, at}|null, 'error' => null|'accept'|'changed'].
- * Called by both signing paths — the counter (api.php) and the customer's own
- * link (booking.php) — and under the lock, so the version checked is the one
- * that gets written:
+ * Returns ['ref' => {version, at}|null, 'error' => null|'accept'|'changed'].
+ * Called under the lock, so the version checked is the one that gets written:
  *
- *   - no terms in force: nothing to accept, the signature carries null;
+ *   - nothing in force: nothing to accept, the signature carries null;
  *   - not ticked: 'accept';
  *   - ticked, but against another version than the one in force — the page
- *     was loaded before the terms were changed — 'changed'. Accepting what
- *     somebody never saw is exactly what this is here to prevent.
+ *     was loaded before it changed — 'changed'. Accepting what somebody never
+ *     saw is exactly what this is here to prevent.
  */
-function trax_signature_terms(array $data, bool $accepted, ?int $version): array
+function trax_signature_legal(array $data, string $kind, bool $accepted, ?int $version): array
 {
-    $current = trax_terms_current($data);
+    $current = trax_legal_current($data, $kind);
     if ($current === null) {
-        return ['terms' => null, 'error' => null];
+        return ['ref' => null, 'error' => null];
     }
     if (!$accepted) {
-        return ['terms' => null, 'error' => 'accept'];
+        return ['ref' => null, 'error' => 'accept'];
     }
     if ($version !== $current['version']) {
-        return ['terms' => null, 'error' => 'changed'];
+        return ['ref' => null, 'error' => 'changed'];
     }
-    return [
-        'terms' => ['version' => $current['version'], 'at' => $current['at']],
-        'error' => null,
-    ];
+    return ['ref' => ['version' => $current['version'], 'at' => $current['at']], 'error' => null];
+}
+
+/** The terms side of trax_signature_legal(), in its original shape. */
+function trax_signature_terms(array $data, bool $accepted, ?int $version): array
+{
+    $r = trax_signature_legal($data, 'terms', $accepted, $version);
+    return ['terms' => $r['ref'], 'error' => $r['error']];
 }
 
 /** The deploy-time constant a settings path falls back to, if it has one. */
@@ -2828,6 +2860,8 @@ function trax_normalize_data(mixed $raw): array
         // Every published version of the terms & conditions. See
         // trax_normalize_terms() for why this is not part of settings.
         'terms'         => trax_normalize_terms($raw['terms'] ?? null),
+        // The privacy notice: the same archive shape as the terms.
+        'privacy'       => trax_normalize_terms($raw['privacy'] ?? null),
         'cronState'     => trax_normalize_cron_state($raw['cronState'] ?? null),
     ];
 }

@@ -7,6 +7,9 @@
  *   GET terms.php?lang=de  in German (or en); without it the browser's
  *                          language decides, when the version has both
  *
+ * privacy.php is this same page for the privacy notice: it sets $legalKind
+ * to 'privacy' and includes this file. Same archive shape, same rules.
+ *
  * The numbered form is what a signature links to: a hand-over records the
  * version the customer accepted, and that text has to stay readable after the
  * terms have moved on. An earlier version says so, and when it stopped
@@ -44,13 +47,17 @@ function terms_date(?string $iso): string
     return $ts === null ? '—' : trax_format_date($ts);
 }
 
+// Which document: the terms, unless privacy.php included this file.
+$legalKind = (isset($legalKind) && $legalKind === 'privacy') ? 'privacy' : 'terms';
+$legalPage = $legalKind === 'privacy' ? 'privacy.php' : 'terms.php';
+
 $data    = trax_read_data();
-$current = trax_terms_current($data);
+$current = trax_legal_current($data, $legalKind);
 
 // Which version to show. A number that is not a positive integer is treated
 // as no number at all rather than as an error: it is a link somebody typed.
 $asked = trax_int($_GET['v'] ?? null);
-$shown = $asked !== null && $asked > 0 ? trax_terms_version($data, $asked) : $current;
+$shown = $asked !== null && $asked > 0 ? trax_legal_version($data, $legalKind, $asked) : $current;
 if (!trax_terms_has_text($shown)) {
     $shown = null;
 }
@@ -67,25 +74,30 @@ $text = $shown === null ? '' : ($lang === 'de' ? $shown['textDe'] : $shown['text
 
 /** The few words this page says itself, in the language shown. */
 $t = $lang === 'de'
-    ? ['heading' => 'Allgemeine Geschäftsbedingungen', 'version' => 'Version', 'earlier' => 'Frühere Version, gültig bis',
-       'current' => 'Aktuelle Version', 'none' => 'Es sind keine AGB veröffentlicht.', 'nosuch' => 'Diese Version gibt es nicht.']
-    : ['heading' => 'Terms & conditions', 'version' => 'Version', 'earlier' => 'Earlier version, valid until',
-       'current' => 'Current version', 'none' => 'No terms are published.', 'nosuch' => 'No such version.'];
+    ? ['heading' => $legalKind === 'privacy' ? 'Datenschutzhinweise' : 'Allgemeine Geschäftsbedingungen',
+       'version' => 'Version', 'earlier' => 'Frühere Version, gültig bis', 'current' => 'Aktuelle Version',
+       'none' => $legalKind === 'privacy' ? 'Es sind keine Datenschutzhinweise veröffentlicht.' : 'Es sind keine AGB veröffentlicht.',
+       'nosuch' => 'Diese Version gibt es nicht.']
+    : ['heading' => $legalKind === 'privacy' ? 'Privacy notice' : 'Terms & conditions',
+       'version' => 'Version', 'earlier' => 'Earlier version, valid until', 'current' => 'Current version',
+       'none' => $legalKind === 'privacy' ? 'No privacy notice is published.' : 'No terms are published.',
+       'nosuch' => 'No such version.'];
 
 /** This page in another language, keeping the version asked for. */
 function terms_lang_url(string $lang, ?int $version): string
 {
+    global $legalPage;
     $query = ['lang' => $lang];
     if ($version !== null && $version > 0) {
         $query = ['v' => $version] + $query;
     }
-    return 'terms.php?' . http_build_query($query);
+    return $legalPage . '?' . http_build_query($query);
 }
 
 // Superseded when a newer version exists; `until` is when that one arrived.
 $until = null;
 if ($shown !== null) {
-    foreach ($data['terms']['versions'] as $entry) {
+    foreach ($data[$legalKind]['versions'] as $entry) {
         if ($entry['version'] > $shown['version']) {
             $until = $entry['at'];
             break;
@@ -167,7 +179,17 @@ $heading = $t['heading'];
 <?php endif; ?>
 </main>
 
-<footer class="pub-foot"><?php echo pub_e($orgName !== '' ? $orgName : $appName); ?></footer>
+<footer class="pub-foot">
+    <?php echo pub_e($orgName !== '' ? $orgName : $appName); ?>
+<?php $otherKind = $legalKind === 'privacy' ? 'terms' : 'privacy'; ?>
+<?php if (trax_legal_published($otherKind) !== null): ?>
+    <span class="pub-foot-sep">·</span>
+    <a href="<?php echo pub_e(($otherKind === 'privacy' ? 'privacy.php' : 'terms.php') . '?lang=' . $lang); ?>"><?php
+        echo pub_e($otherKind === 'privacy'
+            ? ($lang === 'de' ? 'Datenschutzhinweise' : 'Privacy notice')
+            : ($lang === 'de' ? 'AGB' : 'Terms & conditions')); ?></a>
+<?php endif; ?>
+</footer>
 
 </body>
 </html>
