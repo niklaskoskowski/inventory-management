@@ -149,12 +149,14 @@ function trax_terms_snapshot(array $data): array
         'at'       => $latest['at'] ?? null,
         'actor'    => $latest['actor'] ?? '',
         'text'     => $latest['text'] ?? '',
+        'textDe'   => $latest['textDe'] ?? '',
         'active'   => trax_terms_current($data) !== null,
         'versions' => array_map(static fn (array $entry): array => [
             'version' => $entry['version'],
             'at'      => $entry['at'],
             'actor'   => $entry['actor'],
-            'empty'   => $entry['text'] === '',
+            'empty'   => !trax_terms_has_text($entry),
+            'langs'   => trax_terms_languages($entry),
         ], $data['terms']['versions'] ?? []),
     ];
 }
@@ -3967,16 +3969,26 @@ try {
             if (!is_string($raw)) {
                 trax_fail('BAD_REQUEST', 'No text was sent.');
             }
+            // The German text is optional; a client that does not send it
+            // keeps whatever the version in force has, rather than dropping it.
+            $rawDe = $payload['textDe'] ?? null;
+            if ($rawDe !== null && !is_string($rawDe)) {
+                trax_fail('BAD_REQUEST', 'The German text must be text.');
+            }
             // Refused rather than cut: a legal text that silently loses its
             // last paragraph is worse than one that is not saved.
-            if (mb_strlen(trim(str_replace(["\r\n", "\r"], "\n", $raw))) > TRAX_MAX_TERMS) {
-                trax_fail('BAD_REQUEST', 'The terms are longer than ' . TRAX_MAX_TERMS . ' characters.');
+            foreach (['English' => $raw, 'German' => (string)$rawDe] as $lang => $candidate) {
+                if (mb_strlen(trim(str_replace(["\r\n", "\r"], "\n", $candidate))) > TRAX_MAX_TERMS) {
+                    trax_fail('BAD_REQUEST', "The {$lang} terms are longer than " . TRAX_MAX_TERMS . ' characters.');
+                }
             }
-            $text = trax_terms_text($raw);
+            $text   = trax_terms_text($raw);
+            $textDe = $rawDe === null ? null : trax_terms_text($rawDe);
 
-            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($text, $actor): array {
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($text, $textDe, $actor): array {
                 $latest = trax_terms_latest($data);
-                if (($latest['text'] ?? '') === $text) {
+                $textDe ??= $latest['textDe'] ?? '';
+                if (($latest['text'] ?? '') === $text && ($latest['textDe'] ?? '') === $textDe) {
                     throw new TraxInvalid('The terms are unchanged.');
                 }
 
@@ -3986,10 +3998,11 @@ try {
                     'at'      => gmdate('Y-m-d\TH:i:s.000\Z'),
                     'actor'   => $actor,
                     'text'    => $text,
+                    'textDe'  => $textDe,
                 ];
 
                 trax_append_history($data, 'terms_updated', [
-                    'note'  => $text === ''
+                    'note'  => ($text === '' && $textDe === '')
                         ? "Terms & conditions withdrawn (version {$version})"
                         : "Terms & conditions published (version {$version})",
                     'actor' => $actor,

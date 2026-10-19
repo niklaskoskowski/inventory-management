@@ -908,6 +908,25 @@ textarea.pub-input {
 
 .pub-terms-old { margin: 1rem 0 0; }
 
+/* terms.php: English | Deutsch, when a version has both. */
+.pub-lang {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin: 0 0 0.85rem;
+  border-radius: 9px;
+  background: var(--trax-fill);
+}
+.pub-lang a {
+  padding: 0.3rem 0.75rem;
+  border-radius: 7px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--trax-text);
+  text-decoration: none;
+}
+.pub-lang a.is-active { background: var(--trax-surface); box-shadow: var(--trax-shadow-sm); font-weight: 600; }
+
 /* -------------------------------------------- Sign-in & installer (solo) --- */
 
 /* One centred card on a desktop; on a phone the card dissolves into the page

@@ -339,14 +339,18 @@ without an inversion anywhere.
 ## Terms & conditions
 
 What a hand-over signature is given under. Stored as **`data.terms.versions`** — every version
-ever published, `{version, at, actor, text}` (Markdown, ≤ `TRAX_MAX_TERMS`) — and deliberately
-**not** in `settings`: settings ride in every snapshot, and this is an archive. The newest version
-is the one in force when its text is non-empty; an empty version means the terms were withdrawn.
-The snapshot carries `terms: {version, at, actor, text, active, versions: [{version, at, actor,
-empty}]}` — the newest text in full, the rest without text.
+ever published, `{version, at, actor, text, textDe}` (Markdown, ≤ `TRAX_MAX_TERMS` each; `text` is
+English, `textDe` German, either may be empty) — and deliberately **not** in `settings`: settings
+ride in every snapshot, and this is an archive. The newest version is the one in force when either
+text is non-empty (`trax_terms_has_text()`); both empty means the terms were withdrawn. A signature
+accepts the version, i.e. both languages. The snapshot carries `terms: {version, at, actor, text,
+textDe, active, versions: [{version, at, actor, empty, langs}]}` — the newest texts in full, the
+rest without text. `terms.php` shows an English | Deutsch switch when a version has both, picks
+`?lang=` or the browser's `Accept-Language`, and translates its own few words.
 
-- **Written** only by `terms.update` (Settings → Terms). A save that changes the text appends the
-  next version; an unchanged text is refused, an over-long one is refused rather than cut.
+- **Written** only by `terms.update` (Settings → Terms, `{text, textDe}`; a client that omits
+  `textDe` keeps the German text in force). A save that changes either text appends the next
+  version; unchanged texts are refused, an over-long one is refused rather than cut.
 - **Rendered** only by `lib/markdown.php`. The Settings preview posts to `terms.preview`, so it is
   byte for byte what `terms.php` and `booking.php` show. Raw HTML in the source is escaped; links
   keep http(s), mailto, tel and scheme-less targets only.

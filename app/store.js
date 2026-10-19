@@ -210,7 +210,7 @@ export const state = reactive({
   // The terms & conditions: the newest version in full, the older ones as a
   // list without text (terms.php?v=N shows those). `version` is what a counter
   // signature sends back, so the server can tell the customer saw these.
-  terms: { version: 0, at: null, actor: '', text: '', active: false, versions: [] },
+  terms: { version: 0, at: null, actor: '', text: '', textDe: '', active: false, versions: [] },
   meta: {},
 
   selected: [],
@@ -1165,8 +1165,8 @@ export function printerJobMessage(job, what) {
 // --- Terms & conditions ----------------------------------------------------
 
 /** Publishes `text` as the next version. An empty text withdraws the terms. */
-export async function saveTerms(text) {
-  return mutate('terms.update', { text });
+export async function saveTerms(text, textDe = '') {
+  return mutate('terms.update', { text, textDe });
 }
 
 /** The server's rendering of `text`, exactly as terms.php would show it. */

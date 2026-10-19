@@ -36,6 +36,11 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Terms in English and German.** Settings → Terms has an English | Deutsch tab per text; one
+  save publishes one version with both (a signature accepts the version, whichever language was
+  read). terms.php shows an English | Deutsch switch when both exist, opens in the browser's
+  language (`?lang=en|de` to pick), and says its own words (heading, "earlier version") in that
+  language. Either text alone is enough to publish; both empty withdraws the terms.
 - **Phone header: in-app logo before the title**, the favicon only when no logo is set (it stays
   the home-screen icon). The phone header is opaque now instead of blurred: as an iOS web app
   (iOS 27) the translucent sticky bar left smears and a hard edge under the status bar.

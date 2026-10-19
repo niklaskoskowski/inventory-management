@@ -246,7 +246,7 @@ $view = [
     // one Markdown renderer terms.php uses too.
     'terms'        => $currentTerms === null ? null : array_merge(
         trax_booking_terms_ref($currentTerms['version'], $currentTerms['at']),
-        ['html' => trax_markdown($currentTerms['text'])]
+        ['html' => trax_markdown($currentTerms['text'] !== '' ? $currentTerms['text'] : $currentTerms['textDe'])]
     ),
 ];
 

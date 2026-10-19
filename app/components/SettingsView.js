@@ -1055,21 +1055,36 @@ export default {
     /** Server-side the text is trimmed with LF line ends; compare the same way. */
     const termsNormal = (text) => String(text ?? '').replace(/\r\n?/g, '\n').trim();
 
-    const termsDraft = ref(state.terms.text || '');
+    // Two texts, one version: English and German. The editor shows one at a
+    // time; termsDraft is whichever tab is open, so the textarea, its counter
+    // and the preview need not know there are two.
+    const TERMS_LANGS = [{ id: 'en', label: 'English' }, { id: 'de', label: 'Deutsch' }];
+    const termsLang = ref('en');
+    const termsDrafts = ref({ en: state.terms.text || '', de: state.terms.textDe || '' });
+    const termsDraft = computed({
+      get: () => termsDrafts.value[termsLang.value],
+      set: (value) => { termsDrafts.value[termsLang.value] = value; },
+    });
     // A new version — ours or another operator's — replaces the draft.
-    watch(() => state.terms.version, () => { termsDraft.value = state.terms.text || ''; });
+    watch(() => state.terms.version, () => {
+      termsDrafts.value = { en: state.terms.text || '', de: state.terms.textDe || '' };
+    });
 
     const termsBusy = ref(false);
     const termsMax = computed(() => state.meta?.termsMax || 30000);
-    const termsDirty = computed(() => termsNormal(termsDraft.value) !== termsNormal(state.terms.text));
-    /** Saving an empty text while terms are in force takes them down. */
-    const termsWithdraw = computed(() => state.terms.active && termsNormal(termsDraft.value) === '');
+    const termsDirty = computed(() => termsNormal(termsDrafts.value.en) !== termsNormal(state.terms.text)
+      || termsNormal(termsDrafts.value.de) !== termsNormal(state.terms.textDe));
+    /** Saving both texts empty while terms are in force takes them down. */
+    const termsWithdraw = computed(() => state.terms.active
+      && termsNormal(termsDrafts.value.en) === '' && termsNormal(termsDrafts.value.de) === '');
+    const termsLangDirty = (lang) => termsNormal(termsDrafts.value[lang])
+      !== termsNormal(lang === 'de' ? state.terms.textDe : state.terms.text);
     const termsVersions = computed(() => [...(state.terms.versions || [])].reverse());
 
     const saveTermsDraft = async () => {
       termsBusy.value = true;
       try {
-        await saveTerms(termsDraft.value);
+        await saveTerms(termsDrafts.value.en, termsDrafts.value.de);
         toast(state.terms.active
           ? `Terms published as version ${state.terms.version}.`
           : 'Terms withdrawn. Nothing is shown or accepted any more.', 'success');
@@ -1080,7 +1095,9 @@ export default {
       }
     };
 
-    const revertTerms = () => { termsDraft.value = state.terms.text || ''; };
+    const revertTerms = () => {
+      termsDrafts.value = { en: state.terms.text || '', de: state.terms.textDe || '' };
+    };
 
     // The preview is the server's renderer, so it is exactly what terms.php
     // and the booking page will show. Debounced: a request per keystroke
@@ -1112,7 +1129,7 @@ export default {
         }
       }, 350);
     };
-    watch([termsDraft, section], refreshPreview, { immediate: true });
+    watch([termsDraft, termsLang, section], refreshPreview, { immediate: true });
 
     // --- Account ---
     // The one thing on this view that is not a setting: it writes users.json,
@@ -1324,7 +1341,7 @@ export default {
       markPrintedLabeled,
       LABEL_FORMATS, LABEL_STATES, labelFormat, labelState, labelCounts, labelFileCount,
       labelZip, downloadAllLabels, labelPreviews, toggleLabeled,
-      state, termsDraft, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
+      state, termsDraft, termsDrafts, termsLang, TERMS_LANGS, termsLangDirty, termsBusy, termsMax, termsDirty, termsWithdraw, termsVersions,
       saveTermsDraft, revertTerms, termsHtml, termsPreviewError, termsUrl, formatDateTime,
     };
   },
@@ -2441,6 +2458,16 @@ export default {
           <span class="flex-grow-1"></span>
           <span class="fw-normal">{{ termsDraft.length }} / {{ termsMax }}</span>
         </div>
+        <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Terms language">
+          <button v-for="lang in TERMS_LANGS" :key="lang.id" type="button"
+                  class="btn btn-outline-secondary" :class="{ active: termsLang === lang.id }"
+                  :aria-pressed="termsLang === lang.id ? 'true' : 'false'" @click="termsLang = lang.id">
+            {{ lang.label }}
+            <i v-if="termsLangDirty(lang.id)" class="bi bi-circle-fill ms-1" style="font-size:.4rem;vertical-align:middle"
+               title="Changed"></i>
+            <span v-else-if="!termsDrafts[lang.id]" class="text-secondary ms-1">(empty)</span>
+          </button>
+        </div>
         <div class="trax-list">
           <div class="trax-row trax-set-stack">
             <textarea id="set-terms" class="form-control form-control-sm font-monospace" rows="18"
@@ -2450,7 +2477,8 @@ export default {
         </div>
         <p class="trax-set-foot">
           <code># Heading</code> · <code>**bold**</code> · <code>*italic*</code> · <code>- list</code> · <code>[label](https://…)</code>
-          <br>Each save publishes a new version; signed versions stay readable.
+          <br>Each save publishes a new version with both languages; signed versions stay readable.
+          <br>Customers see an English | Deutsch switch when both are filled in, in their browser's language first.
         </p>
 
         <template v-if="termsVersions.length">
@@ -2460,6 +2488,9 @@ export default {
               <span class="trax-set-label">
                 <a v-if="!entry.empty" :href="termsUrl(entry.version)" target="_blank"
                    rel="noopener noreferrer">Version {{ entry.version }}</a>
+                <span v-if="!entry.empty && entry.langs" class="ms-1 text-secondary small">
+                  {{ entry.langs.map((l) => l.toUpperCase()).join(' · ') }}
+                </span>
                 <span v-else class="text-secondary">Version {{ entry.version }} (withdrawn)</span>
                 <span class="trax-set-hint">
                   {{ formatDateTime(entry.at) }}<span v-if="entry.actor"> · {{ entry.actor }}</span>
@@ -2747,7 +2778,7 @@ export default {
          Terms neither: a save there publishes a version, so it has its own bar. -->
     <div v-if="section === 'terms'" class="trax-selection-bar">
       <span v-if="termsWithdraw" class="small text-warning-emphasis">
-        An empty text withdraws the terms.
+        Both texts empty withdraws the terms.
       </span>
       <span v-else-if="termsDirty" class="small">
         Publishes <strong>version {{ state.terms.version + 1 }}</strong>

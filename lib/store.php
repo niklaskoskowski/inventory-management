@@ -2558,7 +2558,34 @@ function trax_normalize_terms_version(mixed $raw): ?array
         // Empty is a real version: the operator withdrew the terms, and from
         // then on nothing is shown and nothing is accepted.
         'text'    => trax_terms_text($raw['text'] ?? ''),
+        // The same terms in German, optional. Part of the same version: a
+        // signature accepts the version, whichever language was read.
+        'textDe'  => trax_terms_text($raw['textDe'] ?? ''),
     ];
+}
+
+/** Does this version say anything, in either language? */
+function trax_terms_has_text(?array $entry): bool
+{
+    return $entry !== null && (($entry['text'] ?? '') !== '' || ($entry['textDe'] ?? '') !== '');
+}
+
+/**
+ * The languages one version is published in, English first: ['en', 'de'],
+ * or just the one that has text.
+ *
+ * @return list<string>
+ */
+function trax_terms_languages(array $entry): array
+{
+    $langs = [];
+    if (($entry['text'] ?? '') !== '') {
+        $langs[] = 'en';
+    }
+    if (($entry['textDe'] ?? '') !== '') {
+        $langs[] = 'de';
+    }
+    return $langs;
 }
 
 /** Markdown as it is stored: LF line ends, no control characters, capped. */
@@ -2597,7 +2624,7 @@ function trax_terms_latest(array $data): ?array
 function trax_terms_current(array $data): ?array
 {
     $latest = trax_terms_latest($data);
-    return $latest !== null && $latest['text'] !== '' ? $latest : null;
+    return trax_terms_has_text($latest) ? $latest : null;
 }
 
 /** One version by number, or null. */
