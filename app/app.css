@@ -824,6 +824,16 @@ button,
 .trax-topbar { transition: background-color 0.2s ease, border-color 0.2s ease; }
 
 .trax-topbar-icon { margin-right: 0.15rem; }
+.trax-topbar-logo {
+  display: block;
+  height: 26px;
+  width: auto;
+  max-width: 42vw;
+  object-fit: contain;
+  object-position: left center;
+  margin-right: 0.35rem;
+  flex: 0 0 auto;
+}
 
 .trax-topbar-title {
   font-size: 1.3rem;
@@ -2097,12 +2107,21 @@ kbd {
     display: none;
   }
 
-  /* One compact bar: the title on the left, the actions on the right. */
-  .trax-topbar {
+  /* One compact bar: the title on the left, the actions on the right.
+     Opaque in the page colour rather than translucent: iOS (seen as a web
+     app on iOS 27) leaves smears and a hard edge behind a sticky element
+     with backdrop-filter under the status bar. Same look, nothing to blur. */
+  .trax-topbar,
+  .trax-topbar.is-scrolled {
     padding: 0.5rem 0.75rem 0.5rem 1rem;
     padding-top: calc(0.5rem + env(safe-area-inset-top));
     min-height: calc(3.1rem + env(safe-area-inset-top));
+    background: var(--trax-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    transition: none;
   }
+  .trax-topbar.is-scrolled { background: var(--trax-material-solid); }
 
   .trax-topbar-title { font-size: 1.5rem; letter-spacing: -0.03em; }
   .trax-topbar-sub { display: none; }

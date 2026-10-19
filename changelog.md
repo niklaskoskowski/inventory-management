@@ -36,6 +36,9 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Phone header: in-app logo before the title**, the favicon only when no logo is set (it stays
+  the home-screen icon). The phone header is opaque now instead of blurred: as an iOS web app
+  (iOS 27) the translucent sticky bar left smears and a hard edge under the status bar.
 - **Small polish.** The sidebar avatar sits centred under the Settings icon with the name aligned
   to the link labels; the sign-in page drops the app name under "Sign in" when the logo already
   shows it; the mail signature line shows the app name only (no organisation).

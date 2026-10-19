@@ -396,8 +396,11 @@ export default {
       <!-- Main -->
       <div class="trax-main">
         <header class="trax-topbar" :class="{ 'is-scrolled': scrolled }">
-          <!-- No sidebar on a phone: the app icon goes next to the title. -->
-          <img v-if="isNarrow && state.settings?.branding?.faviconFile" class="trax-app-icon trax-topbar-icon"
+          <!-- No sidebar on a phone: the in-app logo goes before the title
+               (the favicon when there is no logo — it stays the home-screen icon). -->
+          <img v-if="isNarrow && appLogo" class="trax-topbar-logo"
+               :src="appLogo" :alt="appName">
+          <img v-else-if="isNarrow && state.settings?.branding?.faviconFile" class="trax-app-icon trax-topbar-icon"
                :src="state.settings.branding.faviconFile" :alt="appName">
           <div class="trax-topbar-heading flex-grow-1 min-w-0">
             <h1 class="trax-topbar-title">{{ currentNav.label }}</h1>
