@@ -113,6 +113,7 @@ const DEFAULT_SETTINGS = {
     // Empty until the first snapshot lands; an empty subject or body means
     // "use the built-in default", which is also what an absent key means.
     templates: {},
+    footer: 'This email was generated automatically. For any questions or assistance, simply reply to this email.',
   },
   branding: {
     // What this install calls itself — the wordmark, the tab title, the name in

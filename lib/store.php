@@ -2418,6 +2418,12 @@ function trax_normalize_settings(mixed $raw): array
             // literal does not name does not survive. Empty entries are the
             // normal state — they mean "use the built-in default".
             'templates'                   => trax_normalize_mail_templates($email['templates'] ?? null),
+            // The note under every mail. Like branding.whatsapp, an empty
+            // string is kept — it means "no footer" — so only a MISSING key
+            // falls back to the default text.
+            'footer'                      => array_key_exists('footer', $email)
+                ? trax_str(str_replace(["\r\n", "\r"], "\n", (string)(is_string($email['footer']) ? $email['footer'] : '')), TRAX_MAX_MAIL_FOOTER)
+                : TRAX_MAIL_FOOTER_DEFAULT,
         ],
         'branding' => [
             // What the product calls itself: the browser title, the wordmark,

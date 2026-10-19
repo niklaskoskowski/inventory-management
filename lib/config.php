@@ -402,6 +402,9 @@ if (!defined('TRAX_MAX_MAIL_SUBJECT')) define('TRAX_MAX_MAIL_SUBJECT', 200);
  * read and rewritten on every mutation.
  */
 if (!defined('TRAX_MAX_MAIL_BODY')) define('TRAX_MAX_MAIL_BODY', 8000);
+/** settings.email.footer: the line under every mail, and its ceiling. */
+if (!defined('TRAX_MAIL_FOOTER_DEFAULT')) define('TRAX_MAIL_FOOTER_DEFAULT', 'This email was generated automatically. For any questions or assistance, simply reply to this email.');
+if (!defined('TRAX_MAX_MAIL_FOOTER')) define('TRAX_MAX_MAIL_FOOTER', 600);
 /**
  * The terms & conditions, in Markdown. Real ones run to 10-15 KB of plain text
  * once liability, deposits and cancellation are spelled out; 30000 leaves

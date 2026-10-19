@@ -4023,7 +4023,12 @@ try {
             $logo    = trax_mail_logo();
             $src     = $logo === null ? null
                 : ($logo['url'] ?? 'data:' . $logo['mime'] . ';base64,' . base64_encode($logo['bytes']));
-            trax_ok(['html' => trax_mail_html($subject, $body, $src)]);
+            // The footer from the draft when the view sends one, so the
+            // preview shows an edit before it is saved.
+            $footer  = is_string($payload['footer'] ?? null)
+                ? trim(trax_str(str_replace(["\r\n", "\r"], "\n", $payload['footer']), TRAX_MAX_MAIL_FOOTER))
+                : trax_mail_footer();
+            trax_ok(['html' => trax_mail_html($subject, $body, $src, $footer)]);
         }
 
         // --- Label printer ---------------------------------------------------

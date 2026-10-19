@@ -123,8 +123,11 @@ function trax_send_mail(array $to, string $subject, string $body, ?string $from 
     // the logo travels inline (cid:), so no client has to fetch an image.
     $logo = trax_mail_logo();
     $cid  = 'logo.' . bin2hex(random_bytes(6)) . '@' . $domain;
-    $html = trax_mail_html($subject, $body, $logo === null ? null : ($logo['url'] ?? 'cid:' . $cid));
-    $mime = trax_mail_mime($body, $html, ($logo !== null && isset($logo['bytes'])) ? $logo + ['cid' => $cid] : null);
+    $footer = trax_mail_footer();
+    $html   = trax_mail_html($subject, $body, $logo === null ? null : ($logo['url'] ?? 'cid:' . $cid), $footer);
+    // The text part carries the footer too, after the usual "-- " separator.
+    $text   = $footer !== '' ? rtrim($body) . "\n\n-- \n" . $footer . "\n" : $body;
+    $mime   = trax_mail_mime($text, $html, ($logo !== null && isset($logo['bytes'])) ? $logo + ['cid' => $cid] : null);
 
     $headers = implode("\r\n", [
         'From: ' . $fromHeader,
@@ -205,6 +208,13 @@ function trax_mail_mime(string $text, string $html, ?array $logo): array
     return ['type' => 'multipart/related; type="multipart/alternative"; boundary="' . $rel . '"', 'body' => $body];
 }
 
+/** settings.email.footer: the note under every mail; '' for none. */
+function trax_mail_footer(): string
+{
+    $footer = trax_setting('email.footer', TRAX_MAIL_FOOTER_DEFAULT);
+    return is_string($footer) ? trim($footer) : '';
+}
+
 /**
  * The mail logo: the in-tool light logo, else the label/PDF logo — local PNG
  * or JPEG only (WebP shows as a broken image in Outlook), embedded inline.
@@ -250,7 +260,7 @@ function trax_mail_logo(): ?array
  *   anything else       → a paragraph, with URLs linked
  * Inline styles and tables only — what mail clients actually render.
  */
-function trax_mail_html(string $subject, string $text, ?string $logoSrc): string
+function trax_mail_html(string $subject, string $text, ?string $logoSrc, string $footer = ''): string
 {
     $e      = static fn(string $v): string => htmlspecialchars($v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $accent = (string)trax_setting('branding.accentLight', '') ?: (string)trax_setting('branding.brandColor', '#1F2937');
@@ -362,7 +372,11 @@ function trax_mail_html(string $subject, string $text, ?string $logoSrc): string
         . '<h1 style="margin:0 0 20px;font-size:20px;line-height:1.3;font-weight:700;color:#111827;">' . $e($subject) . '</h1>'
         . $out
         . '</td></tr>'
-        . '<tr><td style="padding:20px 4px 0;font-size:12px;line-height:1.5;color:#9ca3af;">' . $e($orgName)
+        . ($footer !== ''
+            ? '<tr><td style="padding:20px 4px 0;font-size:13px;line-height:1.55;color:#6b7280;">'
+                . nl2br($link($e($footer)), false) . '</td></tr>'
+            : '')
+        . '<tr><td style="padding:' . ($footer !== '' ? '10px' : '20px') . ' 4px 0;font-size:12px;line-height:1.5;color:#9ca3af;">' . $e($orgName)
         . ($orgName !== $appName ? ' · ' . $e($appName) : '') . '</td></tr>'
         . '</table></td></tr></table></body></html>';
 }

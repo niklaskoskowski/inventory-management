@@ -36,6 +36,11 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Editable mail footer.** Settings → Email → *Footer*: a note under every mail, in the HTML
+  version above the organisation line and in the text version after `-- `. Default: "This email
+  was generated automatically. For any questions or assistance, simply reply to this email."
+  Empty means no footer; *Default text* restores it; the preview shows the draft live.
+
 ### Fixed
 
 - **Field labels and the page header vanished with an ad blocker.** `.pub-label` and `.pub-top`

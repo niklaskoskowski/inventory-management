@@ -374,13 +374,15 @@ export default {
     const previewHtml = ref('');
     let mailPreviewTimer = null;
     let mailPreviewSeq = 0;
-    watch([previewSubject, previewBody, () => section.value], () => {
+    watch([previewSubject, previewBody, () => draft.value.email.footer, () => section.value], () => {
       if (section.value !== 'email' || !templateSpec.value) return;
       clearTimeout(mailPreviewTimer);
       mailPreviewTimer = setTimeout(async () => {
         const seq = ++mailPreviewSeq;
         try {
-          const body = await api.post('mail.preview', { subject: previewSubject.value, body: previewBody.value });
+          const body = await api.post('mail.preview', {
+            subject: previewSubject.value, body: previewBody.value, footer: draft.value.email.footer ?? '',
+          });
           if (seq === mailPreviewSeq) previewHtml.value = body.data?.html || '';
         } catch {
           if (seq === mailPreviewSeq) previewHtml.value = '';
@@ -388,6 +390,8 @@ export default {
       }, 250);
     }, { immediate: true });
     onBeforeUnmount(() => clearTimeout(mailPreviewTimer));
+
+    const MAIL_FOOTER_DEFAULT = 'This email was generated automatically. For any questions or assistance, simply reply to this email.';
 
     const fitPreview = (event) => {
       const frame = event.target;
@@ -1302,7 +1306,7 @@ export default {
       generateSecret, cronUrl, copyCronUrl,
       mailTemplates, templateKeys, templateKey, templateSpec, templateEntry,
       templateTokens, templateError, clearTemplateError, isCustomised,
-      resetTemplate, loadDefault, previewSubject, previewBody, previewHtml, bodyBox, insertToken, fitPreview,
+      resetTemplate, loadDefault, previewSubject, previewBody, previewHtml, bodyBox, insertToken, fitPreview, MAIL_FOOTER_DEFAULT,
       subjectMax, bodyMax,
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
@@ -1659,6 +1663,25 @@ export default {
       </div>
 
       <div class="col-12 col-xl-6">
+        <div class="trax-list-header">Footer</div>
+        <div class="trax-list">
+          <div class="trax-row trax-set-stack">
+            <label class="trax-set-label d-flex" for="set-mail-footer">
+              <span class="flex-grow-1">Under every mail <span class="trax-set-hint">Empty: no footer</span></span>
+              <span class="fw-normal">{{ (draft.email.footer || '').length }} / 600</span>
+            </label>
+            <textarea id="set-mail-footer" rows="3" class="form-control form-control-sm"
+                      maxlength="600" v-model="draft.email.footer"></textarea>
+            <div>
+              <button type="button" class="btn btn-sm btn-outline-secondary"
+                      :disabled="draft.email.footer === MAIL_FOOTER_DEFAULT"
+                      @click="draft.email.footer = MAIL_FOOTER_DEFAULT">
+                <i class="bi bi-arrow-counterclockwise"></i> Default text
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div class="trax-list-header">To the customer</div>
         <div class="trax-list">
           <div v-for="row in CUSTOMER_MAIL" :key="row.key" class="trax-row">
