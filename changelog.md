@@ -36,6 +36,11 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Booking type: Internal / Loan / Rental.** The basket's price switch is now *Type* with three
+  kinds — Internal (internal equipment issue), Loan (free of charge) and Rental (charged) — and,
+  for a rental, *Dry hire* / *Full service* underneath. New stored mode `INTERNAL`, priced at 0
+  like a loan; existing "Free" bookings read as Loan. Chips, checkout detail and PDFs name the
+  type ("Rental · Full service", "Loan (free of charge)", "Internal use").
 - **Terms in English and German.** Settings → Terms has an English | Deutsch tab per text; one
   save publishes one version with both (a signature accepts the version, whichever language was
   read). terms.php shows an English | Deutsch switch when both exist, opens in the browser's

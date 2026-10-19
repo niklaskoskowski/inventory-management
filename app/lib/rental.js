@@ -44,12 +44,45 @@ export const OVERRIDE_MODES = ['INHERIT', 'PERCENT', 'FIXED'];
 export const FIXED_PER = ['RENTAL', 'DAY'];
 
 /**
- * Dry hire, the gear as part of a serviced job, or lent for nothing (a friend
- * borrowing something). Mirrors TRAX_HIRE_MODES.
+ * Dry hire, the gear as part of a serviced job, lent for nothing (a loan), or
+ * the organisation's own use (internal issue). Mirrors TRAX_HIRE_MODES.
  */
-export const HIRE_MODES = ['DRY', 'SERVICE', 'FREE'];
+export const HIRE_MODES = ['DRY', 'SERVICE', 'FREE', 'INTERNAL'];
 
-export const HIRE_LABEL = { DRY: 'Dry hire', SERVICE: 'Full service', FREE: 'Free of charge' };
+/** The full name of each, as chips, PDFs and the checkout detail say it. */
+export const HIRE_LABEL = {
+  DRY: 'Rental · Dry hire',
+  SERVICE: 'Rental · Full service',
+  FREE: 'Loan (free of charge)',
+  INTERNAL: 'Internal use',
+};
+
+/**
+ * The three kinds the operator picks first, and the stored mode each stands
+ * for. RENTAL is two modes; which one is the second choice under it.
+ */
+export const HIRE_KINDS = [
+  { id: 'INTERNAL', label: 'Internal', hint: 'Internal equipment issue' },
+  { id: 'LOAN', label: 'Loan', hint: 'Lent free of charge' },
+  { id: 'RENTAL', label: 'Rental', hint: 'Charged hire' },
+];
+export const RENTAL_SUBMODES = [
+  { id: 'DRY', label: 'Dry hire' },
+  { id: 'SERVICE', label: 'Full service' },
+];
+
+/** INTERNAL, LOAN or RENTAL for a stored mode. */
+export function hireKind(hire) {
+  const mode = hireOf({ hire });
+  if (mode === 'INTERNAL') return 'INTERNAL';
+  if (mode === 'FREE') return 'LOAN';
+  return 'RENTAL';
+}
+
+/** Is nothing charged for this mode (a loan or internal use)? */
+export function isUncharged(hire) {
+  return hireKind(hire) !== 'RENTAL';
+}
 
 /** What a record says it is, defaulted. Everything older than this is dry hire. */
 export function hireOf(record) {
@@ -273,9 +306,9 @@ export function isRated(resolved) {
  */
 export function rentalOfUnit(asset, unit, settings, days, hire = 'DRY') {
   const resolved = resolveRate(asset, unit, settings);
-  // Lent for nothing: 0 whatever the rate, and nothing to flag as unrated or
-  // unpriced — the price is known, it is zero.
-  if (hireOf({ hire }) === 'FREE') {
+  // Lent for nothing or used internally: 0 whatever the rate, and nothing to
+  // flag as unrated or unpriced — the price is known, it is zero.
+  if (isUncharged(hire)) {
     return {
       amount: 0, dry: null, factor: 0, rate: null, basis: null, resolved, rated: true, unpriced: false,
     };

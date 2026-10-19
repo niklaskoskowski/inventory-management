@@ -8,6 +8,7 @@ import { findConflicts } from '../lib/schedule.js';
 import { valueOfLines } from '../lib/insights.js';
 import {
   rentalDays as hireDays, rentalOfLines, daysLabel, HIRE_LABEL, serviceFactorOf, hireOf,
+  HIRE_KINDS, RENTAL_SUBMODES, hireKind,
 } from '../lib/rental.js';
 import { byStart, eventSettings, isClosed } from '../lib/events.js';
 import { exportBasketPdf, exportRentalPdf } from '../lib/pdf.js';
@@ -117,6 +118,16 @@ export default {
     // lines, the booking, the reservation — because it is a fact about the
     // job, not a price: the price is worked out from it every time.
     const hire = ref('DRY');
+
+    // Picked in two steps: Internal / Loan / Rental, then — for a rental —
+    // dry hire or full service. The last rental choice is remembered, so
+    // switching to Loan and back does not reset it.
+    const lastRental = ref('DRY');
+    watch(hire, (value) => { if (value === 'DRY' || value === 'SERVICE') lastRental.value = value; });
+    const kind = computed(() => hireKind(hire.value));
+    const setKind = (id) => {
+      hire.value = id === 'INTERNAL' ? 'INTERNAL' : id === 'LOAN' ? 'FREE' : lastRental.value;
+    };
 
     // Which job this is going out on, or none. Optional by design: plenty of
     // gear leaves the building without belonging to a project.
@@ -403,7 +414,7 @@ export default {
       busy, blocked, allowPartial, force, groups, unavailable, windowConflicts,
       selectionValue, formatTotals, exportingPdf, selectionPdf,
       hireLength, rentalQuote, daysLabel, exportingQuote, rentalPdf,
-      hire, dryQuote, serviceFactors, HIRE_LABEL, editing, editGone, discardEdit,
+      hire, kind, setKind, HIRE_KINDS, RENTAL_SUBMODES, dryQuote, serviceFactors, HIRE_LABEL, editing, editGone, discardEdit,
       eventId, eventsEnabled, eventOptions,
       selectedItemIds, selectedUnitCount, toggleSelected, clearSelection,
       getAsset, getQuantity, setQuantity, submit, emit,
@@ -530,23 +541,23 @@ export default {
       <!-- Price: hire type, rental for the window, and what it is worth.
            Internal until the rental PDF is printed. -->
       <template v-if="selectedItemIds.length">
-        <div class="trax-list-header">Price</div>
-        <div class="btn-group w-100 mb-2" role="group" aria-label="Hire type">
-          <button type="button" class="btn btn-sm" :class="hire === 'DRY' ? 'btn-secondary' : 'btn-outline-secondary'"
-                  :aria-pressed="hire === 'DRY' ? 'true' : 'false'" @click="hire = 'DRY'">
-            {{ HIRE_LABEL.DRY }}
+        <div class="trax-list-header">Type</div>
+        <div class="btn-group w-100 mb-2" role="group" aria-label="Type">
+          <button v-for="k in HIRE_KINDS" :key="k.id" type="button" class="btn btn-sm"
+                  :class="kind === k.id ? 'btn-secondary' : 'btn-outline-secondary'"
+                  :aria-pressed="kind === k.id ? 'true' : 'false'" :title="k.hint" @click="setKind(k.id)">
+            {{ k.label }}
           </button>
-          <button type="button" class="btn btn-sm" :class="hire === 'SERVICE' ? 'btn-secondary' : 'btn-outline-secondary'"
-                  :aria-pressed="hire === 'SERVICE' ? 'true' : 'false'" @click="hire = 'SERVICE'">
-            {{ HIRE_LABEL.SERVICE }}
-          </button>
-          <button type="button" class="btn btn-sm" :class="hire === 'FREE' ? 'btn-secondary' : 'btn-outline-secondary'"
-                  :aria-pressed="hire === 'FREE' ? 'true' : 'false'" :title="HIRE_LABEL.FREE" @click="hire = 'FREE'">
-            Free
+        </div>
+        <div v-if="kind === 'RENTAL'" class="btn-group btn-group-sm w-100 mb-2 trax-hire-sub" role="group" aria-label="Rental type">
+          <button v-for="m in RENTAL_SUBMODES" :key="m.id" type="button" class="btn btn-sm"
+                  :class="hire === m.id ? 'btn-secondary' : 'btn-outline-secondary'"
+                  :aria-pressed="hire === m.id ? 'true' : 'false'" @click="hire = m.id">
+            {{ m.label }}
           </button>
         </div>
         <div class="trax-list">
-          <div class="trax-kv">
+          <div v-if="kind === 'RENTAL'" class="trax-kv">
             <span>Rental · {{ daysLabel(hireLength) }}</span>
             <span v-if="rentalQuote.unratedCount" class="trax-kind-chip"
                   title="No rental rate set — Settings → Rental rates, or the asset's Rental tab.">
@@ -570,8 +581,9 @@ export default {
           <span v-for="(factor, fi) in serviceFactors" :key="factor">{{ Math.round(factor * 1000) / 10 }} %<span v-if="fi < serviceFactors.length - 1">, </span></span>
           of dry hire ({{ formatTotals(dryQuote.totals) }}).
         </div>
-        <div v-else-if="hire === 'FREE'" class="form-text ms-1">
-          Dry hire would be {{ formatTotals(dryQuote.totals) }}.
+        <div v-else-if="kind !== 'RENTAL'" class="form-text ms-1">
+          {{ kind === 'LOAN' ? 'Lent free of charge.' : 'Internal equipment issue, not charged.' }}
+          <template v-if="!dryQuote.unratedCount">As dry hire it would be {{ formatTotals(dryQuote.totals) }}.</template>
         </div>
       </template>
 

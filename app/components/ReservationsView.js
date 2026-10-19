@@ -283,7 +283,7 @@ export default {
             <!-- Only what is not dry hire says so: dry hire is what almost
                  every reservation is, and a chip on all of them says nothing. -->
             <span v-if="hireOf(r) !== 'DRY'" class="trax-kind-chip">
-              <i class="bi" :class="hireOf(r) === 'FREE' ? 'bi-gift' : 'bi-person-gear'"></i>
+              <i class="bi" :class="{ FREE: 'bi-gift', INTERNAL: 'bi-building', SERVICE: 'bi-person-gear' }[hireOf(r)]"></i>
               {{ HIRE_LABEL[hireOf(r)] }}
             </span>
             <span v-if="eventById.get(Number(r.eventId))" class="trax-kind-chip">

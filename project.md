@@ -280,12 +280,14 @@ charges the same either way. The factor lives on the rule beside the discount la
 asset or a unit: it is a commercial decision about a class of gear.
 
 Which kind a booking is **is stored** — it is a fact about the job, like the customer's name, not a
-price. `hire` (`DRY` | `SERVICE` | `FREE`, `TRAX_HIRE_MODES`) rides on the **checkout line**, the
+price. `hire` (`DRY` | `SERVICE` | `FREE` | `INTERNAL`, `TRAX_HIRE_MODES`) rides on the **checkout line**, the
 **reservation** and the **booking**: the line because that is what gets priced and what survives a
 partial return, the reservation so a conversion inherits it, the booking because it outlives its
 lines. Everything written before this reads back as `DRY`. `rentalOfLines()` takes
 `{hire}` for the whole set, and a line naming its own wins — which is what keeps a checkout list
 holding both kinds correct.
+
+The basket picks it in two steps — **Internal** (`INTERNAL`, own equipment issue) / **Loan** (`FREE`) / **Rental**, and under Rental **Dry hire** (`DRY`) / **Full service** (`SERVICE`); `hireKind()` / `isUncharged()` in `app/lib/rental.js`. `INTERNAL` prices at 0 exactly like `FREE`.
 
 `FREE` is gear lent for nothing — a friend borrowing something. `rentalOfUnit()` returns 0 for it
 before looking at any rate, and flags nothing as unrated or unpriced; the tray says what dry hire

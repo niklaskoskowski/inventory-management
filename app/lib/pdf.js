@@ -1284,7 +1284,7 @@ export async function exportRentalPdf(lines = [], assets = [], options = {}) {
   details.push(['Period', daysLabel(days)]);
   // What kind of job this is priced as. Said plainly — a customer reading
   // "Full service" is reading what they booked, not how it was calculated.
-  details.push(['Hire', HIRE_LABEL[hire] || HIRE_LABEL.DRY]);
+  details.push(['Type', HIRE_LABEL[hire] || HIRE_LABEL.DRY]);
   if (options.reference) details.push(['Reference', String(options.reference)]);
   if (options.notes) details.push(['Notes', String(options.notes)]);
 
@@ -1725,8 +1725,8 @@ export function buildBookingDocument(booking = {}) {
     [reservation ? 'Ends' : 'Due back', formatDateTime(booking.endAt)],
     // Only when it is not plain dry hire: "Dry hire" on every sheet would be
     // noise on the overwhelming majority of them, and the empty row is dropped
-    // below. "Free of charge" is worth saying to the customer.
-    ['Hire', hireOf(booking) === 'DRY' ? '' : HIRE_LABEL[hireOf(booking)]],
+    // below. A loan or internal issue is worth saying to the customer.
+    ['Type', hireOf(booking) === 'DRY' ? '' : HIRE_LABEL[hireOf(booking)]],
     ['Status', String(booking.status || '').trim()],
     ['Notes', String(booking.notes || '').trim()],
   ].filter(([, value]) => value !== '');

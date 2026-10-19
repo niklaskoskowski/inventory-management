@@ -1609,9 +1609,11 @@ function trax_normalize_inspection_entry(mixed $raw): ?array
  * the operator's own time is charged separately; the gear side of it is the
  * dry-hire price times the category's `serviceFactor`. FREE is gear lent
  * without charge — a friend borrowing something — and prices at 0 whatever
- * the rates say.
+ * the rates say. INTERNAL is the organisation's own use (internal equipment
+ * issue), also at 0. In the UI: INTERNAL / LOAN (= FREE) / RENTAL (DRY or
+ * SERVICE) — FREE keeps its stored name so older bookings read unchanged.
  */
-const TRAX_HIRE_MODES = ['DRY', 'SERVICE', 'FREE'];
+const TRAX_HIRE_MODES = ['DRY', 'SERVICE', 'FREE', 'INTERNAL'];
 
 /** How a rate is worked out. A category rule is one of these two. */
 const TRAX_RENTAL_MODES = ['PERCENT', 'FIXED'];
