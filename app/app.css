@@ -2613,6 +2613,11 @@ kbd {
 
 .trax-set-body { min-width: 0; }
 
+/* A menu group (Email): on a phone the menu is one scrolling row, so the
+   heading is dropped and the sub-pages carry their full names. */
+.trax-tab-group { display: none; }
+.trax-tab-short { display: none; }
+
 @media (min-width: 992px) {
   .trax-settings {
     display: grid;
@@ -2648,6 +2653,23 @@ kbd {
 
   .trax-settings > .trax-tabs .trax-tab .bi { width: 1.1rem; text-align: center; color: var(--trax-accent); }
   .trax-settings > .trax-tabs .trax-tab.active .bi { color: inherit; }
+
+  /* The group heading, styled like an item but inert, and its sub-pages
+     indented under it with their short names. */
+  .trax-settings > .trax-tabs .trax-tab-group {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 2.15rem;
+    padding: 0.4rem 0.6rem;
+    font-weight: 500;
+    color: var(--trax-text);
+  }
+  .trax-settings > .trax-tabs .trax-tab-group .bi { width: 1.1rem; text-align: center; color: var(--trax-accent); }
+  .trax-settings > .trax-tabs .trax-tab.is-sub { padding-left: 2.3rem; min-height: 1.95rem; font-size: 0.875rem; }
+  .trax-settings > .trax-tabs .trax-tab.is-sub .bi { font-size: 0.85rem; }
+  .trax-settings > .trax-tabs .trax-tab-full { display: none; }
+  .trax-settings > .trax-tabs .trax-tab-short { display: inline; }
 }
 
 /* One tab's content: a calm single column for forms, full width for the

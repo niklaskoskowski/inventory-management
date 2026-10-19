@@ -36,6 +36,9 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Email split into two settings pages.** The side menu shows *Email* with two sub-items:
+  *Settings* (addresses, customer and scheduled mail switches) and *Content* (mail texts with
+  preview, footer). On a phone they appear as *Email settings* / *Email content* in the tab row.
 - **Editable mail footer.** Settings → Email → *Footer*: a note under every mail, in the HTML
   version above the organisation line and in the text version after `-- `. Default: "This email
   was generated automatically. For any questions or assistance, simply reply to this email."

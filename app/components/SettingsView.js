@@ -33,7 +33,12 @@ import RentalRate from './RentalRate.js';
 const SECTIONS = [
   { id: 'defaults', label: 'General', icon: 'bi-gear' },
   { id: 'branding', label: 'Branding', icon: 'bi-palette' },
-  { id: 'email', label: 'Email', icon: 'bi-envelope' },
+  // One menu group, two pages: the switches and addresses, and the words.
+  // `group` draws the "Email" heading above them in the side menu; `short`
+  // is the name under that heading (the full label is used on a phone,
+  // where the menu is a single row and has no headings).
+  { id: 'email', label: 'Email settings', short: 'Settings', icon: 'bi-sliders', group: 'Email', groupIcon: 'bi-envelope' },
+  { id: 'mailcontent', label: 'Email content', short: 'Content', icon: 'bi-envelope-paper', group: 'Email', groupIcon: 'bi-envelope' },
   { id: 'rental', label: 'Rental rates', icon: 'bi-cash-coin' },
   { id: 'events', label: 'Events', icon: 'bi-calendar-event' },
   { id: 'inspection', label: 'Inspections', icon: 'bi-clipboard-check' },
@@ -302,7 +307,7 @@ export default {
           templateErrors.value = error.details.templates;
           const firstKey = Object.keys(error.details.templates)[0];
           if (firstKey) {
-            section.value = 'email';
+            section.value = 'mailcontent';
             templateKey.value = firstKey;
           }
         }
@@ -375,7 +380,7 @@ export default {
     let mailPreviewTimer = null;
     let mailPreviewSeq = 0;
     watch([previewSubject, previewBody, () => draft.value.email.footer, () => section.value], () => {
-      if (section.value !== 'email' || !templateSpec.value) return;
+      if (section.value !== 'mailcontent' || !templateSpec.value) return;
       clearTimeout(mailPreviewTimer);
       mailPreviewTimer = setTimeout(async () => {
         const seq = ++mailPreviewSeq;
@@ -1326,12 +1331,21 @@ export default {
   template: `
     <div class="trax-settings">
     <nav class="trax-tabs" aria-label="Settings sections">
-      <button v-for="tab in SECTIONS" :key="tab.id" type="button"
-              class="trax-tab" :class="{ active: section === tab.id }"
-              :aria-current="section === tab.id ? 'true' : undefined"
-              @click="section = tab.id">
-        <i class="bi" :class="tab.icon"></i> {{ tab.label }}
-      </button>
+      <template v-for="(tab, i) in SECTIONS" :key="tab.id">
+        <div v-if="tab.group && SECTIONS[i - 1]?.group !== tab.group" class="trax-tab-group" aria-hidden="true">
+          <i class="bi" :class="tab.groupIcon"></i> {{ tab.group }}
+        </div>
+        <button type="button"
+                class="trax-tab" :class="{ active: section === tab.id, 'is-sub': tab.group }"
+                :aria-current="section === tab.id ? 'true' : undefined"
+                @click="section = tab.id">
+          <i class="bi" :class="tab.icon"></i>
+          <template v-if="tab.short">
+            <span class="trax-tab-full">{{ tab.label }}</span><span class="trax-tab-short">{{ tab.short }}</span>
+          </template>
+          <template v-else>{{ tab.label }}</template>
+        </button>
+      </template>
     </nav>
 
     <div class="trax-set-body">
@@ -1663,25 +1677,6 @@ export default {
       </div>
 
       <div class="col-12 col-xl-6">
-        <div class="trax-list-header">Footer</div>
-        <div class="trax-list">
-          <div class="trax-row trax-set-stack">
-            <label class="trax-set-label d-flex" for="set-mail-footer">
-              <span class="flex-grow-1">Under every mail <span class="trax-set-hint">Empty: no footer</span></span>
-              <span class="fw-normal">{{ (draft.email.footer || '').length }} / 600</span>
-            </label>
-            <textarea id="set-mail-footer" rows="3" class="form-control form-control-sm"
-                      maxlength="600" v-model="draft.email.footer"></textarea>
-            <div>
-              <button type="button" class="btn btn-sm btn-outline-secondary"
-                      :disabled="draft.email.footer === MAIL_FOOTER_DEFAULT"
-                      @click="draft.email.footer = MAIL_FOOTER_DEFAULT">
-                <i class="bi bi-arrow-counterclockwise"></i> Default text
-              </button>
-            </div>
-          </div>
-        </div>
-
         <div class="trax-list-header">To the customer</div>
         <div class="trax-list">
           <div v-for="row in CUSTOMER_MAIL" :key="row.key" class="trax-row">
@@ -1696,6 +1691,10 @@ export default {
         </div>
       </div>
 
+    </div>
+
+    <!-- Email content: the mail texts and the footer -------------------- -->
+    <div v-else-if="section === 'mailcontent'" class="row g-4">
       <!-- Texts ------------------------------------------------------- -->
       <div class="col-12">
         <div class="trax-list-header">Mail texts</div>
@@ -1783,6 +1782,28 @@ export default {
             <p class="trax-set-foot">Preview with sample values, as the customer sees it. Unknown tokens stay as typed, so saving them is refused.</p>
           </div>
         </div>
+      </div>
+
+      <div class="col-12 col-xl-6">
+        <div class="trax-list-header">Footer</div>
+        <div class="trax-list">
+          <div class="trax-row trax-set-stack">
+            <label class="trax-set-label d-flex" for="set-mail-footer">
+              <span class="flex-grow-1">Under every mail <span class="trax-set-hint">Empty: no footer</span></span>
+              <span class="fw-normal">{{ (draft.email.footer || '').length }} / 600</span>
+            </label>
+            <textarea id="set-mail-footer" rows="3" class="form-control form-control-sm"
+                      maxlength="600" v-model="draft.email.footer"></textarea>
+            <div>
+              <button type="button" class="btn btn-sm btn-outline-secondary"
+                      :disabled="draft.email.footer === MAIL_FOOTER_DEFAULT"
+                      @click="draft.email.footer = MAIL_FOOTER_DEFAULT">
+                <i class="bi bi-arrow-counterclockwise"></i> Default text
+              </button>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
