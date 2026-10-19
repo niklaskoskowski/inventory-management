@@ -90,8 +90,8 @@ $heading = 'Terms & conditions';
 </head>
 <body class="pub-page">
 
-<header class="pub-top">
-    <div class="pub-top-inner">
+<header class="pub-bar">
+    <div class="pub-bar-inner">
         <?php echo trax_brand_header_html($appName, $favicon !== ''
             ? '<img class="pub-mark" src="' . pub_e($favicon) . '" alt="" width="26" height="26">'
             : ''); ?>

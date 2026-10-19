@@ -160,14 +160,14 @@ header('Content-Type: text/html; charset=utf-8');
         <input type="hidden" name="next" value="<?php echo esc($next); ?>">
 
         <label class="pub-field">
-          <span class="pub-label">Username</span>
+          <span class="pub-fieldlabel">Username</span>
           <input class="pub-input" type="text" name="username" autocomplete="username"
                  autocapitalize="none" spellcheck="false"
                  value="<?php echo esc($username); ?>" required autofocus>
         </label>
 
         <label class="pub-field">
-          <span class="pub-label">Password</span>
+          <span class="pub-fieldlabel">Password</span>
           <input class="pub-input" type="password" name="password"
                  autocomplete="current-password" required>
         </label>

@@ -174,7 +174,7 @@ code {
 }
 
 /* A slim translucent bar, like a navigation bar on iOS. */
-.pub-top {
+.pub-bar {
   position: sticky;
   top: 0;
   z-index: 10;
@@ -185,7 +185,7 @@ code {
   padding-top: env(safe-area-inset-top);
 }
 
-.pub-top-inner {
+.pub-bar-inner {
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
@@ -225,7 +225,7 @@ code {
   white-space: nowrap;
 }
 
-.pub-top-tag {
+.pub-bar-tag {
   margin-left: auto;
   flex: 0 0 auto;
   font-size: 0.8125rem;
@@ -247,7 +247,7 @@ code {
 /* The board is a list of many rows, so it gets more room. Still a cap, never
    a width: 320px never scrolls sideways. */
 .pub-main-wide { max-width: 880px; }
-.pub-top-inner.pub-main-wide { max-width: 880px; }
+.pub-bar-inner.pub-main-wide { max-width: 880px; }
 
 .pub-foot {
   padding: 1rem 1rem calc(1.25rem + env(safe-area-inset-bottom));
@@ -281,7 +281,7 @@ code {
 }
 
 /* Field label. */
-.pub-label {
+.pub-fieldlabel {
   display: block;
   margin: 0 0 0.35rem;
   font-size: 0.8125rem;

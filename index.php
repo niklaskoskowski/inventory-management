@@ -180,12 +180,12 @@ function pub_e(string $value): string
 </head>
 <body class="pub-page">
 
-<header class="pub-top">
-  <div class="pub-top-inner">
+<header class="pub-bar">
+  <div class="pub-bar-inner">
     <?php echo trax_brand_header_html($appName, $favicon !== ''
         ? '<img class="pub-mark" src="' . pub_e($favicon) . '" alt="" width="26" height="26">'
         : ''); ?>
-    <span class="pub-top-tag">Asset tag</span>
+    <span class="pub-bar-tag">Asset tag</span>
   </div>
 </header>
 
@@ -215,7 +215,7 @@ function pub_e(string $value): string
       </p>
       <form method="GET" action="">
         <label class="pub-field">
-          <span class="pub-label">Asset ID</span>
+          <span class="pub-fieldlabel">Asset ID</span>
           <input class="pub-input" type="text" name="id" inputmode="numeric"
                  placeholder="e.g. 3" autocomplete="off" required>
         </label>
@@ -292,28 +292,28 @@ function pub_e(string $value): string
       <input class="pub-hp" type="text" name="website" tabindex="-1"
              autocomplete="off" aria-hidden="true">
       <label class="pub-field">
-        <span class="pub-label">Your name</span>
+        <span class="pub-fieldlabel">Your name</span>
         <input class="pub-input" type="text" name="reportName" autocomplete="name" required
                value="<?php echo pub_e($reportValues['name']); ?>">
       </label>
       <label class="pub-field">
-        <span class="pub-label">Phone</span>
+        <span class="pub-fieldlabel">Phone</span>
         <input class="pub-input" type="tel" name="reportPhone" autocomplete="tel" required
                value="<?php echo pub_e($reportValues['phone']); ?>">
       </label>
       <label class="pub-field">
-        <span class="pub-label">Email <span class="pub-optional">optional</span></span>
+        <span class="pub-fieldlabel">Email <span class="pub-optional">optional</span></span>
         <input class="pub-input" type="email" name="reportEmail" autocomplete="email"
                value="<?php echo pub_e($reportValues['email']); ?>">
       </label>
       <label class="pub-field">
-        <span class="pub-label">Where is it?</span>
+        <span class="pub-fieldlabel">Where is it?</span>
         <textarea class="pub-input" name="reportMessage" rows="3" required
                   placeholder="e.g. Found on the train, can drop it off."><?php
           echo pub_e($reportValues['message']); ?></textarea>
       </label>
       <div class="pub-field">
-        <span class="pub-label">Type the characters</span>
+        <span class="pub-fieldlabel">Type the characters</span>
         <div class="pub-captcha-row">
           <!-- src is set when the dialog opens, so a plain scan starts no session. -->
           <img class="pub-captcha" id="captchaImage" width="200" height="64" alt="Captcha">
@@ -418,7 +418,7 @@ async function loadAssetData(){
 
     const notes = asset.notes
       ? `<div class="pub-notes">
-           <p class="pub-label">Notes</p>
+           <p class="pub-fieldlabel">Notes</p>
            <div class="pub-notes-body">${esc(asset.notes)}</div>
          </div>`
       : '';

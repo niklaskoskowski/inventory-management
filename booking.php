@@ -366,8 +366,8 @@ $pdfBranding = [
     <?php echo trax_accent_style_tags(); ?>
 </head>
 <body class="pub-page">
-<header class="pub-top">
-    <div class="pub-top-inner">
+<header class="pub-bar">
+    <div class="pub-bar-inner">
         <?php echo trax_brand_header_html($view['orgName'],
             '<span class="pub-appicon bk-mark" style="background: ' . esc($view['brandColor']) . ';" aria-hidden="true"><i class="bi bi-box-seam"></i></span>'); ?>
     </div>

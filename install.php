@@ -275,12 +275,12 @@ header('Content-Type: text/html; charset=utf-8');
 
       <h2 class="ins-section">Reminders (cron)</h2>
       <?php if ($cronUrl !== ''): ?>
-        <p class="pub-label">Call every 15 minutes:</p>
+        <p class="pub-fieldlabel">Call every 15 minutes:</p>
         <code class="ins-pre"><?php echo install_e($cronUrl); ?></code>
       <?php else: ?>
         <p class="pub-note pub-note-bad">No cron secret, so the web trigger is off. Use the crontab line.</p>
       <?php endif; ?>
-      <p class="pub-label" style="margin-top:0.75rem">Or as a crontab line:</p>
+      <p class="pub-fieldlabel" style="margin-top:0.75rem">Or as a crontab line:</p>
       <code class="ins-pre"><?php echo install_e(trax_install_crontab_line()); ?></code>
 
       <h2 class="ins-section">Two last things</h2>
@@ -331,12 +331,12 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div class="ins-cols">
           <label class="pub-field">
-            <span class="pub-label">Application name</span>
+            <span class="pub-fieldlabel">Application name</span>
             <input class="pub-input" type="text" name="appName" maxlength="60" required
                    value="<?php echo install_e($state['appName']); ?>">
           </label>
           <label class="pub-field">
-            <span class="pub-label">Organisation <span class="pub-optional">optional</span></span>
+            <span class="pub-fieldlabel">Organisation <span class="pub-optional">optional</span></span>
             <input class="pub-input" type="text" name="orgName" maxlength="120"
                    value="<?php echo install_e($state['orgName']); ?>">
             <span class="pub-hint">Printed on labels.</span>
@@ -345,7 +345,7 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div class="ins-cols">
           <div>
-            <span class="pub-label">Brand colour</span>
+            <span class="pub-fieldlabel">Brand colour</span>
             <div class="ins-colour">
               <input type="color" id="ins-colour-pick" value="<?php echo install_e($state['brandColor']); ?>"
                      aria-label="Brand colour picker">
@@ -355,7 +355,7 @@ header('Content-Type: text/html; charset=utf-8');
             </div>
           </div>
           <label class="pub-field">
-            <span class="pub-label">Label heading</span>
+            <span class="pub-fieldlabel">Label heading</span>
             <input class="pub-input" type="text" name="labelHeading" maxlength="40"
                    value="<?php echo install_e($state['labelHeading']); ?>">
             <span class="pub-hint">Above the organisation on labels.</span>
@@ -363,7 +363,7 @@ header('Content-Type: text/html; charset=utf-8');
         </div>
 
         <label class="pub-field">
-          <span class="pub-label">Logo <span class="pub-optional">optional</span></span>
+          <span class="pub-fieldlabel">Logo <span class="pub-optional">optional</span></span>
           <input class="pub-input" type="file" name="logo" accept="image/png,image/jpeg,image/webp">
           <span class="pub-hint">PNG, JPEG or WebP, max 2 MB. Also makes the favicon.</span>
         </label>
@@ -376,7 +376,7 @@ header('Content-Type: text/html; charset=utf-8');
         <?php endif; ?>
 
         <label class="pub-field">
-          <span class="pub-label">WhatsApp number <span class="pub-optional">optional</span></span>
+          <span class="pub-fieldlabel">WhatsApp number <span class="pub-optional">optional</span></span>
           <input class="pub-input" type="text" name="whatsapp" maxlength="40"
                  placeholder="+49 172 1234567"
                  value="<?php echo install_e($state['whatsapp']); ?>">
@@ -401,7 +401,7 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div id="ins-auth-fields" class="ins-auth-fields">
           <label class="pub-field">
-            <span class="pub-label">Path to the include</span>
+            <span class="pub-fieldlabel">Path to the include</span>
             <input class="pub-input" type="text" name="authInclude" maxlength="512"
                    placeholder="/var/www/example.com/auth/check_auth.php"
                    value="<?php echo install_e($state['authInclude']); ?>">
@@ -409,7 +409,7 @@ header('Content-Type: text/html; charset=utf-8');
           </label>
 
           <label class="pub-field">
-            <span class="pub-label">Sign-out URL <span class="pub-optional">optional</span></span>
+            <span class="pub-fieldlabel">Sign-out URL <span class="pub-optional">optional</span></span>
             <input class="pub-input" type="text" name="authLogoutUrl" maxlength="512"
                    placeholder="https://example.com/logout"
                    value="<?php echo install_e($state['authLogoutUrl']); ?>">
@@ -421,14 +421,14 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div class="ins-cols">
           <label class="pub-field">
-            <span class="pub-label">Username</span>
+            <span class="pub-fieldlabel">Username</span>
             <input class="pub-input" type="text" name="username" maxlength="64" required
                    autocomplete="username" autocapitalize="none" spellcheck="false"
                    value="<?php echo install_e($state['username']); ?>">
             <span class="pub-hint">Letters, digits, . _ -</span>
           </label>
           <label class="pub-field">
-            <span class="pub-label">Email</span>
+            <span class="pub-fieldlabel">Email</span>
             <input class="pub-input" type="email" name="email" maxlength="254" required
                    autocomplete="email" value="<?php echo install_e($state['email']); ?>">
           </label>
@@ -436,13 +436,13 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div class="ins-cols">
           <label class="pub-field">
-            <span class="pub-label">Password</span>
+            <span class="pub-fieldlabel">Password</span>
             <input class="pub-input" type="password" name="password" required
                    autocomplete="new-password" minlength="<?php echo TRAX_MIN_PASSWORD_LEN; ?>">
             <span class="pub-hint">At least <?php echo TRAX_MIN_PASSWORD_LEN; ?> characters.</span>
           </label>
           <label class="pub-field">
-            <span class="pub-label">Repeat password</span>
+            <span class="pub-fieldlabel">Repeat password</span>
             <input class="pub-input" type="password" name="password2" required
                    autocomplete="new-password" minlength="<?php echo TRAX_MIN_PASSWORD_LEN; ?>">
             <span class="pub-hint">There is no reset mail.</span>
@@ -455,13 +455,13 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div class="ins-cols">
           <label class="pub-field">
-            <span class="pub-label">Public path</span>
+            <span class="pub-fieldlabel">Public path</span>
             <input class="pub-input" type="text" name="publicPath" maxlength="120" required
                    value="<?php echo install_e($state['publicPath']); ?>">
             <span class="pub-hint">"/" or "/assets/". Used in QR labels.</span>
           </label>
           <label class="pub-field">
-            <span class="pub-label">Timezone</span>
+            <span class="pub-fieldlabel">Timezone</span>
             <select class="pub-input" name="timezone" required>
               <?php foreach (DateTimeZone::listIdentifiers() as $zone): ?>
                 <option value="<?php echo install_e($zone); ?>"
@@ -476,7 +476,7 @@ header('Content-Type: text/html; charset=utf-8');
         <div class="ins-cols">
           <div>
             <label class="pub-field">
-              <span class="pub-label">Locale</span>
+              <span class="pub-fieldlabel">Locale</span>
               <select class="pub-input" name="locale">
                 <?php foreach ($localePresets as $tag => $label): ?>
                   <option value="<?php echo install_e($tag); ?>"
@@ -490,14 +490,14 @@ header('Content-Type: text/html; charset=utf-8');
               </select>
             </label>
             <label class="pub-field">
-              <span class="pub-label">Other locale</span>
+              <span class="pub-fieldlabel">Other locale</span>
               <input class="pub-input" type="text" name="localeOther" maxlength="35" placeholder="pt-BR"
                      value="<?php echo isset($localePresets[$state['locale']]) ? '' : install_e($state['locale']); ?>">
             </label>
           </div>
           <div>
             <label class="pub-field">
-              <span class="pub-label">Currency</span>
+              <span class="pub-fieldlabel">Currency</span>
               <select class="pub-input" name="currency">
                 <?php foreach ($currencyPresets as $code => $label): ?>
                   <option value="<?php echo install_e($code); ?>"
@@ -511,7 +511,7 @@ header('Content-Type: text/html; charset=utf-8');
               </select>
             </label>
             <label class="pub-field">
-              <span class="pub-label">Other currency</span>
+              <span class="pub-fieldlabel">Other currency</span>
               <input class="pub-input" type="text" name="currencyOther" maxlength="8" placeholder="SEK"
                      value="<?php echo isset($currencyPresets[$state['currency']]) ? '' : install_e($state['currency']); ?>">
             </label>
@@ -520,7 +520,7 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div class="ins-cols">
           <label class="pub-field">
-            <span class="pub-label">Date format</span>
+            <span class="pub-fieldlabel">Date format</span>
             <select class="pub-input" name="dateFormat">
               <?php foreach ($formatPresets as $format => $sample): ?>
                 <option value="<?php echo install_e($format); ?>"
@@ -534,7 +534,7 @@ header('Content-Type: text/html; charset=utf-8');
             </select>
           </label>
           <label class="pub-field">
-            <span class="pub-label">Other date format</span>
+            <span class="pub-fieldlabel">Other date format</span>
             <input class="pub-input" type="text" name="dateFormatOther" maxlength="40" placeholder="D, d M Y H:i"
                    value="<?php echo isset($formatPresets[$state['dateFormat']]) ? '' : install_e($state['dateFormat']); ?>">
             <span class="pub-hint">PHP <code>date()</code> format.</span>
@@ -543,19 +543,19 @@ header('Content-Type: text/html; charset=utf-8');
 
         <div class="ins-cols ins-cols-3">
           <label class="pub-field">
-            <span class="pub-label">Owner address</span>
+            <span class="pub-fieldlabel">Owner address</span>
             <input class="pub-input" type="email" name="ownerEmail" maxlength="254"
                    value="<?php echo install_e($state['ownerEmail']); ?>">
             <span class="pub-hint">Copies and lost reports.</span>
           </label>
           <label class="pub-field">
-            <span class="pub-label">Sender address</span>
+            <span class="pub-fieldlabel">Sender address</span>
             <input class="pub-input" type="email" name="fromEmail" maxlength="254"
                    value="<?php echo install_e($state['fromEmail']); ?>">
             <span class="pub-hint">From of customer mail.</span>
           </label>
           <label class="pub-field">
-            <span class="pub-label">Report sender</span>
+            <span class="pub-fieldlabel">Report sender</span>
             <input class="pub-input" type="email" name="reportFromEmail" maxlength="254"
                    value="<?php echo install_e($state['reportFromEmail']); ?>">
             <span class="pub-hint">From of lost reports.</span>
@@ -567,7 +567,7 @@ header('Content-Type: text/html; charset=utf-8');
         <p class="ins-lead">cron.php sends reminders and a daily digest. Trigger it from your host's cron.</p>
 
         <label class="pub-field">
-          <span class="pub-label">Cron secret</span>
+          <span class="pub-fieldlabel">Cron secret</span>
           <input class="pub-input" type="text" name="cronSecret" maxlength="200" value="<?php echo install_e($state['cronSecret']); ?>">
           <span class="pub-hint">Empty turns the web trigger off.</span>
         </label>
@@ -577,31 +577,31 @@ header('Content-Type: text/html; charset=utf-8');
         </button>
 
         <?php if ($cronUrl !== ''): ?>
-          <p class="pub-label" style="margin-top:1.25rem">Web cron, every 15 minutes:</p>
+          <p class="pub-fieldlabel" style="margin-top:1.25rem">Web cron, every 15 minutes:</p>
           <code class="ins-pre"><?php echo install_e($cronUrl); ?></code>
         <?php endif; ?>
-        <p class="pub-label" style="margin-top:0.75rem">Or a crontab line:</p>
+        <p class="pub-fieldlabel" style="margin-top:0.75rem">Or a crontab line:</p>
         <code class="ins-pre"><?php echo install_e(trax_install_crontab_line()); ?></code>
 
         <h2 class="ins-section">Loans</h2>
         <div class="ins-cols ins-cols-4">
           <label class="pub-field">
-            <span class="pub-label">Loan days</span>
+            <span class="pub-fieldlabel">Loan days</span>
             <input class="pub-input" type="number" name="loanDays" min="1" max="365"
                    value="<?php echo (int)$state['loanDays']; ?>">
           </label>
           <label class="pub-field">
-            <span class="pub-label">Due hour</span>
+            <span class="pub-fieldlabel">Due hour</span>
             <input class="pub-input" type="number" name="dueHour" min="0" max="23"
                    value="<?php echo (int)$state['dueHour']; ?>">
           </label>
           <label class="pub-field">
-            <span class="pub-label">Due-soon hours</span>
+            <span class="pub-fieldlabel">Due-soon hours</span>
             <input class="pub-input" type="number" name="dueSoonHours" min="1" max="168"
                    value="<?php echo (int)$state['dueSoonHours']; ?>">
           </label>
           <label class="pub-field">
-            <span class="pub-label">Overdue repeat</span>
+            <span class="pub-fieldlabel">Overdue repeat</span>
             <input class="pub-input" type="number" name="overdueRepeatDays" min="1" max="90"
                    value="<?php echo (int)$state['overdueRepeatDays']; ?>">
           </label>

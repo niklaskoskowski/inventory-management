@@ -38,6 +38,11 @@ only record. There is no git history to mine.
 
 ### Fixed
 
+- **Field labels and the page header vanished with an ad blocker.** `.pub-label` and `.pub-top`
+  are generic hide rules in common filter lists (EasyList / Liste FR — "pub" is French for ad), so
+  uBlock & co. removed every form label in the installer and sign-in and the header bar of the
+  public pages. Renamed to `.pub-fieldlabel` and `.pub-bar`; all classes checked against EasyList,
+  Liste FR and uBlock filters.
 - **Menu icons stayed blue with a custom accent.** The icon tiles in the phone *More* menu (and the
   default app icon) had a hard-coded blue gradient; they now use the accent. The focus ring and
   Bootstrap's link colour follow the accent too.
