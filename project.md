@@ -627,7 +627,7 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
   `asset.deletePhoto`, `asset.uploadConditionPhotos|deleteConditionPhoto`,
   `asset.uploadDocuments|deleteDocument`, `set.create|update|delete`,
   `checkout.create|extend|checkin`, `reservation.create|update|convert|cancel|restore`,
-  `booking.resend|uploadPhotos|deletePhoto`, `settings.update`, `branding.uploadLogo`,
+  `booking.resend|uploadPhotos|deletePhoto`, `settings.update`, `branding.uploadLogo`, `mail.preview` (saves nothing: the HTML of a mail from a subject/body),
   `auth.changePassword|testInclude|configUpdate`, `taxonomy.rename|merge|delete`, `label.mark`.
 - **`label.mark`**: `{id, unitNo, labeled}` for one label or `{items: [{id, unitNo}], labeled}`
   for many (up to `TRAX_MAX_LABEL_MARKS` = 2000) — all checked before any is changed, one write,

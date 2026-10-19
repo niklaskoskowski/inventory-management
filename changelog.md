@@ -31,6 +31,11 @@ only record. There is no git history to mine.
   table, items as a list, the booking link as a button in the accent colour, organisation in the
   footer. Built from the existing text templates, so edited templates keep working unchanged.
 
+- **Settings → Email tidied up.** Addresses and the scheduled mails share the left column, the
+  customer mails the right, so nothing leaves a gap. The tokens are compact chips under the body
+  (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
+  real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
+
 ### Fixed
 
 - **Menu icons stayed blue with a custom accent.** The icon tiles in the phone *More* menu (and the

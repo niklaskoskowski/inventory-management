@@ -2654,6 +2654,30 @@ kbd {
    label grid, the mail editor and the terms. */
 .trax-set-col { max-width: 44rem; }
 
+/* Settings → Email: the tokens as chips under the body, click to insert. */
+.trax-token-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.trax-token-chip {
+  border: 1px solid transparent;
+  background: var(--trax-fill);
+  color: var(--trax-text);
+  border-radius: 6px;
+  padding: 0.15rem 0.45rem;
+  font-family: var(--trax-mono);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.trax-token-chip:hover { background: var(--trax-fill-strong); }
+.trax-token-chip.is-required { border-color: var(--trax-accent); color: var(--trax-accent-text); }
+
+/* The HTML mail, rendered by the server, in its own light page. */
+.trax-mail-preview {
+  border-radius: var(--trax-radius);
+  overflow: hidden;
+  background: #f4f4f5;
+  border: 1px solid var(--trax-border);
+}
+.trax-mail-preview iframe { display: block; width: 100%; height: 480px; border: 0; }
+
 /* A settings row: label left, control right. Lives inside .trax-list. */
 .trax-set-label {
   flex: 1 1 auto;

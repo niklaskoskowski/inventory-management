@@ -369,6 +369,44 @@ export default {
       return expandTokens(entry.body || spec.body, spec.sample);
     });
 
+    // The preview as the HTML mail it goes out as — rendered by the server,
+    // debounced so typing in the body does not post on every key.
+    const previewHtml = ref('');
+    let mailPreviewTimer = null;
+    let mailPreviewSeq = 0;
+    watch([previewSubject, previewBody, () => section.value], () => {
+      if (section.value !== 'email' || !templateSpec.value) return;
+      clearTimeout(mailPreviewTimer);
+      mailPreviewTimer = setTimeout(async () => {
+        const seq = ++mailPreviewSeq;
+        try {
+          const body = await api.post('mail.preview', { subject: previewSubject.value, body: previewBody.value });
+          if (seq === mailPreviewSeq) previewHtml.value = body.data?.html || '';
+        } catch {
+          if (seq === mailPreviewSeq) previewHtml.value = '';
+        }
+      }, 250);
+    }, { immediate: true });
+    onBeforeUnmount(() => clearTimeout(mailPreviewTimer));
+
+    const fitPreview = (event) => {
+      const frame = event.target;
+      const height = frame.contentDocument?.documentElement?.scrollHeight;
+      if (height) frame.style.height = `${Math.min(height, 1200)}px`;
+    };
+
+    /** Puts a token at the cursor in the body box (or at the end). */
+    const bodyBox = ref(null);
+    const insertToken = (token) => {
+      const entry = draft.value.email.templates[templateKey.value];
+      if (!entry) return;
+      if (!entry.body) entry.body = templateSpec.value?.body || '';
+      const el = bodyBox.value;
+      const at = el && document.activeElement === el ? el.selectionStart : entry.body.length;
+      entry.body = entry.body.slice(0, at) + token + entry.body.slice(at);
+      clearTemplateError(templateKey.value, 'body');
+    };
+
     // --- Rental rates ---
     // The rates are keyed by category name, which is free text on the assets —
     // so the editor lists every category in use, plus any rate whose category
@@ -1264,7 +1302,7 @@ export default {
       generateSecret, cronUrl, copyCronUrl,
       mailTemplates, templateKeys, templateKey, templateSpec, templateEntry,
       templateTokens, templateError, clearTemplateError, isCustomised,
-      resetTemplate, loadDefault, previewSubject, previewBody,
+      resetTemplate, loadDefault, previewSubject, previewBody, previewHtml, bodyBox, insertToken, fitPreview,
       subjectMax, bodyMax,
       account, accountError, accountBusy, changePassword,
       auth, authInfo, authError, authBusy, authTest,
@@ -1605,21 +1643,6 @@ export default {
           </div>
         </div>
         <p class="trax-set-foot">An invalid address falls back to the server default.</p>
-      </div>
-
-      <div class="col-12 col-xl-6">
-        <div class="trax-list-header">To the customer</div>
-        <div class="trax-list">
-          <div v-for="row in CUSTOMER_MAIL" :key="row.key" class="trax-row">
-            <label class="trax-set-label" :for="'set-' + row.key">
-              {{ row.label }} <span class="trax-set-hint">{{ row.note }}</span>
-            </label>
-            <div class="form-check form-switch trax-set-switch">
-              <input class="form-check-input" type="checkbox" role="switch"
-                     :id="'set-' + row.key" v-model="draft.email[row.key]">
-            </div>
-          </div>
-        </div>
 
         <div class="trax-list-header">Scheduled (cron.php)</div>
         <div class="trax-list">
@@ -1635,11 +1658,26 @@ export default {
         </div>
       </div>
 
+      <div class="col-12 col-xl-6">
+        <div class="trax-list-header">To the customer</div>
+        <div class="trax-list">
+          <div v-for="row in CUSTOMER_MAIL" :key="row.key" class="trax-row">
+            <label class="trax-set-label" :for="'set-' + row.key">
+              {{ row.label }} <span class="trax-set-hint">{{ row.note }}</span>
+            </label>
+            <div class="form-check form-switch trax-set-switch">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     :id="'set-' + row.key" v-model="draft.email[row.key]">
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Texts ------------------------------------------------------- -->
       <div class="col-12">
         <div class="trax-list-header">Mail texts</div>
         <div class="row g-3">
-          <div class="col-12 col-xl-3">
+          <div class="col-12 col-lg-4 col-xxl-3">
             <div class="trax-list">
               <button v-for="key in templateKeys" :key="key" type="button"
                       class="trax-row is-tappable trax-set-pick" :class="{ 'is-active': key === templateKey }"
@@ -1656,7 +1694,7 @@ export default {
             </div>
           </div>
 
-          <div v-if="templateSpec" class="col-12 col-md-7 col-xl-5">
+          <div v-if="templateSpec" class="col-12 col-lg-8 col-xxl-4">
             <div class="trax-list">
               <div class="trax-row trax-set-stack">
                 <label class="trax-set-label" for="set-tpl-subject">Subject</label>
@@ -1674,7 +1712,7 @@ export default {
                   <span class="flex-grow-1">Body</span>
                   <span class="fw-normal">{{ templateEntry(templateKey).body.length }} / {{ bodyMax }}</span>
                 </label>
-                <textarea id="set-tpl-body" rows="12"
+                <textarea id="set-tpl-body" ref="bodyBox" rows="12"
                           class="form-control form-control-sm font-monospace"
                           :class="{ 'is-invalid': templateError(templateKey, 'body') }"
                           :maxlength="bodyMax" :placeholder="templateSpec.body"
@@ -1684,9 +1722,18 @@ export default {
                   {{ templateError(templateKey, 'body') }}
                 </div>
               </div>
+              <div class="trax-row trax-set-stack">
+                <span class="trax-set-label">Tokens <span class="trax-set-hint">Click to insert · hover for what it is</span></span>
+                <div class="trax-token-chips">
+                  <button v-for="token in templateTokens" :key="token.name" type="button"
+                          class="trax-token-chip" :class="{ 'is-required': token.required }"
+                          :title="token.note + (token.required ? ' (required)' : '')"
+                          @mousedown.prevent @click="insertToken(token.token)">{{ token.token }}</button>
+                </div>
+              </div>
             </div>
             <p class="trax-set-foot">
-              {{ templateSpec.note }} Empty uses the built-in text.
+              {{ templateSpec.note }} Empty uses the built-in text. Required tokens are outlined.
             </p>
 
             <div class="d-flex flex-wrap gap-2 mt-2">
@@ -1699,31 +1746,18 @@ export default {
                 <i class="bi bi-arrow-counterclockwise"></i> Reset
               </button>
             </div>
-
-            <div class="trax-list-header">Tokens</div>
-            <div class="trax-list">
-              <div v-for="token in templateTokens" :key="token.name" class="trax-kv">
-                <span>
-                  <code>{{ token.token }}</code>
-                  <span v-if="token.required" class="trax-kind-chip ms-1">required</span>
-                  <span class="trax-set-hint">{{ token.note }}</span>
-                </span>
-              </div>
-            </div>
           </div>
 
-          <div v-if="templateSpec" class="col-12 col-md-5 col-xl-4">
-            <div class="trax-list">
-              <div class="trax-row trax-set-stack">
-                <span class="trax-set-label">Preview · subject</span>
-                <strong>{{ previewSubject }}</strong>
-              </div>
-              <div class="trax-row trax-set-stack">
-                <span class="trax-set-label">Body</span>
-                <pre class="small mb-0" style="white-space:pre-wrap; word-break:break-word">{{ previewBody }}</pre>
-              </div>
+          <div v-if="templateSpec" class="col-12 col-xxl-5">
+            <div class="trax-mail-preview">
+              <!-- allow-same-origin without allow-scripts: nothing in it runs,
+                   but the view can read its height to fit the frame. -->
+              <iframe v-if="previewHtml" :srcdoc="previewHtml" title="Mail preview"
+                      sandbox="allow-same-origin" referrerpolicy="no-referrer"
+                      @load="fitPreview"></iframe>
+              <pre v-else class="small mb-0 p-3" style="white-space:pre-wrap; word-break:break-word">{{ previewBody }}</pre>
             </div>
-            <p class="trax-set-foot">With sample values. Unknown tokens stay as typed, so saving them is refused.</p>
+            <p class="trax-set-foot">Preview with sample values, as the customer sees it. Unknown tokens stay as typed, so saving them is refused.</p>
           </div>
         </div>
       </div>

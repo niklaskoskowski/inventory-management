@@ -4013,6 +4013,19 @@ try {
             trax_ok(['html' => trax_markdown($text)]);
         }
 
+        case 'mail.preview': {
+            // Settings → Email: the HTML a mail goes out as, from the subject
+            // and body the view has already filled with sample values. Saves
+            // nothing; the server's own renderer, so the preview is the mail.
+            // The logo comes inline as a data: URI instead of the cid: part.
+            $subject = trax_str($payload['subject'] ?? '', 300);
+            $body    = is_string($payload['body'] ?? null) ? mb_substr($payload['body'], 0, TRAX_MAX_MAIL_BODY * 2) : '';
+            $logo    = trax_mail_logo();
+            $src     = $logo === null ? null
+                : ($logo['url'] ?? 'data:' . $logo['mime'] . ';base64,' . base64_encode($logo['bytes']));
+            trax_ok(['html' => trax_mail_html($subject, $body, $src)]);
+        }
+
         // --- Label printer ---------------------------------------------------
         // Neither saves anything, so neither takes a rev or answers with a
         // snapshot. POSTs because they reach out to another host and carry
