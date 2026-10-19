@@ -36,6 +36,8 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Basket quantity stepper redrawn.** One pill (− value +) the height of the round remove
+  button beside it, no native number spin arrows, centred on the same line.
 - **Option: page title on phones.** Settings → Branding → In-app logo → *Page title on phones*.
   Off shows only the logo (slightly larger) in the phone header and installed web app; the title
   stays for screen readers. Only applies while a logo or favicon is there to show.

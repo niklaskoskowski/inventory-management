@@ -459,15 +459,15 @@ export default {
             <i class="bi bi-box-seam"></i>
             <span class="text-truncate">{{ group.asset.name }}</span>
             <span class="flex-grow-1"></span>
-            <div class="input-group input-group-sm" style="width:6.75rem">
-              <button class="btn btn-outline-secondary px-2"
+            <div class="trax-stepper">
+              <button type="button" class="trax-stepper-btn"
                       @click="setQuantity(group.asset.id, getQuantity(group.asset.id) - 1)"
                       :aria-label="'One fewer ' + group.asset.name">−</button>
-              <input class="form-control text-center px-0" type="number" min="1"
+              <input class="trax-stepper-input" type="number" min="1" inputmode="numeric"
                      :value="getQuantity(group.asset.id)"
                      @input="setQuantity(group.asset.id, $event.target.value)"
                      :aria-label="'Quantity of ' + group.asset.name">
-              <button class="btn btn-outline-secondary px-2"
+              <button type="button" class="trax-stepper-btn"
                       @click="setQuantity(group.asset.id, getQuantity(group.asset.id) + 1)"
                       :aria-label="'One more ' + group.asset.name">+</button>
             </div>
@@ -494,16 +494,16 @@ export default {
               ×{{ member.reqQty * getQuantity(group.asset.id) }}
             </span>
             <template v-else>
-              <div class="input-group input-group-sm" style="width:6.75rem">
-                <button class="btn btn-outline-secondary px-2"
+              <div class="trax-stepper">
+                <button type="button" class="trax-stepper-btn"
                         @click="setQuantity(member.id, getQuantity(member.id) - 1)"
                         :aria-label="'One fewer ' + member.name">−</button>
-                <input class="form-control text-center px-0" type="number" min="1"
+                <input class="trax-stepper-input" type="number" min="1" inputmode="numeric"
                        :max="member.availableQty || 1"
                        :value="getQuantity(member.id)"
                        @input="setQuantity(member.id, $event.target.value)"
                        :aria-label="'Quantity of ' + member.name">
-                <button class="btn btn-outline-secondary px-2"
+                <button type="button" class="trax-stepper-btn"
                         @click="setQuantity(member.id, getQuantity(member.id) + 1)"
                         :aria-label="'One more ' + member.name">+</button>
               </div>

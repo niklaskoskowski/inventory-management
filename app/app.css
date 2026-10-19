@@ -368,6 +368,50 @@ button,
 .trax-icon-btn { color: var(--trax-text); font-size: 1rem; width: 2.25rem; height: 2.25rem; }
 .trax-icon-btn:hover,
 .trax-close:hover { background: var(--trax-fill-strong); }
+
+/* Quantity stepper (basket): − value + in one pill, the height of the
+   round close button next to it. No native spin arrows. */
+.trax-stepper {
+  display: inline-flex;
+  align-items: center;
+  height: 2rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--trax-fill);
+  overflow: hidden;
+}
+.trax-stepper-btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--trax-text);
+  font-size: 1rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.trax-stepper-btn:hover { background: var(--trax-fill-strong); }
+.trax-stepper-btn:active { background: var(--trax-fill-strong); opacity: 0.8; }
+.trax-stepper-input {
+  width: 2.25rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--trax-text);
+  text-align: center;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.trax-stepper-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--bs-focus-ring-color); border-radius: 6px; }
+.trax-stepper-input::-webkit-outer-spin-button,
+.trax-stepper-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .trax-icon-btn:active,
 .trax-close:active { transform: scale(0.94); }
 .trax-icon-btn.is-accent { background: var(--trax-accent); color: var(--trax-on-accent); }
