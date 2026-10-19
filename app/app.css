@@ -824,6 +824,8 @@ button,
 .trax-topbar { transition: background-color 0.2s ease, border-color 0.2s ease; }
 
 .trax-topbar-icon { margin-right: 0.15rem; }
+/* Logo alone in the phone header: a little larger, since it carries the bar. */
+.trax-topbar.is-logo-only .trax-topbar-logo { height: 30px; max-width: 60vw; }
 .trax-topbar-logo {
   display: block;
   height: 26px;

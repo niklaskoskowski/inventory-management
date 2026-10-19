@@ -142,6 +142,11 @@ export default {
       return (theme.dark ? (b.appLogoDark || b.appLogoLight) : (b.appLogoLight || b.appLogoDark)) || '';
     });
     const logoOnly = computed(() => state.settings?.branding?.appLogoMode === 'logo');
+    // Phone header without the page title (Settings → Branding): only when
+    // there is a logo or icon to show instead, so the bar is never empty.
+    const logoOnlyHeader = computed(() => isNarrow.value
+      && state.settings?.branding?.mobileTitle === false
+      && Boolean(appLogo.value || state.settings?.branding?.faviconFile));
 
     // A saved accent change applies at once, not on the next reload.
     watch(
@@ -312,7 +317,7 @@ export default {
       showMore, scrolled, tabActive, onTab, go, navItem, subtitle,
       theme, setThemePref, THEME_OPTIONS,
       sheetId, sheetOpen, labelId, showBasket, showScanner, showBulk,
-      showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName, appLogo, logoOnly,
+      showSetEditor, editingSetId, isNarrow, currentNav, counts, noKitsYet, appName, appLogo, logoOnly, logoOnlyHeader,
       selectedItemIds, selectedUnitCount, account, loadAccount, csrf: api.csrf,
       openAsset, openHandover, openNewAsset, closeSheet, openSetEditor, editKit, openLabel, labelTarget,
       showEventSheet, eventSheetId, openEvent,
@@ -395,7 +400,7 @@ export default {
 
       <!-- Main -->
       <div class="trax-main">
-        <header class="trax-topbar" :class="{ 'is-scrolled': scrolled }">
+        <header class="trax-topbar" :class="{ 'is-scrolled': scrolled, 'is-logo-only': logoOnlyHeader }">
           <!-- No sidebar on a phone: the in-app logo goes before the title
                (the favicon when there is no logo — it stays the home-screen icon). -->
           <img v-if="isNarrow && appLogo" class="trax-topbar-logo"
@@ -403,7 +408,7 @@ export default {
           <img v-else-if="isNarrow && state.settings?.branding?.faviconFile" class="trax-app-icon trax-topbar-icon"
                :src="state.settings.branding.faviconFile" :alt="appName">
           <div class="trax-topbar-heading flex-grow-1 min-w-0">
-            <h1 class="trax-topbar-title">{{ currentNav.label }}</h1>
+            <h1 class="trax-topbar-title" :class="{ 'visually-hidden': logoOnlyHeader }">{{ currentNav.label }}</h1>
             <p v-if="subtitle" class="trax-topbar-sub">{{ subtitle }}</p>
           </div>
 

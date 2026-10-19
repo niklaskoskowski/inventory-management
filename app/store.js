@@ -128,6 +128,7 @@ const DEFAULT_SETTINGS = {
     appLogoLight: '',
     appLogoDark: '',
     appLogoMode: 'logoName',
+    mobileTitle: true,
     accentLight: '',
     accentDark: '',
     // The number behind the WhatsApp button on the public asset page. Empty

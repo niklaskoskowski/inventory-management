@@ -1922,6 +1922,15 @@ export default {
                     @click="draft.branding.appLogoMode = option.id">{{ option.label }}</button>
           </div>
         </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-mobile-title">
+            Page title on phones <span class="trax-set-hint">Off: only the logo in the phone header / web app</span>
+          </label>
+          <div class="form-check form-switch trax-set-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="set-mobile-title"
+                   v-model="draft.branding.mobileTitle">
+          </div>
+        </div>
       </div>
       <p class="trax-set-foot">Used in the sidebar, on the sign-in page and on the public pages. Without a logo the favicon and app name show as before.</p>
 

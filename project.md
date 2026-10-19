@@ -205,7 +205,7 @@ moment the gear came back.
 
 `trax_normalize_settings()` (`lib/store.php:1167-1264`), four groups: `email.*`
 (addresses, per-mail kill switches, editable subject/body `templates`, `footer` — the note under every mail, `TRAX_MAIL_FOOTER_DEFAULT` when the key is missing, '' for none),
-`branding.*` (`appName`, `orgName`, `brandColor`, `publicPath`, `logoFile`,
+`branding.*` (`appName`, `orgName`, `brandColor`, `publicPath`, `logoFile`, `mobileTitle` — page title in the phone header, default on,
 `faviconFile`, `labelHeading`, `whatsapp`, `appLogoLight`, `appLogoDark`, `appLogoMode`,
 `accentLight`, `accentDark`), `defaults.*` (`loanDays`, `dueHour`,
 `reservationStartHour`, `warrantyMonths` — 0..120, default 24, months added to a purchase date to

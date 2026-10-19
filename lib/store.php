@@ -2467,6 +2467,10 @@ function trax_normalize_settings(mixed $raw): array
             'appLogoMode'  => in_array($branding['appLogoMode'] ?? null, ['logo', 'logoName'], true)
                 ? $branding['appLogoMode']
                 : 'logoName',
+            // The page title next to the logo in the phone header (and the
+            // installed web app). Off: the logo alone, the title kept for
+            // screen readers only. Ignored while there is no logo or icon.
+            'mobileTitle'  => trax_bool($branding['mobileTitle'] ?? null, true),
             // The admin UI's accent (buttons, links, the active nav item), one
             // per theme. Empty is a real value: the built-in system blue.
             'accentLight'  => trax_hex_color($branding['accentLight'] ?? null) ?? '',
