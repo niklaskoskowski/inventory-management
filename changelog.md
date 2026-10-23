@@ -36,6 +36,15 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Signature: tap to sign, full-screen along the long side.** The pad is now a field ("Tap to
+  sign", then a preview of the signature); tapping opens a full-screen sheet whose drawing area
+  always runs along the long side of the screen — on an upright phone it is shown turned by 90°,
+  so the customer turns the phone and signs across it; on a desktop it is a large centred box.
+  Strokes are kept as points and redrawn on resize, so turning the device no longer wipes the
+  signature. The stored PNG is landscape and cropped to the ink, as before.
+- **Warning for dates in the past.** The basket warns under the dates when a checkout's return
+  date or a reservation's window lies in the past (or "Until" is not after "From"); booking with
+  the warning showing takes a second press.
 - **Basket quantity stepper redrawn.** One pill (− value +) the height of the round remove
   button beside it, no native number spin arrows, centred on the same line.
 - **Option: page title on phones.** Settings → Branding → In-app logo → *Page title on phones*.

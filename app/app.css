@@ -2524,15 +2524,106 @@ kbd {
 /* Dark ink on white, both on the pad and everywhere the drawing is shown
    back: the same bitmap travels from the tablet to the customer's page to the
    PDF, and a theme-coloured pad would be the one place it inverted. */
-.trax-sig-pad {
+/* The inline field: "Tap to sign", or the signature once there is one. */
+.trax-sig-field {
+  position: relative;
   display: block;
   width: 100%;
+  padding: 0;
   background: #fff;
-  border: 1px solid var(--trax-border);
+  border: 1px dashed var(--trax-border-strong);
   border-radius: .5rem;
+  overflow: hidden;
+  cursor: pointer;
+}
+.trax-sig-field:hover { border-color: var(--trax-accent); }
+.trax-sig-preview { display: block; width: 100%; height: 100%; }
+.trax-sig-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  color: #6b7280;
+  font-size: .9375rem;
+  font-weight: 500;
+}
+.trax-sig-edit {
+  position: absolute;
+  right: .5rem;
+  bottom: .5rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, .06);
+  color: #374151;
+  font-size: .8rem;
+}
+
+/* The full-screen sheet. On a phone it fills the screen (turned by 90° when
+   upright, so the drawing area runs along the long side); on a desktop it is a
+   large box over a dimmed page. */
+.trax-sig-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0, 0, 0, .55);
+}
+.trax-sig-stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: #111827;
+  overflow: hidden;
+  transform-origin: center center;
+}
+@media (min-width: 1101px) and (min-height: 701px) {
+  .trax-sig-stage { border-radius: 14px; box-shadow: 0 24px 64px rgba(0, 0, 0, .35); }
+}
+.trax-sig-bar {
+  flex: 0 0 52px;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: 0 .75rem;
+  padding-left: max(.75rem, env(safe-area-inset-left));
+  padding-right: max(.75rem, env(safe-area-inset-right));
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.trax-sig-bar .btn-outline-secondary { color: #374151; border-color: #d1d5db; background: #fff; }
+.trax-sig-title { flex: 1; text-align: center; font-weight: 600; font-size: .9375rem; color: #374151; }
+.trax-sig-area { position: relative; flex: 0 0 auto; }
+.trax-sig-canvas {
+  display: block;
+  background: #fff;
   cursor: crosshair;
   /* The browser must not treat a signature stroke as a scroll gesture. */
   touch-action: none;
+}
+/* Where to sign: a quiet line with a cross, under the ink. */
+.trax-sig-line {
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: 26%;
+  border-bottom: 1.5px solid #d1d5db;
+  pointer-events: none;
+}
+.trax-sig-line span {
+  position: absolute;
+  left: 0;
+  bottom: 4px;
+  color: #9ca3af;
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
 .trax-sig-thumb {

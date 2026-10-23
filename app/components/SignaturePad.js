@@ -1,21 +1,76 @@
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { lockScroll, unlockScroll } from '../lib/scroll-lock.js';
 
 /**
  * A signature pad, for the counter.
  *
- * Pointer events, so a finger on a tablet, a stylus and a mouse are one code
- * path. The canvas is backed at device resolution and drawn on in CSS pixels,
- * or a signature taken on a phone arrives as a staircase.
+ * Inline it is only a field: "Tap to sign", or the signature once there is
+ * one. Tapping it opens a full-screen sheet whose drawing area always runs
+ * along the LONG side of the screen — on a phone held upright the sheet is
+ * drawn turned by 90°, so the customer turns the phone and signs across it.
+ * On a desktop or a tablet in landscape it is simply a large, wide box.
+ *
+ * The strokes are kept as points, not pixels. A resize — the device turned,
+ * the browser bar sliding away — redraws them at the new size instead of
+ * wiping the canvas, which is what used to lose a signature on rotation.
+ *
+ * Pointer events, so a finger, a stylus and a mouse are one code path. The
+ * canvas is backed at device resolution and drawn in CSS pixels, or a
+ * signature taken on a phone arrives as a staircase.
  *
  * It draws **dark ink on white**, not on transparency, because that is what
  * the bitmap is stored and printed on: the same picture travels from the
- * tablet to the customer's booking page to the PDF without a single inversion
- * along the way. The twin of this pad lives inline in booking.php, where the
- * customer signs on their own phone — same rules, no build step to share it.
+ * tablet to the customer's booking page to the PDF without an inversion.
  *
- * Hands back a PNG Blob through `submit`; the parent decides what to do with
- * it. Deliberately knows nothing about bookings.
+ * Hands back a PNG Blob through `submit`, cropped to the ink; the parent
+ * decides what to do with it. Deliberately knows nothing about bookings.
  */
+
+const INK = '#111827';
+const PEN = 2.6;
+
+/** Strokes are stored normalised to the drawing area: x and y in 0..1. */
+function paint(canvas, strokes, width, height, { pen = PEN, background = true } = {}) {
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(width * ratio));
+  canvas.height = Math.max(1, Math.round(height * ratio));
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  if (background) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+  }
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = pen;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const stroke of strokes) {
+    if (!stroke.length) continue;
+    ctx.beginPath();
+    ctx.moveTo(stroke[0].x * width, stroke[0].y * height);
+    // A tap that never moved is still a mark, so it lands as a dot.
+    if (stroke.length === 1) ctx.lineTo(stroke[0].x * width + 0.1, stroke[0].y * height);
+    for (let i = 1; i < stroke.length; i += 1) ctx.lineTo(stroke[i].x * width, stroke[i].y * height);
+    ctx.stroke();
+  }
+  return ctx;
+}
+
+/** The box the ink occupies, in 0..1 units, or null when nothing is drawn. */
+function inkBox(strokes) {
+  let box = null;
+  for (const stroke of strokes) {
+    for (const p of stroke) {
+      if (!box) box = { minX: p.x, maxX: p.x, minY: p.y, maxY: p.y };
+      else {
+        box.minX = Math.min(box.minX, p.x); box.maxX = Math.max(box.maxX, p.x);
+        box.minY = Math.min(box.minY, p.y); box.maxY = Math.max(box.maxY, p.y);
+      }
+    }
+  }
+  return box;
+}
+
 export default {
   name: 'SignaturePad',
   props: {
@@ -30,94 +85,139 @@ export default {
   },
   emits: ['submit', 'cancel'],
   setup(props, { emit }) {
-    const pad = ref(null);
-    const drawn = ref(false);
+    const strokes = ref([]);
+    const drawn = computed(() => strokes.value.some((s) => s.length));
 
-    let ctx = null;
-    let drawing = false;
-    let last = null;
-    // The box the ink actually occupies, in CSS pixels. Tracked while drawing
-    // so what gets stored is the SIGNATURE and not the empty pad around it: on
-    // the PDF the drawing is fitted into 78 mm, and a name written across a
-    // third of a wide canvas would print at a third of the size it should.
-    let ink = null;
-
-    const reset = () => {
-      const canvas = pad.value;
+    // --- The inline field: a preview of what was signed ---
+    const preview = ref(null);
+    const renderPreview = () => {
+      const canvas = preview.value;
       if (!canvas) return;
-      const ratio = window.devicePixelRatio || 1;
       const width = canvas.clientWidth || 300;
       const height = canvas.clientHeight || props.height;
-      canvas.width = Math.round(width * ratio);
-      canvas.height = Math.round(height * ratio);
-      ctx = canvas.getContext('2d');
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
-      ctx.strokeStyle = '#111827';
-      ctx.lineWidth = 2.2;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      drawn.value = false;
-      ink = null;
+      // The drawing area was wide; fit it into the field at its own aspect.
+      const aspect = sheetSize.value.width / Math.max(1, sheetSize.value.height);
+      let w = width;
+      let h = width / aspect;
+      if (h > height) { h = height; w = height * aspect; }
+      const ctx = paint(canvas, [], width, height);
+      const inner = document.createElement('canvas');
+      paint(inner, strokes.value, w, h, { pen: Math.max(1.4, PEN * (w / sheetSize.value.width) * 1.6) });
+      ctx.drawImage(inner, (width - w) / 2, (height - h) / 2, w, h);
     };
 
-    /** Grows the ink box to include one point, plus the pen's own width. */
-    const mark = (point) => {
-      const pad2 = 6;
-      if (!ink) {
-        ink = {
-          minX: point.x - pad2, maxX: point.x + pad2,
-          minY: point.y - pad2, maxY: point.y + pad2,
-        };
-        return;
-      }
-      ink.minX = Math.min(ink.minX, point.x - pad2);
-      ink.maxX = Math.max(ink.maxX, point.x + pad2);
-      ink.minY = Math.min(ink.minY, point.y - pad2);
-      ink.maxY = Math.max(ink.maxY, point.y + pad2);
+    // --- The full-screen sheet ---
+    const open = ref(false);
+    const pad = ref(null);
+    const stage = ref(null);
+    // Turned when the screen is taller than wide: the long side is the width.
+    const rotated = ref(false);
+    const sheetSize = ref({ width: 900, height: 400 });
+
+    const layout = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      rotated.value = vh > vw;
+      const long = Math.max(vw, vh);
+      const short = Math.min(vw, vh);
+      // A phone or tablet: the whole screen. A desktop: a large box, not a
+      // wall of white — signing with a mouse across 2,500 px helps nobody.
+      const big = long > 1100 && short > 700;
+      const width = big ? Math.min(1000, long - 96) : long;
+      const height = big ? Math.min(460, short - 160) : short;
+      sheetSize.value = { width, height };
     };
 
+    // The drawing area inside the sheet, below its bar, in sheet units.
+    const BAR = 52;
+    const areaSize = computed(() => ({
+      width: sheetSize.value.width,
+      height: Math.max(120, sheetSize.value.height - BAR),
+    }));
+
+    const redraw = () => {
+      if (pad.value) paint(pad.value, strokes.value, areaSize.value.width, areaSize.value.height);
+    };
+
+    const onResize = () => {
+      layout();
+      nextTick(() => { redraw(); renderPreview(); });
+    };
+
+    const openSheet = async () => {
+      if (props.busy) return;
+      layout();
+      open.value = true;
+      lockScroll();
+      await nextTick();
+      redraw();
+    };
+
+    const closeSheet = () => {
+      if (!open.value) return;
+      open.value = false;
+      unlockScroll();
+      nextTick(renderPreview);
+    };
+
+    const clear = () => {
+      strokes.value = [];
+      redraw();
+      nextTick(renderPreview);
+    };
+
+    // Screen point → drawing-area point in 0..1. When the sheet is turned by
+    // 90° clockwise, the area's x runs down the screen and its y runs from
+    // right to left, so the two are read off the rotated box accordingly.
     const at = (event) => {
       const box = pad.value.getBoundingClientRect();
-      return { x: event.clientX - box.left, y: event.clientY - box.top };
+      const { width, height } = areaSize.value;
+      const x = rotated.value ? event.clientY - box.top : event.clientX - box.left;
+      const y = rotated.value ? box.right - event.clientX : event.clientY - box.top;
+      return { x: Math.min(1, Math.max(0, x / width)), y: Math.min(1, Math.max(0, y / height)) };
     };
+
+    let drawing = false;
+    let ctx = null;
+    let current = null;
 
     const down = (event) => {
       event.preventDefault();
       drawing = true;
-      last = at(event);
-      // A tap that never moves is still a mark, so it lands as a dot.
+      current = [at(event)];
+      strokes.value.push(current);
+      ctx = pad.value.getContext('2d');
+      const { width, height } = areaSize.value;
+      const p = current[0];
       ctx.beginPath();
-      ctx.moveTo(last.x, last.y);
-      ctx.lineTo(last.x + 0.1, last.y);
+      ctx.moveTo(p.x * width, p.y * height);
+      ctx.lineTo(p.x * width + 0.1, p.y * height);
       ctx.stroke();
-      mark(last);
-      drawn.value = true;
-
-      // Capture is a nicety — it keeps the stroke alive when the pen leaves
-      // the box — and it is the last thing done here on purpose: a browser
-      // that refuses it must not cost the operator the signature itself.
-      try {
-        pad.value.setPointerCapture(event.pointerId);
-      } catch { /* drawing works without it */ }
+      // Capture keeps the stroke alive when the pen leaves the box, and it is
+      // the last thing done here on purpose: a browser that refuses it must
+      // not cost the customer the signature itself.
+      try { pad.value.setPointerCapture(event.pointerId); } catch { /* fine without */ }
     };
 
     const move = (event) => {
       if (!drawing) return;
       event.preventDefault();
       const point = at(event);
+      const prev = current[current.length - 1];
+      current.push(point);
+      const { width, height } = areaSize.value;
       ctx.beginPath();
-      ctx.moveTo(last.x, last.y);
-      ctx.lineTo(point.x, point.y);
+      ctx.moveTo(prev.x * width, prev.y * height);
+      ctx.lineTo(point.x * width, point.y * height);
       ctx.stroke();
-      mark(point);
-      last = point;
     };
 
     const up = (event) => {
       if (!drawing) return;
       drawing = false;
+      current = null;
+      // Vue sees the pushed points now, not on every pointermove.
+      strokes.value = [...strokes.value];
       try {
         if (event?.pointerId !== undefined && pad.value?.hasPointerCapture(event.pointerId)) {
           pad.value.releasePointerCapture(event.pointerId);
@@ -125,62 +225,88 @@ export default {
       } catch { /* nothing was captured; nothing to release */ }
     };
 
+    const onKey = (event) => { if (open.value && event.key === 'Escape') closeSheet(); };
+
     /**
      * The drawing as a PNG, cropped to the ink, handed up.
      *
-     * Cropped because everything downstream scales it to fit: the card, the
-     * customer's page and the 78 mm it gets on the PDF. Storing the whole pad
-     * would mean storing mostly white and printing the signature small.
+     * Rendered fresh from the points, landscape, at the drawing area's size —
+     * whichever way the phone was held. Cropped because everything downstream
+     * scales it to fit: storing the whole pad would print the signature small.
      */
     const submit = () => {
-      if (!drawn.value || props.busy || props.locked || !ink) return;
-
-      const canvas = pad.value;
+      if (!drawn.value || props.busy || props.locked) return;
+      const box = inkBox(strokes.value);
+      if (!box) return;
+      const { width, height } = areaSize.value;
+      const full = document.createElement('canvas');
+      paint(full, strokes.value, width, height);
       const ratio = window.devicePixelRatio || 1;
-      // Clamped to the pad: the pen's width can push the box past the edge.
-      const left = Math.max(0, Math.floor(ink.minX * ratio));
-      const top = Math.max(0, Math.floor(ink.minY * ratio));
-      const right = Math.min(canvas.width, Math.ceil(ink.maxX * ratio));
-      const bottom = Math.min(canvas.height, Math.ceil(ink.maxY * ratio));
-      const width = Math.max(1, right - left);
-      const height = Math.max(1, bottom - top);
-
+      const pad2 = 8;
+      const left = Math.max(0, Math.floor((box.minX * width - pad2) * ratio));
+      const top = Math.max(0, Math.floor((box.minY * height - pad2) * ratio));
+      const right = Math.min(full.width, Math.ceil((box.maxX * width + pad2) * ratio));
+      const bottom = Math.min(full.height, Math.ceil((box.maxY * height + pad2) * ratio));
+      const w = Math.max(1, right - left);
+      const h = Math.max(1, bottom - top);
       const out = document.createElement('canvas');
-      out.width = width;
-      out.height = height;
+      out.width = w;
+      out.height = h;
       const outCtx = out.getContext('2d');
-      // White first: the crop is opaque, like the pad, so nothing downstream
-      // has to know what a transparent signature would look like.
       outCtx.fillStyle = '#ffffff';
-      outCtx.fillRect(0, 0, width, height);
-      outCtx.drawImage(canvas, left, top, width, height, 0, 0, width, height);
-
-      out.toBlob((blob) => {
-        if (blob) emit('submit', blob);
-      }, 'image/png');
+      outCtx.fillRect(0, 0, w, h);
+      outCtx.drawImage(full, left, top, w, h, 0, 0, w, h);
+      out.toBlob((blob) => { if (blob) emit('submit', blob); }, 'image/png');
     };
 
-    // Resizing rebuilds the bitmap at the new size; keeping a stretched
-    // drawing would be worse than asking for it again.
-    onMounted(() => { reset(); window.addEventListener('resize', reset); });
-    onBeforeUnmount(() => window.removeEventListener('resize', reset));
+    // The sheet's box on screen. Turned, it is laid out landscape and rotated
+    // about its centre, so it sits centred on the upright screen.
+    const stageStyle = computed(() => ({
+      width: `${sheetSize.value.width}px`,
+      height: `${sheetSize.value.height}px`,
+      transform: `translate(-50%, -50%)${rotated.value ? ' rotate(90deg)' : ''}`,
+    }));
 
-    return { pad, drawn, reset, down, move, up, submit, emit };
+    watch(strokes, () => nextTick(renderPreview));
+
+    onMounted(() => {
+      layout();
+      renderPreview();
+      window.addEventListener('resize', onResize);
+      window.addEventListener('orientationchange', onResize);
+      document.addEventListener('keydown', onKey);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+      document.removeEventListener('keydown', onKey);
+      if (open.value) unlockScroll();
+    });
+
+    return {
+      preview, pad, stage, open, rotated, drawn, areaSize, stageStyle,
+      openSheet, closeSheet, clear, down, move, up, submit, emit,
+    };
   },
   template: `
     <div>
-      <canvas ref="pad" class="trax-sig-pad" :style="{ height: height + 'px' }"
-              aria-label="Signature pad"
-              @pointerdown="down" @pointermove="move"
-              @pointerup="up" @pointercancel="up" @pointerleave="up"></canvas>
+      <button type="button" class="trax-sig-field" :style="{ height: height + 'px' }"
+              :disabled="busy" @click="openSheet"
+              :aria-label="drawn ? 'Signature — tap to change' : 'Tap to sign'">
+        <canvas ref="preview" class="trax-sig-preview" aria-hidden="true"></canvas>
+        <span v-if="!drawn" class="trax-sig-hint">
+          <i class="bi bi-pen"></i> Tap to sign
+        </span>
+        <span v-else class="trax-sig-edit"><i class="bi bi-pencil"></i></span>
+      </button>
 
       <div v-if="drawn && locked" class="small text-warning mt-2">
         <i class="bi bi-exclamation-circle"></i> {{ locked }}
       </div>
       <div class="d-flex align-items-center gap-2 mt-2">
         <button type="button" class="btn btn-sm btn-outline-secondary"
-                :disabled="busy || !drawn" @click="reset">Clear</button>
-        <span class="small text-secondary flex-grow-1">{{ drawn ? '' : 'Sign above' }}</span>
+                :disabled="busy || !drawn" @click="clear">Clear</button>
+        <span class="flex-grow-1"></span>
         <button type="button" class="btn btn-sm btn-outline-secondary"
                 :disabled="busy" @click="emit('cancel')">{{ cancelLabel }}</button>
         <button type="button" class="btn btn-sm btn-primary" :disabled="busy || !drawn || !!locked"
@@ -189,6 +315,28 @@ export default {
           {{ submitLabel }}
         </button>
       </div>
+
+      <Teleport to="body">
+        <div v-if="open" class="trax-sig-overlay" role="dialog" aria-modal="true" aria-label="Sign">
+          <div ref="stage" class="trax-sig-stage" :class="{ 'is-rotated': rotated }" :style="stageStyle">
+            <div class="trax-sig-bar">
+              <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="!drawn" @click="clear">
+                <i class="bi bi-eraser"></i> Clear
+              </button>
+              <span class="trax-sig-title">Sign here</span>
+              <button type="button" class="btn btn-sm btn-primary" @click="closeSheet">Done</button>
+            </div>
+            <div class="trax-sig-area" :style="{ height: areaSize.height + 'px' }">
+              <canvas ref="pad" class="trax-sig-canvas"
+                      :style="{ width: areaSize.width + 'px', height: areaSize.height + 'px' }"
+                      aria-label="Signature pad"
+                      @pointerdown="down" @pointermove="move"
+                      @pointerup="up" @pointercancel="up"></canvas>
+              <div class="trax-sig-line" aria-hidden="true"><span>×</span></div>
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </div>
   `,
 };

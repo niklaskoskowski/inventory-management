@@ -243,9 +243,38 @@ export default {
         .filter((row) => row.hits.length);
     });
 
+    /**
+     * What is wrong with the dates, if anything — a return date or a window
+     * already in the past is almost always a typo (last year, wrong month),
+     * and the booking would show up red in Checkouts the moment it is made.
+     * A warning, not a block: entering a hand-over after the fact is real.
+     */
+    const dateWarning = computed(() => {
+      const now = Date.now();
+      // A few minutes of slack: "now" typed into the field is not "the past".
+      const past = (value) => { const d = parseDate(value); return d && d.getTime() < now - 5 * 60 * 1000; };
+      if (mode.value === 'checkout') {
+        return past(dueAt.value) ? 'The return date is in the past — this checkout would be overdue straight away.' : '';
+      }
+      const from = parseDate(startAt.value);
+      const to = parseDate(endAt.value);
+      if (from && to && to <= from) return '"Until" is not after "From".';
+      if (past(endAt.value)) return 'This reservation ends in the past.';
+      if (past(startAt.value) && !editing.value) return 'This reservation starts in the past.';
+      return '';
+    });
+    // Booking with a warning on screen takes a second press, once per change.
+    const dateConfirmed = ref(false);
+    watch([dueAt, startAt, endAt, mode], () => { dateConfirmed.value = false; });
+
     const submit = async () => {
       if (!customerName.value.trim() || !customerEmail.value.trim()) {
         toast('Customer name and email are required.', 'warning');
+        return;
+      }
+      if (dateWarning.value && !dateConfirmed.value) {
+        dateConfirmed.value = true;
+        toast(`${dateWarning.value} Check the date, or press again to continue anyway.`, 'warning', 6000);
         return;
       }
 
@@ -410,7 +439,7 @@ export default {
     };
 
     return {
-      state, mode, customerName, customerEmail, notes, dueAt, startAt, endAt,
+      state, mode, customerName, customerEmail, notes, dueAt, startAt, endAt, dateWarning, dateConfirmed,
       busy, blocked, allowPartial, force, groups, unavailable, windowConflicts,
       selectionValue, formatTotals, exportingPdf, selectionPdf,
       hireLength, rentalQuote, daysLabel, exportingQuote, rentalPdf,
@@ -615,6 +644,9 @@ export default {
             <input id="b-end" type="datetime-local" class="form-control" v-model="endAt">
           </div>
         </template>
+      </div>
+      <div v-if="dateWarning" class="alert alert-warning py-2 px-3 small mt-2 mb-0" role="alert">
+        <i class="bi bi-calendar-x"></i> {{ dateWarning }}
       </div>
 
       <template v-if="eventsEnabled">
