@@ -2626,6 +2626,32 @@ kbd {
   line-height: 1;
 }
 
+/* Signature dialog on a desktop: the QR code for signing on a phone, then the
+   drawing live while the customer signs there. */
+.trax-phone-sign {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  padding: .75rem;
+  border-radius: var(--trax-radius-sm);
+  background: var(--trax-surface-2);
+  border: 1px solid var(--trax-border);
+  min-height: 4rem;
+}
+.trax-phone-qr { flex: 0 0 auto; width: 148px; height: 148px; border-radius: 8px; background: #fff; padding: 4px; image-rendering: pixelated; }
+.trax-phone-note { flex: 1; min-width: 0; font-size: .8125rem; color: var(--trax-muted); line-height: 1.45; }
+.trax-phone-live { display: block; width: 60%; flex: 0 0 60%; background: #fff; border-radius: 8px; border: 1px solid var(--trax-border); }
+.trax-live-dot {
+  display: inline-block;
+  width: .5rem;
+  height: .5rem;
+  margin-right: .3rem;
+  border-radius: 50%;
+  background: var(--trax-unav);
+  animation: trax-live 1.2s ease-in-out infinite;
+}
+@keyframes trax-live { 50% { opacity: .3; } }
+
 .trax-sig-thumb {
   height: 36px;
   width: auto;

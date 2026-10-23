@@ -1,7 +1,8 @@
-import { ref, computed } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import {
-  state, toast, signBooking, declineSignature, termsUrl, privacyUrl, getAsset,
+  state, toast, signBooking, declineSignature, termsUrl, privacyUrl, getAsset, load,
 } from '../store.js';
+import * as api from '../api.js';
 import { formatDateTime } from '../lib/format.js';
 import Drawer from './ui/Drawer.js';
 import SignaturePad from './SignaturePad.js';
@@ -59,6 +60,102 @@ export default {
       }
     };
 
+    // --- Sign on a phone ---------------------------------------------------
+    // A desktop with a mouse cannot take a signature, so the dialog also shows
+    // a QR code: the customer scans it, ticks the terms and signs on their
+    // phone (sign.php). The strokes show up here while they draw; when they
+    // press "Sign" there, the signature is stored and this dialog closes.
+    const finePointer = typeof window !== 'undefined' && window.matchMedia
+      && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    const phone = ref({ token: '', url: '', qr: '', status: 'idle', strokes: [], aspect: 2.2, error: '' });
+    const live = ref(null);
+    let pollTimer = null;
+    let lastSeq = -1;
+
+    const drawLive = () => {
+      const canvas = live.value;
+      if (!canvas) return;
+      const width = canvas.clientWidth || 240;
+      const height = width / Math.max(0.5, phone.value.aspect);
+      const ratio = window.devicePixelRatio || 1;
+      canvas.style.height = `${height}px`;
+      canvas.width = Math.round(width * ratio);
+      canvas.height = Math.round(height * ratio);
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = '#111827'; ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (const s of phone.value.strokes) {
+        if (!s.length) continue;
+        ctx.beginPath();
+        ctx.moveTo(s[0].x * width, s[0].y * height);
+        if (s.length === 1) ctx.lineTo(s[0].x * width + 0.1, s[0].y * height);
+        for (let i = 1; i < s.length; i += 1) ctx.lineTo(s[i].x * width, s[i].y * height);
+        ctx.stroke();
+      }
+    };
+
+    const stopPolling = () => { clearTimeout(pollTimer); pollTimer = null; };
+
+    const poll = async () => {
+      if (!phone.value.token) return;
+      try {
+        const body = await api.get('sign.poll', { token: phone.value.token });
+        const data = body.data || {};
+        if (data.status === 'done') {
+          stopPolling();
+          phone.value.status = 'done';
+          toast('Signed on the phone.', 'success');
+          await load();
+          close();
+          return;
+        }
+        if (data.status === 'gone' || data.status === 'cancelled') {
+          stopPolling();
+          phone.value.status = 'gone';
+          return;
+        }
+        phone.value.status = data.status;
+        if (data.seq !== lastSeq) {
+          lastSeq = data.seq;
+          phone.value.strokes = data.strokes || [];
+          phone.value.aspect = data.aspect || 2.2;
+          await nextTick();
+          drawLive();
+        }
+      } catch { /* a missed poll is retried */ }
+      pollTimer = setTimeout(poll, 700);
+    };
+
+    const startPhone = async () => {
+      if (!booking.value) return;
+      stopPolling();
+      lastSeq = -1;
+      phone.value = { token: '', url: '', qr: '', status: 'loading', strokes: [], aspect: 2.2, error: '' };
+      try {
+        const body = await api.post('sign.start', { bookingId: booking.value.id });
+        const data = body.data || {};
+        phone.value = { ...phone.value, token: data.token, url: data.url, qr: data.qr, status: 'open' };
+        pollTimer = setTimeout(poll, 700);
+      } catch (error) {
+        phone.value = { ...phone.value, status: 'error', error: error.message };
+      }
+    };
+
+    const cancelPhone = () => {
+      stopPolling();
+      const { token, status } = phone.value;
+      if (token && status !== 'done' && status !== 'gone') {
+        api.post('sign.cancel', { token }).catch(() => {});
+      }
+    };
+
+    onMounted(() => { if (finePointer) startPhone(); });
+    onBeforeUnmount(cancelPhone);
+    watch(() => state.signPrompt, (now, before) => {
+      if (now && now !== before && finePointer) { cancelPhone(); startPhone(); }
+    });
+
     const decline = async () => {
       if (!booking.value) return;
       busy.value = true;
@@ -76,6 +173,7 @@ export default {
     return {
       state, booking, name, acceptTerms, busy, declining, declineNote, items, units, locked,
       close, save, decline, termsUrl, privacyUrl, legalActive, formatDateTime,
+      finePointer, phone, live, startPhone,
     };
   },
   template: `
@@ -104,7 +202,32 @@ export default {
           <input class="form-control" v-model="name" maxlength="200" placeholder="Name" aria-label="Signed by"
                  autocomplete="off">
 
-          <div class="trax-list-header">Signature</div>
+          <!-- On a desktop: scan and sign on a phone. The drawing appears here live. -->
+          <template v-if="finePointer">
+            <div class="trax-list-header">Sign on a phone</div>
+            <div class="trax-phone-sign">
+              <template v-if="phone.status === 'signing'">
+                <canvas ref="live" class="trax-phone-live" aria-label="Signature, live from the phone"></canvas>
+                <div class="trax-phone-note"><span class="trax-live-dot"></span> Signing on the phone …</div>
+              </template>
+              <template v-else-if="phone.status === 'open' && phone.qr">
+                <img :src="phone.qr" class="trax-phone-qr" alt="QR code to sign on a phone" width="148" height="148">
+                <div class="trax-phone-note">
+                  Scan with the customer's phone. They tick the terms and sign there — it shows up here and saves itself.
+                  <a :href="phone.url" target="_blank" rel="noopener noreferrer" class="d-block small mt-1 text-truncate">{{ phone.url }}</a>
+                </div>
+              </template>
+              <template v-else-if="phone.status === 'gone' || phone.status === 'error'">
+                <div class="trax-phone-note">
+                  {{ phone.status === 'gone' ? 'The QR code expired.' : phone.error }}
+                  <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @click="startPhone">New QR code</button>
+                </div>
+              </template>
+              <div v-else class="trax-phone-note"><span class="spinner-border spinner-border-sm"></span></div>
+            </div>
+          </template>
+
+          <div class="trax-list-header">{{ finePointer ? 'Or sign here' : 'Signature' }}</div>
           <SignaturePad :busy="busy" :locked="locked" cancel-label="Later" submit-label="Sign"
                         @submit="save" @cancel="close" />
 

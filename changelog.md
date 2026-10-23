@@ -36,6 +36,14 @@ only record. There is no git history to mine.
   (click inserts at the cursor, hover explains, required ones outlined), and the preview is the
   real HTML mail, rendered by the server (`mail.preview`) with logo and sample values.
 
+- **Sign on a phone from the desktop (QR code).** On a device with a mouse the signature dialog
+  shows a QR code. The customer scans it and gets `sign.php`: who the booking is for, the items,
+  the terms / privacy tick (their language), and the same full-screen pad. While they draw, the
+  strokes appear live in the desktop dialog; "Sign" on the phone stores the signature on the
+  booking (source `CUSTOMER`, the operator as actor, same terms/privacy checks as the counter) and
+  the desktop dialog closes by itself. Links expire after 20 minutes, work once, die when the
+  dialog is closed, and only accept same-origin writes. Sessions live in `sign-sessions.json`, not
+  in `data.json`.
 - **Signature: tap to sign, full-screen along the long side.** The pad is now a field ("Tap to
   sign", then a preview of the signature); tapping opens a full-screen sheet whose drawing area
   always runs along the long side of the screen — on an upright phone it is shown turned by 90°,

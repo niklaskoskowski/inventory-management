@@ -1431,3 +1431,110 @@ textarea.pub-input {
   input[type='datetime-local'], input[type='tel'],
   input[type='password'], input[type='file'] { font-size: 16px; }
 }
+
+/* ---------------------------------------------------------------------------
+   sign.php — signing a hand-over on a phone (the QR code from the counter).
+   Ink on white everywhere, like the counter's pad: the same picture goes to
+   the booking page and the PDF without an inversion.
+   --------------------------------------------------------------------------- */
+/* The page toggles its parts with [hidden]; .pub-flash and friends set a
+   display of their own, which would otherwise win. */
+.pub-page [hidden] { display: none !important; }
+
+.sign-items {
+  list-style: none;
+  margin: 1rem 0 1.25rem;
+  padding: 0;
+  border: 1px solid var(--trax-border);
+  border-radius: var(--trax-radius-sm);
+}
+.sign-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.9375rem;
+}
+.sign-items li + li { border-top: 1px solid var(--trax-border); }
+.sign-items li span:last-child { color: var(--trax-muted); font-variant-numeric: tabular-nums; }
+
+.sign-field {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 160px;
+  margin: 0 0 1rem;
+  padding: 0;
+  background: #fff;
+  border: 1px dashed var(--trax-border-strong);
+  border-radius: var(--trax-radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+}
+.sign-field canvas { display: block; width: 100%; height: 100%; }
+.sign-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.sign-tick {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin: 0 0 0.75rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+.sign-tick input { width: 1.25rem; height: 1.25rem; margin-top: 0.1rem; flex: 0 0 auto; accent-color: var(--trax-accent); }
+.sign-submit { width: 100%; margin-top: 0.75rem; }
+.sign-submit:disabled { opacity: 0.45; }
+
+.sign-done { text-align: center; }
+.sign-done .bi { font-size: 2.5rem; color: var(--trax-free); }
+
+.sign-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #000;
+}
+.sign-overlay[hidden] { display: none; }
+.sign-stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  color: #111827;
+  transform-origin: center center;
+}
+.sign-bar {
+  flex: 0 0 52px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 max(0.75rem, env(safe-area-inset-right)) 0 max(0.75rem, env(safe-area-inset-left));
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.sign-bar .pub-btn-ghost { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+.sign-title { flex: 1; text-align: center; font-weight: 600; color: #374151; }
+.sign-area { position: relative; }
+.sign-area canvas { display: block; background: #fff; touch-action: none; }
+.sign-line {
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: 26%;
+  border-bottom: 1.5px solid #d1d5db;
+  pointer-events: none;
+}
+.sign-line span { position: absolute; left: 0; bottom: 4px; color: #9ca3af; font-size: 1.25rem; line-height: 1; }
+.sign-bar .pub-btn { width: auto; flex: 0 0 auto; padding-left: 0.9rem; padding-right: 0.9rem; }

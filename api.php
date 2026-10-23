@@ -31,6 +31,7 @@ require_once __DIR__ . '/lib/mailer.php';
 require_once __DIR__ . '/lib/photo.php';
 require_once __DIR__ . '/lib/documents.php';
 require_once __DIR__ . '/lib/printer.php';
+require_once __DIR__ . '/lib/signing.php';
 
 // The same gate as admin.php, answering in JSON: a redirect to the login form
 // would reach this endpoint's client as an unparseable body and no clue why.
@@ -1243,6 +1244,25 @@ if ($action === 'auth.me') {
  */
 if ($action === 'auth.config') {
     trax_ok(trax_auth_config());
+}
+
+/*
+ * sign.poll — the desktop asking how a phone signature is coming along: the
+ * live strokes while the customer draws, then 'done'. Read-only and cheap; it
+ * reads sign-sessions.json, never data.json, and answers 'gone' for a token
+ * that expired or never existed.
+ */
+if ($action === 'sign.poll') {
+    $session = trax_sign_session(trax_sign_token($_GET['token'] ?? null));
+    if ($session === null) {
+        trax_ok(['status' => 'gone']);
+    }
+    trax_ok([
+        'status'  => $session['status'],
+        'seq'     => (int)$session['seq'],
+        'aspect'  => (float)$session['aspect'],
+        'strokes' => $session['strokes'],
+    ]);
 }
 
 if (!$isPost) {
@@ -2719,6 +2739,30 @@ try {
         // is `handedOverBy`, stamped from the operator at checkout and never
         // signed, because it is never the part in dispute.
 
+        // --- Signing on a phone -------------------------------------------
+        // The desktop opens a short-lived session and shows its QR code; the
+        // phone signs on sign.php. Nothing here touches data.json — the
+        // sessions live in sign-sessions.json (lib/signing.php).
+
+        case 'sign.start': {
+            $bookingId = req_int($payload, 'bookingId');
+            if (trax_find_booking(trax_read_data()['bookings'] ?? [], $bookingId) === null) {
+                trax_fail('NOT_FOUND', "Booking #{$bookingId} not found.", 404);
+            }
+            $token = trax_sign_session_create($bookingId, $actor);
+            $url   = trax_sign_url($token);
+            trax_ok(['token' => $token, 'url' => $url, 'qr' => trax_sign_qr_data_uri($url), 'ttl' => TRAX_SIGN_TTL]);
+        }
+
+        case 'sign.cancel': {
+            $token = trax_sign_token($payload['token'] ?? null);
+            if ($token !== null && trax_sign_session($token) !== null
+                && in_array(trax_sign_session($token)['status'], ['open', 'signing'], true)) {
+                trax_sign_session_finish($token, 'cancelled');
+            }
+            trax_ok(['cancelled' => true]);
+        }
+
         case 'booking.sign': {
             $bookingId    = req_int($payload, 'bookingId');
             $name         = trax_str($payload['signedName'] ?? '', TRAX_MAX_NAME);
@@ -2744,57 +2788,14 @@ try {
                 $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use (
                     $bookingId, $name, $file, $actor, $acceptTerms, $termsVersion, $privacyVersion
                 ): array {
-                    $booking = trax_find_booking($data['bookings'], $bookingId);
-                    if ($booking === null) {
-                        throw new TraxInvalid("Booking #{$bookingId} not found.");
-                    }
-
-                    // Checked under the lock, against the terms in force now:
-                    // a tab opened before the terms changed shows the old ones.
-                    $terms = trax_signature_terms($data, $acceptTerms, $termsVersion);
-                    if ($terms['error'] === 'accept') {
-                        throw new TraxInvalid('The customer has to accept the terms & conditions before signing.');
-                    }
-                    if ($terms['error'] === 'changed') {
-                        throw new TraxInvalid('The terms & conditions were changed since this page was loaded. '
-                            . 'Reload, let the customer read the new version and sign again.');
-                    }
-                    // The privacy notice is acknowledged with the same tick,
-                    // under the same rule: the version shown must be in force.
-                    $privacy = trax_signature_legal($data, 'privacy', $acceptTerms, $privacyVersion);
-                    if ($privacy['error'] === 'accept') {
-                        throw new TraxInvalid('The customer has to acknowledge the privacy notice before signing.');
-                    }
-                    if ($privacy['error'] === 'changed') {
-                        throw new TraxInvalid('The privacy notice was changed since this page was loaded. '
-                            . 'Reload, let the customer read the new version and sign again.');
-                    }
-
-                    $replaced = $booking['signature']['file'] ?? null;
-
-                    trax_update_booking($data, $bookingId, static function (array $b) use ($name, $file, $actor, $terms, $privacy): array {
-                        $b['signatureDeclined'] = null;
-                        $b['signature'] = [
-                            'file'   => $file,
-                            // What the signer typed, or who the booking is for
-                            // when they left it blank — never nothing.
-                            'name'   => $name !== '' ? $name : $b['customerName'],
-                            'at'     => gmdate('Y-m-d\TH:i:s.000\Z'),
-                            'source' => 'ADMIN',
-                            'actor'  => $actor,
-                            'terms'  => $terms['terms'],
-                            'privacy' => $privacy['ref'],
-                        ];
-                        return $b;
-                    });
-
-                    trax_append_history($data, 'booking_signed', [
-                        'customerName' => $booking['customerName'],
-                        'note'         => 'Hand-over signed by ' . ($name !== '' ? $name : $booking['customerName']),
-                        'actor'        => $actor,
-                    ]);
-
-                    return ['bookingId' => $bookingId, 'file' => $file, 'replaced' => $replaced];
+                    // The one signing rule, shared with sign.php (the phone):
+                    // terms and privacy notice in force, ticked, checked here
+                    // under the lock.
+                    $stored = trax_booking_store_signature(
+                        $data, $bookingId, $name, $file, $actor, 'ADMIN',
+                        $acceptTerms, $termsVersion, $privacyVersion
+                    );
+                    return ['bookingId' => $bookingId, 'file' => $file, 'replaced' => $stored['replaced']];
                 });
             } catch (Throwable $e) {
                 trax_delete_photo_files($file);

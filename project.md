@@ -350,6 +350,17 @@ textDe, active, versions: [{version, at, actor, empty, langs}]}` — the newest 
 rest without text. `terms.php` shows an English | Deutsch switch when a version has both, picks
 `?lang=` or the browser's `Accept-Language`, and translates its own few words.
 
+**Signing on a phone** (`lib/signing.php`, `sign.php`). On a fine-pointer device the signature
+dialog calls `sign.start {bookingId}` → `{token, url, qr}` (48-hex token, `TRAX_SIGN_TTL` = 20 min,
+one open session per booking, QR as a PNG data URI via phpqrcode). Sessions are kept in
+`sign-sessions.json` beside `data.json` under their own lock — live strokes are written several
+times a second and are no data worth a revision. `sign.php?t=` (no login, like every public page)
+shows the booking, the legal tick and the pad; it POSTs `op=strokes` (JSON, normalised points,
+capped, same-origin only) while drawing and `op=submit` (multipart PNG + tick + versions) to
+finish. The desktop polls `GET sign.poll&token=` every 0.7 s and draws the strokes live; `done`
+reloads and closes, closing the dialog sends `sign.cancel`. Both signing paths store through
+`trax_booking_store_signature()` — the counter with source `ADMIN`, the phone with `CUSTOMER`.
+
 The **privacy notice** is the same thing a second time: archive `data.privacy.versions` (same
 shape), `privacy.update`, snapshot `privacy`, public `privacy.php` (which sets `$legalKind` and
 includes `terms.php`), Settings → Privacy (the Terms editor, driven by `legalKind`). The helpers
@@ -641,7 +652,7 @@ Every mutation sends a delta and gets the **full snapshot** back (`trax_snapshot
   `asset.deletePhoto`, `asset.uploadConditionPhotos|deleteConditionPhoto`,
   `asset.uploadDocuments|deleteDocument`, `set.create|update|delete`,
   `checkout.create|extend|checkin`, `reservation.create|update|convert|cancel|restore`,
-  `booking.resend|uploadPhotos|deletePhoto`, `settings.update`, `branding.uploadLogo`, `terms.update|privacy.update`, `mail.preview` (saves nothing: the HTML of a mail from a subject/body),
+  `booking.resend|uploadPhotos|deletePhoto`, `settings.update`, `branding.uploadLogo`, `terms.update|privacy.update`, `sign.start|sign.cancel` (+ GET `sign.poll`), `mail.preview` (saves nothing: the HTML of a mail from a subject/body),
   `auth.changePassword|testInclude|configUpdate`, `taxonomy.rename|merge|delete`, `label.mark`.
 - **`label.mark`**: `{id, unitNo, labeled}` for one label or `{items: [{id, unitNo}], labeled}`
   for many (up to `TRAX_MAX_LABEL_MARKS` = 2000) — all checked before any is changed, one write,
