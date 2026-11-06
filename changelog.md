@@ -19,8 +19,10 @@ only record. There is no git history to mine.
   show through underneath; while typing, the bottom bar may use most of the screen. The search
   field no longer triggers Safari's contact AutoFill ("Kontakt autom. ausfüllen").
 - **Scanner search grows upwards.** Matches sit above the field (best match right above it), so
-  nothing ends up under the keyboard; while typing only the search stays in the bottom bar, and
-  the stage paints black well beyond its edges so a panned page never shows through.
+  nothing ends up under the keyboard; while typing only the search stays in the bottom bar.
+  On phones the page behind the scanner is hidden and the document is black while it is open
+  (`html.trax-scanning`): the stage sits inside the drawer, which clips it, so a strip iOS pans
+  into view for the keyboard is black instead of showing the inventory.
 
 ## 2026-11-09 — branch `claude/vigilant-allen-50a6i2`
 

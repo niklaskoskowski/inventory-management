@@ -1700,10 +1700,17 @@ export default {
       watchViewport();
       start();
     });
+    // Phone: the stage lives inside the drawer (transform + overflow hidden),
+    // so it cannot paint beyond it. While scanning, the page behind is hidden
+    // and the document goes black (app.css, html.trax-scanning) — whatever iOS
+    // pans into view for the keyboard is then black, never the inventory.
+    document.documentElement.classList.add('trax-scanning');
+
     onBeforeUnmount(() => {
       unwatchViewport();
       stop();
       state.scanEvent = null;
+      document.documentElement.classList.remove('trax-scanning');
     });
 
     return {

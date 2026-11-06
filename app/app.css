@@ -2329,11 +2329,16 @@ kbd {
     background: #000;
   }
 
-  /* Black far beyond its own box: if iOS pans the page under the stage while
-     the keyboard opens, the strip it uncovers is painted black instead of
-     showing the inventory. */
-  .trax-scan-stage {
-    box-shadow: 0 0 0 100vh #000;
+  /* While the scanner is open the page behind it is hidden and the document
+     is black: the stage cannot paint beyond the drawer that holds it, so a
+     strip iOS pans into view for the keyboard shows black, not the list. */
+  html.trax-scanning,
+  html.trax-scanning body {
+    background: #000 !important;
+  }
+  html.trax-scanning .trax-shell,
+  html.trax-scanning .trax-tabbar {
+    visibility: hidden;
   }
 
   /* Typing a search: only the search stays in the bottom bar (camera notes,
