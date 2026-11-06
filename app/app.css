@@ -2329,9 +2329,28 @@ kbd {
     background: #000;
   }
 
-  /* Typing a search: the bar may use most of the shortened screen. */
+  /* Black far beyond its own box: if iOS pans the page under the stage while
+     the keyboard opens, the strip it uncovers is painted black instead of
+     showing the inventory. */
+  .trax-scan-stage {
+    box-shadow: 0 0 0 100vh #000;
+  }
+
+  /* Typing a search: only the search stays in the bottom bar (camera notes,
+     the picker and the scanned list step aside), and the matches above the
+     field may use most of the shortened screen. */
   .trax-scan-stage.is-typing .trax-scan-bar-bottom {
-    max-height: 88%;
+    max-height: 92%;
+  }
+  .trax-scan-stage.is-typing .trax-scan-bar-bottom > :not(.trax-scan-search) {
+    display: none !important;
+  }
+  /* Best match right above the field, the rest stacked upwards. */
+  .trax-scan-matches {
+    display: flex;
+    flex-direction: column-reverse;
+    max-height: 50vh;
+    overflow-y: auto;
   }
 
   /* The drawer's own header and footer end up underneath the stage, and both

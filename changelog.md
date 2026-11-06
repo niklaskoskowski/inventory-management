@@ -18,6 +18,9 @@ only record. There is no git history to mine.
   visual viewport (`--trax-vv-top/-h`), so opening the keyboard no longer lets the inventory
   show through underneath; while typing, the bottom bar may use most of the screen. The search
   field no longer triggers Safari's contact AutoFill ("Kontakt autom. ausfüllen").
+- **Scanner search grows upwards.** Matches sit above the field (best match right above it), so
+  nothing ends up under the keyboard; while typing only the search stays in the bottom bar, and
+  the stage paints black well beyond its edges so a panned page never shows through.
 
 ## 2026-11-09 — branch `claude/vigilant-allen-50a6i2`
 

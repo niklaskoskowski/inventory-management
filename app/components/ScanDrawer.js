@@ -1057,7 +1057,11 @@ export default {
     // While typing in the search field the bottom bar may take most of the
     // (keyboard-shortened) screen, so the matches stay visible.
     const typing = ref(false);
-    const onManualFocus = () => { typing.value = true; setTimeout(syncVisual, 300); };
+    const onManualFocus = () => {
+      typing.value = true;
+      // iOS animates the keyboard in; follow it until it has settled.
+      for (const ms of [50, 150, 300, 600, 900]) setTimeout(syncVisual, ms);
+    };
     const onManualBlur = () => { setTimeout(() => { typing.value = false; syncVisual(); }, 150); };
 
     const unwatchViewport = () => {
@@ -1845,16 +1849,12 @@ export default {
           </div>
         </div>
 
-        <label class="form-label small mt-3" for="manual-id">Or type a code or search</label>
-        <form class="input-group input-group-sm" @submit.prevent="submitManual">
-          <input id="manual-id" name="trax-lookup" class="form-control" v-model="manualId" type="text" enterkeyhint="search"
-                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true"
-                 placeholder="12, 12.1, d110 …" @focus="onManualFocus" @blur="onManualBlur">
-          <button class="btn btn-outline-secondary" type="submit">Go</button>
-        </form>
-        <div v-if="textMatches.length" class="trax-list mt-1">
+        <!-- Search: the matches grow UPWARDS from the field, so with the
+             keyboard open nothing ends up underneath it. -->
+        <div class="trax-scan-search mt-3">
+        <div v-if="textMatches.length" class="trax-list mb-1 trax-scan-matches">
           <button v-for="m in textMatches" :key="m.key" type="button"
-                  class="trax-row w-100 text-start border-0 bg-transparent" @click="pickMatch(m)">
+                  class="trax-row w-100 text-start border-0 bg-transparent" @pointerdown.prevent @click="pickMatch(m)">
             <div class="trax-row-main">
               <div class="trax-row-title"><span>{{ m.asset.name }}</span>
                 <span class="text-secondary small fw-normal">#{{ m.asset.id }}<template v-if="m.unit">.{{ m.unit.no }}</template></span></div>
@@ -1868,7 +1868,15 @@ export default {
             <i class="bi" :class="mode === 'lookup' ? 'bi-box-arrow-up-right' : mode === 'return' ? 'bi-box-arrow-in-left' : 'bi-plus-circle'"></i>
           </button>
         </div>
-        <div v-else-if="manualId.trim().length >= 2 && !extractRef(manualId)" class="small text-secondary mt-1">Nothing found.</div>
+        <div v-else-if="manualId.trim().length >= 2 && !extractRef(manualId)" class="small text-secondary mb-1">Nothing found.</div>
+        <label class="form-label small" for="manual-id">Or type a code or search</label>
+        <form class="input-group input-group-sm" @submit.prevent="submitManual">
+          <input id="manual-id" name="trax-lookup" class="form-control" v-model="manualId" type="text" enterkeyhint="search"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true"
+                 placeholder="12, 12.1, d110 …" @focus="onManualFocus" @blur="onManualBlur">
+          <button class="btn btn-outline-secondary" type="submit">Go</button>
+        </form>
+        </div>
 
         <div v-if="hits.length" class="mt-3">
           <div class="trax-list-header">Scanned · {{ hits.length }}</div>
