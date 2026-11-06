@@ -1756,8 +1756,9 @@ export function buildBookingDocument(booking = {}) {
     totalItems,
     totalUnits,
     summary: `${totalItems} item(s) · ${totalUnits} unit(s)`,
-    // Only a handover gets signed; a reservation is not a transfer of custody.
-    signature: !reservation,
+    // Only a handover gets signed; a reservation is not a transfer of custody,
+    // and an internal issue (own staff, own gear) needs neither signature nor terms.
+    signature: !reservation && hireOf(booking) !== 'INTERNAL',
     // The half that is recorded rather than signed: whoever was at the counter.
     handedOverBy: String(booking.handedOverBy || '').trim(),
     // What the customer put their name to, when they have. Empty leaves the
@@ -1771,7 +1772,7 @@ export function buildBookingDocument(booking = {}) {
     declinedNote: String(booking.signatureDeclined?.note || '').trim(),
     // The terms this hand-over is given under, as one sentence. Empty prints
     // nothing — no terms in force, or a signature taken without them.
-    termsNote: termsNoteOf(booking, reservation),
+    termsNote: hireOf(booking) === 'INTERNAL' ? '' : termsNoteOf(booking, reservation),
     // Where the printed QR code points, and where its picture comes from.
     // The page that is holding this booking passes its own link; the PNG is
     // that link plus `&qr=1`, which booking.php answers for this token only.

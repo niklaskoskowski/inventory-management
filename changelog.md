@@ -17,6 +17,10 @@ only record. There is no git history to mine.
   both (`req_customer()` in `api.php`). In the Selection the *Event* picker now comes first;
   picking one fills in the customer from its client and the return date (reservation window)
   from its dates — only fields still on their default or last auto-filled value.
+- **Internal issue: no signature, no terms.** The hand-over signature sheet no longer opens after
+  an internal checkout or conversion (`askSignature()` skips `hire: INTERNAL` unless forced),
+  Checkouts shows no "Not signed" chip or *Sign now* row for it, and the hand-over PDF prints
+  neither the signature block nor the terms sentence.
 
 ## 2026-11-07 — branch `claude/vigilant-allen-50a6i2`
 

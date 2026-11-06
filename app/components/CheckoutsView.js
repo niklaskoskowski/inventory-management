@@ -1,7 +1,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import {
   state, mutate, toast, getAsset, load, eventById, openPreview,
-  signBooking, unsignBooking, termsUrl, privacyUrl, askSignature, invoicingEnabled, openInvoice,
+  signBooking, unsignBooking, termsUrl, privacyUrl, askSignature, needsSignature, invoicingEnabled, openInvoice,
 } from '../store.js';
 import * as api from '../api.js';
 import {
@@ -590,7 +590,7 @@ export default {
     const openSignature = (group) => {
       const booking = bookingOf(group);
       if (booking) {
-        askSignature(booking.id);
+        askSignature(booking.id, { force: true });
         return;
       }
       signing.value = group.key;
@@ -734,7 +734,7 @@ export default {
       detailKey, detail, openDetail, closeDetail, showBooking,
       detailLines, detailUnits, detailCheckIn, detailExtend,
       formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
-      rentalPdf, daysLabel, HIRE_LABEL, invoicingEnabled, openInvoice,
+      rentalPdf, daysLabel, HIRE_LABEL, invoicingEnabled, openInvoice, needsSignature,
       signing, signName, signBusy, unsigning, signTerms, signLocked, termsUrl,
       openSignature, closeSignature, saveSignature, removeSignature, openSignatureImage,
     };
@@ -785,7 +785,7 @@ export default {
                  :title="'Signed by ' + bookingOf(group).signature.name"></i>
               <span v-else-if="bookingOf(group) && bookingOf(group).signatureDeclined" class="trax-kind-chip"
                     title="Signature declined">Declined</span>
-              <span v-else-if="bookingOf(group)" class="trax-kind-chip" title="No hand-over signature yet">Not signed</span>
+              <span v-else-if="needsSignature(bookingOf(group))" class="trax-kind-chip" title="No hand-over signature yet">Not signed</span>
             </div>
             <div class="trax-row-meta">
               <span :class="{ 'text-danger': isOverdue(group.dueAt) }"
@@ -977,7 +977,7 @@ export default {
             </button>
           </div>
 
-          <div v-else-if="bookingOf(detail)" class="trax-row">
+          <div v-else-if="needsSignature(bookingOf(detail))" class="trax-row">
             <i class="bi" :class="bookingOf(detail).signatureDeclined ? 'bi-x-circle text-danger' : 'bi-pen text-secondary'"></i>
             <div class="trax-row-main">
               <template v-if="bookingOf(detail).signatureDeclined">
