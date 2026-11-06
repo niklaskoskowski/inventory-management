@@ -152,7 +152,7 @@ Keyed by `lineId`, not by asset: one asset can be out on several lines at once.
 | `assetId`, `qty` | which asset, how many units |
 | `name` | asset name snapshot |
 | `checkedOut`, `dueAt`, `returnDate` | ISO; `returnDate` is the localised mirror, either side backfilled |
-| `customerName`, `customerEmail`, `note` | |
+| `customerName`, `customerEmail`, `note` | email may be empty for an `INTERNAL` issue (no mails, no reminders) |
 | `reservationId`, `setId`, `bookingId` | provenance links, nullable |
 
 ### Reservation — `trax_normalize_reservation()` (`lib/store.php:576-631`)

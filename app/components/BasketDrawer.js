@@ -188,6 +188,34 @@ export default {
       .filter((event) => !isClosed(state.settings, event) || String(event.id) === eventId.value)
       .sort(byStart));
 
+    // Picking an event fills in what the event already knows — its client as
+    // the customer, its end as the return date (its window when reserving) —
+    // but only fields the operator has not typed into: a value is replaced
+    // while it is still the default or the last one filled in from an event.
+    const autoFill = { name: '', due: dueAt.value, start: startAt.value, end: endAt.value };
+    const eventApplied = ref('');
+    watch(eventId, (id) => {
+      const event = state.events.find((e) => String(e.id) === String(id));
+      eventApplied.value = '';
+      if (!event) return;
+      const set = (field, key, value) => {
+        if (!value || (field.value !== autoFill[key] && field.value !== '')) return false;
+        field.value = value;
+        autoFill[key] = value;
+        return true;
+      };
+      const filled = [];
+      if (set(customerName, 'name', event.client || '')) filled.push('customer');
+      if (event.endAt) {
+        if (set(dueAt, 'due', toLocalInput(event.endAt))) filled.push('return date');
+        set(endAt, 'end', toLocalInput(event.endAt));
+      }
+      if (event.startAt) set(startAt, 'start', toLocalInput(event.startAt));
+      eventApplied.value = filled.length ? `${filled.join(' and ')} from “${event.name}”` : '';
+    });
+    /** Name and email can be left empty for an internal issue. */
+    const customerOptional = computed(() => hire.value === 'INTERNAL');
+
     const rentalQuote = computed(() => rentalOfLines(
       selectedExpanded.value,
       assetById.value,
@@ -268,8 +296,8 @@ export default {
     watch([dueAt, startAt, endAt, mode], () => { dateConfirmed.value = false; });
 
     const submit = async () => {
-      if (!customerName.value.trim() || !customerEmail.value.trim()) {
-        toast('Customer name and email are required.', 'warning');
+      if (!customerOptional.value && (!customerName.value.trim() || !customerEmail.value.trim())) {
+        toast('Customer name and email are required for a rental or loan.', 'warning');
         return;
       }
       if (dateWarning.value && !dateConfirmed.value) {
@@ -294,10 +322,11 @@ export default {
             hire: hire.value,
             eventId: eventId.value ? Number(eventId.value) : null,
           });
+          const noMail = !customerEmail.value.trim();
           toast(
             `Checked out ${data.checkedOut} unit(s) on ${data.lines} line(s).`
-            + (data.mailed ? ' Confirmation sent.' : ' Confirmation email could not be sent.'),
-            data.mailed ? 'success' : 'warning',
+            + (noMail ? '' : data.mailed ? ' Confirmation sent.' : ' Confirmation email could not be sent.'),
+            noMail || data.mailed ? 'success' : 'warning',
           );
           // Straight on to the hand-over signature, while the customer is here.
           if (data.bookingId) askSignature(data.bookingId);
@@ -439,6 +468,7 @@ export default {
     };
 
     return {
+      customerOptional, eventApplied,
       state, mode, customerName, customerEmail, notes, dueAt, startAt, endAt, dateWarning, dateConfirmed,
       busy, blocked, allowPartial, force, groups, unavailable, windowConflicts,
       selectionValue, formatTotals, exportingPdf, selectionPdf,
@@ -616,15 +646,27 @@ export default {
         </div>
       </template>
 
+      <!-- Event first: it fills in customer and dates -->
+      <template v-if="eventsEnabled">
+        <div class="trax-list-header">Event</div>
+        <select id="b-event" class="form-select" v-model="eventId" aria-label="Event">
+          <option value="">None</option>
+          <option v-for="event in eventOptions" :key="event.id" :value="String(event.id)">
+            {{ event.name }}<span v-if="event.client"> · {{ event.client }}</span>
+          </option>
+        </select>
+        <div v-if="eventApplied" class="form-text ms-1"><i class="bi bi-magic"></i> Filled in {{ eventApplied }}.</div>
+      </template>
+
       <!-- Customer & dates -->
-      <div class="trax-list-header">Customer</div>
+      <div class="trax-list-header">Customer<span v-if="customerOptional" class="ms-auto fw-normal small">optional for internal use</span></div>
       <div class="row g-2">
         <div class="col-12 col-md-6">
-          <input id="b-name" class="form-control" v-model="customerName" placeholder="Name" data-autofocus="desktop"
+          <input id="b-name" class="form-control" v-model="customerName" :placeholder="customerOptional ? 'Name (optional)' : 'Name'" data-autofocus="desktop"
                  aria-label="Customer name" autocomplete="off">
         </div>
         <div class="col-12 col-md-6">
-          <input id="b-email" type="email" class="form-control" v-model="customerEmail" placeholder="Email"
+          <input id="b-email" type="email" class="form-control" v-model="customerEmail" :placeholder="customerOptional ? 'Email (optional, no confirmation without)' : 'Email'"
                  aria-label="Customer email" autocomplete="off">
         </div>
       </div>
@@ -649,15 +691,6 @@ export default {
         <i class="bi bi-calendar-x"></i> {{ dateWarning }}
       </div>
 
-      <template v-if="eventsEnabled">
-        <div class="trax-list-header">Event</div>
-        <select id="b-event" class="form-select" v-model="eventId" aria-label="Event">
-          <option value="">None</option>
-          <option v-for="event in eventOptions" :key="event.id" :value="String(event.id)">
-            {{ event.name }}<span v-if="event.client"> · {{ event.client }}</span>
-          </option>
-        </select>
-      </template>
 
       <div class="trax-list-header">Notes</div>
       <textarea id="b-notes" class="form-control" rows="2" v-model="notes" aria-label="Notes" placeholder="Optional"></textarea>

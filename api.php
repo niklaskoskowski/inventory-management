@@ -298,6 +298,36 @@ function req_iso(array $payload, string $key): string
     return $value;
 }
 
+/**
+ * Customer name and email of a checkout or reservation. Required for a rental
+ * and a loan — the customer gets the confirmation and the booking link. For an
+ * INTERNAL issue both are optional: the name falls back to the event the gear
+ * goes out on, then to the operator; without an email no mail is sent.
+ *
+ * @return array{0:string,1:string} [name, email]
+ */
+function req_customer(array $payload, ?int $eventId, string $actor): array
+{
+    $hire = trax_enum($payload['hire'] ?? null, TRAX_HIRE_MODES, 'DRY');
+    if ($hire !== 'INTERNAL') {
+        return [req_str($payload, 'customerName', TRAX_MAX_NAME), req_email($payload, 'customerEmail')];
+    }
+    $rawEmail = trax_str($payload['customerEmail'] ?? '', TRAX_MAX_NAME);
+    $email = '';
+    if ($rawEmail !== '') {
+        $email = req_email($payload, 'customerEmail');
+    }
+    $name = trax_str($payload['customerName'] ?? '', TRAX_MAX_NAME);
+    if ($name === '' && $eventId !== null) {
+        $event = trax_find_event(trax_read_data()['events'] ?? [], $eventId);
+        $name = $event !== null ? trax_str($event['client'] !== '' ? $event['client'] : $event['name'], TRAX_MAX_NAME) : '';
+    }
+    if ($name === '') {
+        $name = trax_str('Internal · ' . ($actor !== '' ? $actor : 'operator'), TRAX_MAX_NAME);
+    }
+    return [$name, $email];
+}
+
 /** Reads a list of asset ids from the payload. */
 function req_ids(array $payload, string $key = 'ids'): array
 {
@@ -2159,8 +2189,7 @@ try {
 
         case 'checkout.create': {
             $items         = req_items($payload, 'items');
-            $customerName  = req_str($payload, 'customerName', TRAX_MAX_NAME);
-            $customerEmail = req_email($payload, 'customerEmail');
+            [$customerName, $customerEmail] = req_customer($payload, trax_int($payload['eventId'] ?? null), $actor);
             $dueAt         = req_iso($payload, 'dueAt');
             $notes         = trax_str($payload['notes'] ?? '');
             $reservationId = trax_int($payload['reservationId'] ?? null);
@@ -3032,8 +3061,7 @@ try {
 
         case 'reservation.create': {
             $items         = req_items($payload, 'items');
-            $customerName  = req_str($payload, 'customerName', TRAX_MAX_NAME);
-            $customerEmail = req_email($payload, 'customerEmail');
+            [$customerName, $customerEmail] = req_customer($payload, trax_int($payload['eventId'] ?? null), $actor);
             $startAt       = req_iso($payload, 'startAt');
             $endAt         = req_iso($payload, 'endAt');
             $notes         = trax_str($payload['notes'] ?? '');
@@ -3462,8 +3490,7 @@ try {
             // stays the same and shows the new contents; nothing is mailed.
             $id            = req_int($payload, 'id');
             $items         = req_items($payload, 'items');
-            $customerName  = req_str($payload, 'customerName', TRAX_MAX_NAME);
-            $customerEmail = req_email($payload, 'customerEmail');
+            [$customerName, $customerEmail] = req_customer($payload, trax_int($payload['eventId'] ?? null), $actor);
             $startAt       = req_iso($payload, 'startAt');
             $endAt         = req_iso($payload, 'endAt');
             $notes         = trax_str($payload['notes'] ?? '');
