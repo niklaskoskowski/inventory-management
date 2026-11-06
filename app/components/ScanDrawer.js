@@ -1033,6 +1033,33 @@ export default {
         }
       }
     };
+    // iOS: the keyboard shrinks the VISUAL viewport and scrolls the page under
+    // a position:fixed stage, so the stage drifts and the inventory shows
+    // through. The stage follows the visual viewport instead (CSS vars below).
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    const syncVisual = () => {
+      if (!vv) return;
+      const root = document.documentElement.style;
+      root.setProperty('--trax-vv-top', `${Math.round(vv.offsetTop)}px`);
+      root.setProperty('--trax-vv-h', `${Math.round(vv.height)}px`);
+    };
+    if (vv) {
+      vv.addEventListener('resize', syncVisual);
+      vv.addEventListener('scroll', syncVisual);
+      viewportOff.push(() => {
+        vv.removeEventListener('resize', syncVisual);
+        vv.removeEventListener('scroll', syncVisual);
+        document.documentElement.style.removeProperty('--trax-vv-top');
+        document.documentElement.style.removeProperty('--trax-vv-h');
+      });
+      syncVisual();
+    }
+    // While typing in the search field the bottom bar may take most of the
+    // (keyboard-shortened) screen, so the matches stay visible.
+    const typing = ref(false);
+    const onManualFocus = () => { typing.value = true; setTimeout(syncVisual, 300); };
+    const onManualBlur = () => { setTimeout(() => { typing.value = false; syncVisual(); }, 150); };
+
     const unwatchViewport = () => {
       while (viewportOff.length) {
         const off = viewportOff.pop();
@@ -1683,7 +1710,7 @@ export default {
       zoomRange, zoom, zoomLabel, setZoom, nudgeZoom, torchAvailable, torchOn, toggleTorch,
       REGION_ID,
       cameraFix,
-      modeHint, switchCamera, submitManual, textMatches, pickMatch, start, stop, restart, onTapStart, extractId, extractRef,
+      modeHint, switchCamera, submitManual, textMatches, pickMatch, typing, onManualFocus, onManualBlur, start, stop, restart, onTapStart, extractId, extractRef,
       isSelected, getQuantity, selectedUnitCount, emit,
     };
   },
@@ -1698,7 +1725,7 @@ export default {
            two controls the drawer's own chrome provides on desktop and cannot
            provide from underneath a full-screen stage: the close button and
            the footer actions. -->
-      <div class="trax-scan-stage" :data-bs-theme="fullscreen ? 'dark' : null">
+      <div class="trax-scan-stage" :class="{ 'is-typing': typing }" :data-bs-theme="fullscreen ? 'dark' : null">
 
       <div class="trax-scan-bar trax-scan-bar-top">
         <div class="trax-scan-toprow">
@@ -1818,10 +1845,11 @@ export default {
           </div>
         </div>
 
-        <label class="form-label small mt-3" for="manual-id">Or type an ID or search</label>
+        <label class="form-label small mt-3" for="manual-id">Or type a code or search</label>
         <form class="input-group input-group-sm" @submit.prevent="submitManual">
-          <input id="manual-id" class="form-control" v-model="manualId" type="search" enterkeyhint="go"
-                 autocomplete="off" placeholder="12, 12.1 or a name, serial, tag …">
+          <input id="manual-id" name="trax-lookup" class="form-control" v-model="manualId" type="text" enterkeyhint="search"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true"
+                 placeholder="12, 12.1, d110 …" @focus="onManualFocus" @blur="onManualBlur">
           <button class="btn btn-outline-secondary" type="submit">Go</button>
         </form>
         <div v-if="textMatches.length" class="trax-list mt-1">

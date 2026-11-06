@@ -14,6 +14,10 @@ only record. There is no git history to mine.
   name, serial, category, location, tag, or a unit's own label/serial, and lists the matches; a
   tap acts exactly like scanning that label in the current mode (look up, collect, return, event).
   Enter picks the first match. The field no longer opens a number-only keyboard on phones.
+- **Scanner on iPhone: keyboard no longer breaks the full-screen view.** The stage follows the
+  visual viewport (`--trax-vv-top/-h`), so opening the keyboard no longer lets the inventory
+  show through underneath; while typing, the bottom bar may use most of the screen. The search
+  field no longer triggers Safari's contact AutoFill ("Kontakt autom. ausfüllen").
 
 ## 2026-11-09 — branch `claude/vigilant-allen-50a6i2`
 

@@ -2319,8 +2319,19 @@ kbd {
     display: block;
     position: fixed;
     inset: 0;
+    /* Follows the visual viewport (ScanDrawer sets the vars): with the iOS
+       keyboard open the stage is exactly the visible area, not the layout
+       viewport the page scrolls underneath. */
+    top: var(--trax-vv-top, 0px);
+    bottom: auto;
+    height: var(--trax-vv-h, 100%);
     z-index: 1060;
     background: #000;
+  }
+
+  /* Typing a search: the bar may use most of the shortened screen. */
+  .trax-scan-stage.is-typing .trax-scan-bar-bottom {
+    max-height: 88%;
   }
 
   /* The drawer's own header and footer end up underneath the stage, and both
@@ -2407,7 +2418,7 @@ kbd {
     /* The alerts, the camera picker and the scanned list all live down here.
        They scroll inside the bar instead of growing over the picture, and the
        scroll stops here rather than chaining into the page behind. */
-    max-height: 46vh;
+    max-height: 46%;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
