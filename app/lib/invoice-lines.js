@@ -162,4 +162,5 @@ export const INVOICE_STATUS = {
   paid: { label: 'Paid', cls: 'text-bg-success' },
   cancelled: { label: 'Cancelled', cls: 'text-bg-danger' },
   invoiced: { label: 'Invoiced', cls: 'text-bg-primary' },
+  project: { label: 'In project', cls: 'text-bg-info' },
 };

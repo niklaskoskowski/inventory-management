@@ -6,6 +6,19 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-11-07 — branch `claude/vigilant-allen-50a6i2`
+
+### Added
+
+- **Invoicing: bill a rental as posts in an Invoice project.** After picking the customer, the
+  *Create invoice* sheet lists that customer's open projects in Invoice. *Bill as* → *Posts in
+  project …* adds the lines there as open project posts (billed later in Invoice together with
+  times, trips and material); *Own invoice* works as before. `booking.invoice` gains
+  `kind` (`document` | `project`), `projectId`, `projectNumber`, `projectName`, `net`; status
+  `project` while the posts are open. Once the project is billed, *Refresh status* shows the
+  project invoice. New actions `invoice.projects`, `invoice.toProject`; `invoice.sync` compares
+  the whole link.
+
 ## 2026-11-06 — branch `claude/vigilant-allen-50a6i2`
 
 ### Added

@@ -253,7 +253,7 @@ export default {
                           @click="openInvoice(bookingFor(r).id)"
                           :aria-label="'Create an invoice for ' + r.customerName">
                     <i class="bi bi-receipt-cutoff"></i>
-                    {{ bookingFor(r).invoice ? 'Invoice ' + (bookingFor(r).invoice.number || 'draft') + '…' : 'Create invoice…' }}
+                    {{ bookingFor(r).invoice ? (bookingFor(r).invoice.kind === 'project' ? 'In project ' + bookingFor(r).invoice.projectNumber : 'Invoice ' + (bookingFor(r).invoice.number || 'draft')) + '…' : 'Create invoice…' }}
                   </button>
                   <div class="trax-menu-sep"></div>
                   <button class="trax-menu-item is-danger" @click="cancelling = r">

@@ -4287,6 +4287,72 @@ try {
             ]), $result['rev']);
         }
 
+        case 'invoice.projects': {
+            // Open projects of the picked Invoice customer ("add as project posts").
+            try {
+                trax_ok(['projects' => trax_invoice_request(trax_invoice_enabled_or_fail(), 'projects.list', [
+                    'customer_id' => req_int($payload, 'customerId'),
+                ])]);
+            } catch (TraxInvoiceError $e) {
+                trax_fail('INVOICE', $e->getMessage(), 502, ['remoteCode' => $e->remoteCode]);
+            }
+        }
+
+        case 'invoice.toProject': {
+            // The rental as open posts in an Invoice project, billed there later
+            // together with times, trips and material. Same one-per-booking rule.
+            $bookingId = req_int($payload, 'bookingId');
+            $projectId = req_int($payload, 'projectId');
+            $data = trax_read_data();
+            $booking = null;
+            foreach ($data['bookings'] as $row) {
+                if ((int)$row['id'] === $bookingId) {
+                    $booking = $row;
+                    break;
+                }
+            }
+            if ($booking === null) {
+                trax_fail('BAD_REQUEST', "Booking #{$bookingId} not found.", 404);
+            }
+            try {
+                $invoice = trax_invoice_enabled_or_fail($data);
+                $items = trax_invoice_items_payload($payload['items'] ?? null, $invoice['vatRate']);
+                if ($items === []) {
+                    trax_fail('BAD_REQUEST', 'No lines to add.');
+                }
+                $date = trax_str($payload['date'] ?? '', 10);
+                $answer = trax_invoice_request($invoice, 'project_items.add', [
+                    'ref'        => trax_invoice_ref($bookingId),
+                    'project_id' => $projectId,
+                    'items'      => $items,
+                    'date'       => preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 ? $date : null,
+                    'force'      => trax_bool($payload['force'] ?? null, false),
+                ], 30);
+            } catch (TraxInvoiceError $e) {
+                trax_fail('INVOICE', $e->getMessage(), $e->remoteCode === 'invalid' ? 400 : 502, ['remoteCode' => $e->remoteCode]);
+            }
+            $doc = is_array($answer['document'] ?? null) ? $answer['document'] : null;
+            if ($doc === null) {
+                trax_fail('INVOICE', 'Invoice did not return the project posts.', 502);
+            }
+            $result = trax_mutate(null, function (array &$data, array &$checkouts) use ($bookingId, $doc, $actor): array {
+                foreach ($data['bookings'] as &$row) {
+                    if ((int)$row['id'] === $bookingId) {
+                        $row['invoice'] = trax_invoice_link_from_doc($doc, null, $actor);
+                    }
+                }
+                unset($row);
+                return [];
+            });
+            trax_ok(array_merge(trax_snapshot($result['data'], $result['checkouts']), [
+                'invoiceResult' => [
+                    'created'   => (bool)($answer['created'] ?? false),
+                    'duplicate' => (bool)($answer['duplicate'] ?? false),
+                    'document'  => $doc,
+                ],
+            ]), $result['rev']);
+        }
+
         case 'invoice.sync': {
             // Refreshes number/status/total of linked bookings from Invoice. A
             // draft deleted (or cancelled) there unlinks the booking here, so
@@ -4313,26 +4379,22 @@ try {
             $status = is_array($status) ? $status : [];
 
             // Nothing moved in Invoice → no write, no new rev.
-            $differs = static function (array $row, array $status): bool {
+            $keyOf = static fn(?array $l): string => $l === null ? '' : json_encode([$l['kind'], $l['docId'], $l['projectId'], $l['number'], $l['status'], $l['gross'], $l['net']]);
+            $differs = static function (array $row, array $status) use ($keyOf, $actor): bool {
                 $ref = trax_invoice_ref((int)$row['id']);
                 if (($row['invoice'] ?? null) === null || !array_key_exists($ref, $status)) {
                     return false;
                 }
                 $doc = $status[$ref];
-                if (!is_array($doc)) {
-                    return true;
-                }
-                return (int)($doc['id'] ?? 0) !== $row['invoice']['docId']
-                    || (($doc['number'] ?? null) ?: null) !== $row['invoice']['number']
-                    || (string)($doc['status'] ?? '') !== $row['invoice']['status']
-                    || round((float)($doc['gross'] ?? 0), 2) !== (float)$row['invoice']['gross'];
+                $next = is_array($doc) ? trax_invoice_link_from_doc($doc, $row['invoice'], $actor) : null;
+                return $keyOf($next) !== $keyOf($row['invoice']);
             };
             $pending = array_filter($data['bookings'], static fn($row) => $differs($row, $status));
             if ($pending === []) {
                 trax_ok(['changed' => 0]);
             }
 
-            $result = trax_mutate(null, function (array &$data, array &$checkouts) use ($status, $actor): array {
+            $result = trax_mutate(null, function (array &$data, array &$checkouts) use ($status, $actor, $keyOf): array {
                 $changed = 0;
                 foreach ($data['bookings'] as &$row) {
                     $ref = trax_invoice_ref((int)$row['id']);
@@ -4341,12 +4403,7 @@ try {
                     }
                     $doc  = $status[$ref];
                     $next = is_array($doc) ? trax_invoice_link_from_doc($doc, $row['invoice'], $actor) : null;
-                    $same = $next !== null
-                        && $next['docId'] === $row['invoice']['docId']
-                        && $next['number'] === $row['invoice']['number']
-                        && $next['status'] === $row['invoice']['status']
-                        && $next['gross'] === $row['invoice']['gross'];
-                    if (!$same) {
+                    if ($keyOf($next) !== $keyOf($row['invoice'])) {
                         $row['invoice'] = $next;
                         $changed++;
                     }
