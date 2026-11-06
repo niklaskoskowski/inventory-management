@@ -6,6 +6,22 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-11-08 — branch `claude/vigilant-allen-50a6i2`
+
+### Changed
+
+- **Internal issue: customer optional, event fills in the rest.** For *Internal* (checkout and
+  reservation) name and email are no longer required: the name falls back to the event's client
+  (else its name, else "Internal · operator"); without an email no confirmation is sent and the
+  reminder cron skips the booking (it stays in the owner digest). Rental and loan still require
+  both (`req_customer()` in `api.php`). In the Selection the *Event* picker now comes first;
+  picking one fills in the customer from its client and the return date (reservation window)
+  from its dates — only fields still on their default or last auto-filled value.
+- **Internal issue: no signature, no terms.** The hand-over signature sheet no longer opens after
+  an internal checkout or conversion (`askSignature()` skips `hire: INTERNAL` unless forced),
+  Checkouts shows no "Not signed" chip or *Sign now* row for it, and the hand-over PDF prints
+  neither the signature block nor the terms sentence.
+
 ## 2026-11-07 — branch `claude/vigilant-allen-50a6i2`
 
 ### Added

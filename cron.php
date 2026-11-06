@@ -114,6 +114,11 @@ function trax_cron_plan(array $data, int $now): array
         if ($dueTs === null) {
             continue;   // nothing to remind against
         }
+        // An internal issue may have no customer address: it stays in the owner's
+        // digest, but there is nobody to remind (and no endless failed retries).
+        if (trax_valid_email($booking['customerEmail'] ?? null) === null) {
+            continue;
+        }
 
         // Due soon: still in the future, inside the window, and never yet said.
         if (

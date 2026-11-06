@@ -1285,9 +1285,19 @@ export async function declineSignature(bookingId, note = '') {
 }
 
 /** Opens the signature sheet for a booking (after a checkout, or from Checkouts). */
-export function askSignature(bookingId) {
+/**
+ * Opens the hand-over signature for a booking. An internal issue (own staff,
+ * own gear) needs no signature and no terms, so the automatic prompt after a
+ * checkout skips it; `force` is for an explicit "Sign now".
+ */
+export function askSignature(bookingId, { force = false } = {}) {
+  const booking = state.bookings.find((b) => Number(b.id) === Number(bookingId));
+  if (!force && booking && booking.hire === 'INTERNAL') return;
   state.signPrompt = Number(bookingId) || null;
 }
+
+/** Whether a booking takes a hand-over signature at all (not for internal use). */
+export const needsSignature = (booking) => Boolean(booking) && booking.hire !== 'INTERNAL';
 
 export async function unsignBooking(bookingId) {
   return mutate('booking.unsign', { bookingId });
