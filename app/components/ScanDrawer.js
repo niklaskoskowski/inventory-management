@@ -1562,10 +1562,43 @@ export default {
       await start(cameraId.value || null);
     };
 
+    /**
+     * Text search in the manual field: name, serial, category, location, tags,
+     * and a unit's own label or serial. A plain ID / unit code (12, 12.1, a
+     * label URL) is still handled exactly like a scan.
+     */
+    const textMatches = computed(() => {
+      const q = manualId.value.trim().toLowerCase();
+      if (q.length < 2 || extractRef(manualId.value)) return [];
+      const words = q.split(/\s+/).filter(Boolean);
+      const has = (hay) => words.every((w) => hay.includes(w));
+      const out = [];
+      for (const asset of state.assets) {
+        const base = [asset.name, asset.serial, asset.category, asset.location, ...(asset.tags || [])].join(' ').toLowerCase();
+        if (has(base)) out.push({ asset, unit: null, key: `${asset.id}` });
+        for (const unit of asset.units || []) {
+          const own = [unit.label, unit.serial, unit.note].join(' ').toLowerCase();
+          if (own.trim() && has(`${asset.name} ${own}`.toLowerCase()) && !has(base)) {
+            out.push({ asset, unit, key: `${asset.id}.${unit.no}` });
+          }
+        }
+        if (out.length >= 12) break;
+      }
+      return out;
+    });
+    const pickMatch = (match) => {
+      manualId.value = '';
+      handle({ id: Number(match.asset.id), unit: match.unit ? Number(match.unit.no) : null });
+    };
+
     const submitManual = () => {
       const ref = extractRef(manualId.value);
       if (!ref) {
-        toast('Enter an asset ID, or a unit like 12.1.', 'warning');
+        if (textMatches.value.length) {
+          pickMatch(textMatches.value[0]);
+          return;
+        }
+        toast('Nothing found — enter an ID, a unit like 12.1, or part of a name.', 'warning');
         return;
       }
       manualId.value = '';
@@ -1650,7 +1683,7 @@ export default {
       zoomRange, zoom, zoomLabel, setZoom, nudgeZoom, torchAvailable, torchOn, toggleTorch,
       REGION_ID,
       cameraFix,
-      modeHint, switchCamera, submitManual, start, stop, restart, onTapStart, extractId, extractRef,
+      modeHint, switchCamera, submitManual, textMatches, pickMatch, start, stop, restart, onTapStart, extractId, extractRef,
       isSelected, getQuantity, selectedUnitCount, emit,
     };
   },
@@ -1785,12 +1818,29 @@ export default {
           </div>
         </div>
 
-        <label class="form-label small mt-3" for="manual-id">Or type an ID</label>
+        <label class="form-label small mt-3" for="manual-id">Or type an ID or search</label>
         <form class="input-group input-group-sm" @submit.prevent="submitManual">
-          <input id="manual-id" class="form-control" v-model="manualId"
-                 inputmode="decimal" placeholder="e.g. 12 or 12.1">
+          <input id="manual-id" class="form-control" v-model="manualId" type="search" enterkeyhint="go"
+                 autocomplete="off" placeholder="12, 12.1 or a name, serial, tag …">
           <button class="btn btn-outline-secondary" type="submit">Go</button>
         </form>
+        <div v-if="textMatches.length" class="trax-list mt-1">
+          <button v-for="m in textMatches" :key="m.key" type="button"
+                  class="trax-row w-100 text-start border-0 bg-transparent" @click="pickMatch(m)">
+            <div class="trax-row-main">
+              <div class="trax-row-title"><span>{{ m.asset.name }}</span>
+                <span class="text-secondary small fw-normal">#{{ m.asset.id }}<template v-if="m.unit">.{{ m.unit.no }}</template></span></div>
+              <div class="trax-row-meta">
+                <span v-if="m.unit && m.unit.label">{{ m.unit.label }}</span>
+                <span v-if="m.asset.category">{{ m.asset.category }}</span>
+                <span v-if="m.asset.location"><i class="bi bi-geo-alt"></i> {{ m.asset.location }}</span>
+                <span>{{ m.asset.availableQty ?? m.asset.quantity }} free</span>
+              </div>
+            </div>
+            <i class="bi" :class="mode === 'lookup' ? 'bi-box-arrow-up-right' : mode === 'return' ? 'bi-box-arrow-in-left' : 'bi-plus-circle'"></i>
+          </button>
+        </div>
+        <div v-else-if="manualId.trim().length >= 2 && !extractRef(manualId)" class="small text-secondary mt-1">Nothing found.</div>
 
         <div v-if="hits.length" class="mt-3">
           <div class="trax-list-header">Scanned · {{ hits.length }}</div>

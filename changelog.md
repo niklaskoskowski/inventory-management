@@ -6,6 +6,15 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-11-10 — branch `main`
+
+### Added
+
+- **Scanner: search by name.** The manual field ("Or type an ID or search") also finds gear by
+  name, serial, category, location, tag, or a unit's own label/serial, and lists the matches; a
+  tap acts exactly like scanning that label in the current mode (look up, collect, return, event).
+  Enter picks the first match. The field no longer opens a number-only keyboard on phones.
+
 ## 2026-11-09 — branch `claude/vigilant-allen-50a6i2`
 
 ### Added
