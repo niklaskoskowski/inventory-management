@@ -2,7 +2,7 @@ import { ref, computed, watch } from 'vue';
 import {
   state, assetById, selectedItemIds, selectedItems, selectedExpanded, selectedUnitCount,
   mutate, toast, toggleSelected, clearSelection, getAsset,
-  getQuantity, setQuantity, getUnitChoice, toggleUnitChoice, stopReservationEdit, askSignature,
+  getQuantity, setQuantity, getUnitChoice, toggleUnitChoice, stopReservationEdit, askSignature, eventGearAdd,
 } from '../store.js';
 import { findConflicts } from '../lib/schedule.js';
 import { valueOfLines } from '../lib/insights.js';
@@ -213,6 +213,30 @@ export default {
       if (event.startAt) set(startAt, 'start', toLocalInput(event.startAt));
       eventApplied.value = filled.length ? `${filled.join(' and ')} from “${event.name}”` : '';
     });
+    // Opened from an event ("Check out"): the event (and its hire type) pre-set,
+    // so customer and dates fill in from it.
+    if (state.basketPreset) {
+      const preset = state.basketPreset;
+      state.basketPreset = null;
+      mode.value = 'checkout';
+      if (preset.hire) hire.value = preset.hire;
+      eventId.value = String(preset.eventId);
+    }
+
+    // Planning only: put the selection on the event's gear list, no checkout.
+    const addingToEvent = ref(false);
+    const addToEvent = async () => {
+      if (!eventId.value) return;
+      addingToEvent.value = true;
+      try {
+        const data = await eventGearAdd(Number(eventId.value), selectedItems.value);
+        const name = eventOptions.value.find((e) => String(e.id) === eventId.value)?.name || 'event';
+        toast(`${data.added} unit(s) added to the gear list of ${name}${data.late ? ' (marked as added later)' : ''}.`, 'success');
+        clearSelection();
+        emit('close');
+      } catch { /* toast raised by the store */ } finally { addingToEvent.value = false; }
+    };
+
     /** Name and email can be left empty for an internal issue. */
     const customerOptional = computed(() => hire.value === 'INTERNAL');
 
@@ -468,7 +492,7 @@ export default {
     };
 
     return {
-      customerOptional, eventApplied,
+      customerOptional, eventApplied, addToEvent, addingToEvent,
       state, mode, customerName, customerEmail, notes, dueAt, startAt, endAt, dateWarning, dateConfirmed,
       busy, blocked, allowPartial, force, groups, unavailable, windowConflicts,
       selectionValue, formatTotals, exportingPdf, selectionPdf,
@@ -656,6 +680,9 @@ export default {
           </option>
         </select>
         <div v-if="eventApplied" class="form-text ms-1"><i class="bi bi-magic"></i> Filled in {{ eventApplied }}.</div>
+        <button v-if="eventId && !editing" type="button" class="btn btn-sm btn-outline-secondary mt-2" :disabled="addingToEvent || !state.selected.length" @click="addToEvent">
+          <i class="bi bi-list-check"></i> Only add to the event's gear list (no checkout)
+        </button>
       </template>
 
       <!-- Customer & dates -->

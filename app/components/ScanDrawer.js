@@ -1,7 +1,7 @@
 import { ref, onMounted, onBeforeUnmount, computed, nextTick } from 'vue';
 import {
   state, getAsset, toggleSelected, isSelected, getQuantity, setQuantity,
-  getUnitChoice, setUnitChoice, selectedUnitCount, mutate, toast,
+  getUnitChoice, setUnitChoice, selectedUnitCount, mutate, toast, eventGearAdd,
 } from '../store.js';
 import Drawer from './ui/Drawer.js';
 import StatusBadge from './ui/StatusBadge.js';
@@ -195,7 +195,10 @@ export default {
      */
     const appName = () => state.settings?.branding?.appName || 'Assets';
 
-    const mode = ref('lookup');
+    // Opened from an event ("Scan to event"): every scan goes on its gear list.
+    const scanEventId = state.scanEvent;
+    const scanEventName = state.events.find((e) => Number(e.id) === Number(scanEventId))?.name || '';
+    const mode = ref(scanEventId ? 'event' : 'lookup');
     const status = ref('starting');
     const errorText = ref('');
     const errorDetail = ref('');
@@ -397,6 +400,14 @@ export default {
         await stop();
         emit('close');
         emit('open', id);
+        return;
+      }
+
+      if (mode.value === 'event' && scanEventId) {
+        try {
+          const data = await eventGearAdd(scanEventId, [{ id, qty: 1, unitNos: unit ? [wantedNo] : [] }]);
+          toast(`${unit ? code : asset.name} → ${scanEventName}${data.late ? ' (later)' : ''}.`, 'success', 1800);
+        } catch { /* toast raised by the store */ }
         return;
       }
 
@@ -1590,6 +1601,7 @@ export default {
       lookup: 'Scan a label to open it.',
       collect: 'Each scan adds to the selection.',
       return: 'Each scan checks the item in.',
+      event: `Each scan adds to the gear list of “${scanEventName}”.`,
     }[mode.value]));
 
     /**
@@ -1627,9 +1639,11 @@ export default {
     onBeforeUnmount(() => {
       unwatchViewport();
       stop();
+      state.scanEvent = null;
     });
 
     return {
+      scanEventId, scanEventName,
       state, mode, status, errorText, errorDetail, liveText, hits, cameras, cameraId, manualId,
       needsTap, tapText, playError, playNote, decodeAlive, decoderText, decodeNote, scanRate,
       viewfinderStyle, fullscreen, syncFullscreen,
@@ -1666,6 +1680,8 @@ export default {
                     :aria-pressed="mode === 'collect'" @click="mode = 'collect'"><i class="bi bi-cart-plus"></i> Collect</button>
             <button class="btn" :class="mode === 'return' ? 'btn-secondary' : 'btn-outline-secondary'"
                     :aria-pressed="mode === 'return'" @click="mode = 'return'"><i class="bi bi-box-arrow-in-left"></i> Return</button>
+            <button v-if="scanEventId" class="btn" :class="mode === 'event' ? 'btn-secondary' : 'btn-outline-secondary'"
+                    :aria-pressed="mode === 'event'" @click="mode = 'event'"><i class="bi bi-list-check"></i> Event</button>
           </div>
         </div>
         <p class="small text-secondary trax-scan-hint">{{ modeHint }}</p>

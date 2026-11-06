@@ -130,3 +130,82 @@ export function startsWithin(event, days, now = new Date()) {
   const horizon = new Date(now.getTime() + days * 86400000);
   return start >= now && start <= horizon;
 }
+
+/**
+ * The event's gear as ONE row per asset, out of everything that names it:
+ * the gear list (planned), active reservations, open checkout lines (out) and
+ * the bookings' snapshots (what went out, so `went out − still out` is back).
+ *
+ * Row: {assetId, name, planned, reserved, out, back, toGo, overdue, unitsOut[],
+ *       unitsPlanned[], entries[], late[], extra, lines[]}
+ *   toGo  — still to check out: max(planned, reserved) − out − back
+ *   extra — went out without being on the list (documented, not an error)
+ */
+export function gearOf(event, { checkouts = [], bookings = [], reservations = [], assets = null } = {}) {
+  const id = Number(event?.id);
+  const rows = new Map();
+  const row = (assetId) => {
+    const key = Number(assetId);
+    if (!rows.has(key)) {
+      rows.set(key, {
+        assetId: key, name: '', planned: 0, reserved: 0, out: 0, wentOut: 0, back: 0, toGo: 0, overdue: false,
+        unitsOut: [], unitsPlanned: [], entries: [], late: [], extra: false, lines: [], dueAt: null,
+      });
+    }
+    return rows.get(key);
+  };
+  if (!Number.isFinite(id) || id <= 0) return [];
+
+  for (const g of event.gear || []) {
+    const r = row(g.assetId);
+    r.planned += Math.max(1, Number(g.qty) || 1);
+    r.unitsPlanned.push(...(g.unitNos || []));
+    r.entries.push(g);
+    if (g.late) r.late.push(g);
+  }
+  for (const res of reservations) {
+    if (Number(res?.eventId) !== id || res.status !== 'ACTIVE') continue;
+    for (const item of res.items || []) row(item.assetId).reserved += Math.max(1, Number(item.qty) || 1);
+  }
+  const now = Date.now();
+  for (const line of checkouts) {
+    if (Number(line?.eventId) !== id) continue;
+    const r = row(line.assetId);
+    r.out += Math.max(1, Number(line.qty) || 1);
+    r.unitsOut.push(...(line.unitNos || []));
+    r.lines.push(line);
+    r.name = r.name || line.name || '';
+    const due = parseDate(line.dueAt || line.returnDate);
+    if (due && due.getTime() < now) r.overdue = true;
+    if (due && (!r.dueAt || due < parseDate(r.dueAt))) r.dueAt = line.dueAt || line.returnDate;
+  }
+  for (const booking of bookings) {
+    if (Number(booking?.eventId) !== id || booking.kind !== 'checkout' || booking.status === 'CANCELLED') continue;
+    for (const item of booking.items || []) {
+      const r = row(item.assetId);
+      r.wentOut += Math.max(1, Number(item.qty) || 1);
+      r.name = r.name || item.name || '';
+    }
+  }
+  const find = typeof assets === 'function' ? assets : (aid) => null;
+  for (const r of rows.values()) {
+    r.back = Math.max(0, r.wentOut - r.out);
+    const target = Math.max(r.planned, r.reserved);
+    r.toGo = Math.max(0, target - r.out - r.back);
+    r.extra = r.wentOut > 0 && target === 0;
+    const asset = find(r.assetId);
+    r.name = asset?.name || r.name || `#${r.assetId}`;
+    r.asset = asset || null;
+    // planned unit numbers that are not out (and not back) yet
+    r.unitsToGo = r.unitsPlanned.filter((no) => !r.unitsOut.includes(no));
+  }
+  return [...rows.values()].sort((a, b) => (b.out > 0) - (a.out > 0) || (b.toGo > 0) - (a.toGo > 0) || a.name.localeCompare(b.name));
+}
+
+/** Counters over gearOf() rows. */
+export function gearTotals(rows) {
+  return rows.reduce((t, r) => ({
+    toGo: t.toGo + r.toGo, out: t.out + r.out, back: t.back + r.back,
+    planned: t.planned + Math.max(r.planned, r.reserved), overdue: t.overdue || r.overdue, late: t.late + r.late.length,
+  }), { toGo: 0, out: 0, back: 0, planned: 0, overdue: false, late: 0 });
+}

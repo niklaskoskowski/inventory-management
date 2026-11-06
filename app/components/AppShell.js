@@ -526,7 +526,8 @@ export default {
                               @basket="showBasket = true" />
 
             <EventsView v-else-if="state.view === 'events'"
-                        @open="openAsset" @edit="openEvent" />
+                        @open="openAsset" @edit="openEvent"
+                        @basket="showBasket = true" @scan="showScanner = true" />
             <CalendarView v-else-if="state.view === 'calendar'" @open="openAsset" />
             <InsightsView v-else-if="state.view === 'insights'" @open="openAsset" />
             <BillingView v-else-if="state.view === 'billing' && invoicingEnabled" />

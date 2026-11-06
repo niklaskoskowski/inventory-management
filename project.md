@@ -439,6 +439,15 @@ an event pencilled in before anything is fixed is still an event.
 - The status is a workflow marker the operator moves by hand. It is deliberately **not** wired into
   availability — what is free is still decided by checkouts and reservations.
 
+**Gear list** (`event.gear`, `trax_normalize_event_gear()`): `[{id, assetId, qty, unitNos, setId,
+addedAt, addedBy, late}]` plus `gearSeq`. A planning list only — it blocks nothing. One entry per
+addition (`event.gearAdd`, kits expanded via `trax_expand_items()`); `late` is set when a checkout
+booking already exists on the event. `event.gearRemove` drops entries by id or by asset. The
+Events view derives one row per asset with `gearOf()` (`app/lib/events.js`): planned (gear list /
+active reservations) − out (open lines) − back (booking snapshots − open lines) = still to go.
+*Check out* fills the Selection via `selectForEvent()` with `state.basketPreset`; *Scan* opens the
+scanner with `state.scanEvent` (mode `event`).
+
 Written through `event.create`, `event.update` and `event.delete`. Deleting an event deletes
 nothing else: the lines, reservations and bookings that named it have their `eventId` cleared and
 the action reports how many.
