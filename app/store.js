@@ -190,6 +190,16 @@ const DEFAULT_SETTINGS = {
     batchMode: '',
     shiftMm: 0,
   },
+  // The optional connection to the Invoice app. Off until switched on.
+  // See lib/invoicing.php.
+  invoice: {
+    enabled: false,
+    url: '',
+    key: '',
+    pricesIncludeVat: false,
+    vatRate: 19,
+    lineMode: 'item',
+  },
   cron: {
     secret: '',
     dueSoonHours: 24,
@@ -233,6 +243,8 @@ export const state = reactive({
   // The booking whose hand-over signature is being asked for right now, or
   // null. Set after a checkout so the counter is prompted, not left to remember.
   signPrompt: null,
+  // The booking whose "Create invoice" sheet is open (InvoiceSheet.js), or null.
+  invoicePrompt: null,
   view: 'inventory',
   filters: loadViewState(),
   expandedSets: {},
@@ -1053,6 +1065,62 @@ export function markLabeledMany(items, labeled) {
     labelMarks.set(`${id}.${no ?? ''}`, { id, unitNo: no, labeled: Boolean(labeled) });
   }
   return drainLabelMarks();
+}
+
+// --- Invoicing (optional) ----------------------------------------------------
+// Settings → Invoicing. A booking becomes an invoice DRAFT in the Invoice app;
+// api.php forwards every call with the key only the server knows.
+
+/** Whether the Invoice connection is switched on. */
+export const invoicingEnabled = computed(() => Boolean(state.settings?.invoice?.enabled));
+
+/** Test the saved connection. */
+export async function invoicePing() {
+  const body = await api.post('invoice.ping', {});
+  return body.data?.invoice || {};
+}
+
+/** Customers in Invoice matching `q`; an exact e-mail match comes first. */
+export async function invoiceCustomers(q = '', email = '') {
+  const body = await api.post('invoice.customers', { q, email });
+  return body.data?.customers || [];
+}
+
+/** Create a customer in Invoice. */
+export async function invoiceCustomerCreate(customer) {
+  const body = await api.post('invoice.customerCreate', { customer });
+  return body.data?.customer || null;
+}
+
+/** Create the invoice draft for a booking; stores the link on the booking. */
+export async function invoiceCreate(payload) {
+  const data = await mutate('invoice.create', payload, { retryOnStale: false });
+  return data.invoiceResult || null;
+}
+
+/** Refresh number/status of linked bookings from Invoice (quiet on failure). */
+export async function invoiceSync(bookingIds = []) {
+  try {
+    const body = await api.post('invoice.sync', { bookingIds });
+    if (body.data?.changed) {
+      applySnapshot(body.data);
+      state.rev = body.rev ?? state.rev;
+    }
+    return body.data?.changed || 0;
+  } catch (error) {
+    if (error.isRedirecting) throw error;
+    return null;
+  }
+}
+
+/** Opens the "Create invoice" sheet for a booking. */
+export function openInvoice(bookingId) {
+  state.invoicePrompt = Number(bookingId) || null;
+}
+
+/** Forget a booking's invoice link here (nothing changes in Invoice). */
+export async function invoiceUnlink(bookingId) {
+  await mutate('invoice.unlink', { bookingId });
 }
 
 // --- Label printer -----------------------------------------------------------

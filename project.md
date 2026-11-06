@@ -56,6 +56,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `lib/config-local.php` | The single writer of `lib/config.local.php` (installer + Settings → Authentication). |
 | `lib/demo-data.php` | Optional demo dataset the installer can seed. |
 | `lib/printer.php` | The label printer: HTTP client for the `pt750w-print-trax` bridge, label sizes in mm, the settings patch check. Only `api.php` loads it. See [Label printer](#label-printer). |
+| `lib/invoicing.php` | The optional Invoice-app connection: HTTP client for Invoice's `integration.php`, the settings patch check, payload whitelists. Only `api.php` loads it. See [Invoicing](#invoicing-optional). |
 | `app/` | The Vue app (see [Frontend architecture](#frontend-architecture)). |
 
 ## Data model
@@ -200,6 +201,7 @@ moment the gear came back.
 | `status` | `OPEN` \| `RETURNED` \| `CANCELLED` |
 | `items`, `photos` | snapshot lines; hand-over / check-in photos |
 | `notified` | what the reminder cron has already sent; reset when `dueAt` moves, so the new date is reminded of |
+| `invoice` | `{docId, number, status, gross, currency, url, createdAt, actor, syncedAt}` or `null` — the document created for this booking in the Invoice app (`trax_normalize_booking_invoice()`). `number` is `null` while it is a draft there. See [Invoicing](#invoicing-optional) |
 
 ### Settings
 
@@ -553,6 +555,43 @@ Bridge trouble is `PRINTER` / HTTP **502** with `details.bridgeCode` — deliber
 which `app/api.js` would turn into a redirect to the login form. `trax_printer_request()` names the
 likely cause when the answer is not the bridge's JSON (Access login redirect, 401/403, Cloudflare
 5xx).
+
+## Invoicing (optional)
+
+Off by default (`settings.invoice.enabled`). A booking becomes an invoice **draft** in the separate
+Invoice app (`niklaskoskowski/invoice`, PHP + SQLite). Same shape as the label printer: the
+browser never talks to Invoice — `api.php` forwards with the key from `settings.invoice`
+(`lib/invoicing.php`, HTTP via `trax_printer_curl()` / `trax_printer_stream()`), so no CORS and
+the key stays server-side (it rides in the admin snapshot like `printer.token`).
+
+`settings.invoice` (`trax_normalize_invoice_settings()`): `enabled`, `url` (Invoice base URL;
+`/integration.php` is appended unless the URL already ends in `.php`), `key`, `pricesIncludeVat`
+(rates are gross → divided by `1 + vatRate/100`), `vatRate` (0..100, default 19), `lineMode`
+(`item` | `summary`). `trax_invoice_patch_error()` refuses a bad URL/key/rate and switching on
+without URL + key, before the mutation.
+
+| Action | What it does |
+|---|---|
+| `invoice.ping` | Settings → Invoicing → Test, with the SAVED settings |
+| `invoice.customers` `{q, email}` | Invoice customer search; an exact e-mail match comes first with `emailMatch` |
+| `invoice.customerCreate` `{customer}` | creates the customer in Invoice (whitelisted fields) |
+| `invoice.create` `{bookingId, customerId, items[], subject, serviceFrom, serviceTo, notes, force}` | creates the draft, stores `booking.invoice`; returns the snapshot + `invoiceResult {created, duplicate, document}` |
+| `invoice.sync` `{bookingIds?}` | refreshes `booking.invoice` from Invoice; a deleted/cancelled document unlinks the booking. Writes only when something changed |
+| `invoice.unlink` `{bookingId}` | forgets the link here; nothing changes in Invoice |
+
+The booking's ref in Invoice is `booking:<id>`. Invoice keeps one live document per ref and answers
+a second `invoices.create` with the existing one (`duplicate: true`) unless `force` — so a double
+click or a STALE retry cannot bill twice; the writes here use `trax_mutate(null, …)` for the same
+reason.
+
+Pricing is client-side like everything else: `app/lib/invoice-lines.js` → `buildInvoiceLines()`
+runs `rentalOfLines()` over the booking's **item snapshot** with the booking's `hire`, over
+`rentalDays(startAt, dueAt)` — the same figures as the rental quote PDF. One line per row (per
+piece for the whole period; a row with mixed unit prices gets total/qty at 4 decimals), German
+texts (`Mietzeitraum: 3 Tage · 01.11.2026 – 04.11.2026`), `missing` flags rows nothing could price.
+Every line is editable in `InvoiceSheet.js` (`state.invoicePrompt`, mounted in `AppShell`) before
+it is sent. `BillingView.js` (nav *Invoicing*, `needs: 'invoice'` — hidden while off) lists all
+non-cancelled bookings and syncs once on open.
 
 ## Derived availability & status rules
 

@@ -31,6 +31,7 @@ require_once __DIR__ . '/lib/mailer.php';
 require_once __DIR__ . '/lib/photo.php';
 require_once __DIR__ . '/lib/documents.php';
 require_once __DIR__ . '/lib/printer.php';
+require_once __DIR__ . '/lib/invoicing.php';
 require_once __DIR__ . '/lib/signing.php';
 
 // The same gate as admin.php, answering in JSON: a redirect to the login form
@@ -3964,6 +3965,13 @@ try {
                 }
             }
 
+            if (array_key_exists('invoice', $patch)) {
+                $invoiceError = trax_invoice_patch_error($patch['invoice'], trax_invoice_settings());
+                if ($invoiceError !== null) {
+                    trax_fail('BAD_REQUEST', $invoiceError);
+                }
+            }
+
             $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($patch): array {
                 // Deep-merged so a patch can name one field, then re-validated
                 // as a whole — the same normaliser that runs on every read.
@@ -4171,6 +4179,200 @@ try {
                 // Gone already, or the bridge is down: it expires on its own.
             }
             trax_ok([]);
+        }
+
+        // --- Invoicing (optional connection to the Invoice app) -----------
+        // The browser never talks to Invoice: these forward with the key from
+        // settings.invoice (lib/invoicing.php). None of them needs `rev`
+        // except where a booking is written, and even then a stale tab must
+        // not create a second invoice — so those writes ignore the client rev.
+
+        case 'invoice.ping': {
+            // Settings → Invoicing → "Test": uses the SAVED settings.
+            try {
+                trax_ok(['invoice' => trax_invoice_request(trax_invoice_settings(), 'ping', [], 15)]);
+            } catch (TraxInvoiceError $e) {
+                trax_fail('INVOICE', $e->getMessage(), 502, ['remoteCode' => $e->remoteCode]);
+            }
+        }
+
+        case 'invoice.customers': {
+            try {
+                $invoice = trax_invoice_enabled_or_fail();
+                trax_ok(['customers' => trax_invoice_request($invoice, 'customers.search', [
+                    'q'     => trax_str($payload['q'] ?? '', 100),
+                    'email' => trax_str($payload['email'] ?? '', 200),
+                ])]);
+            } catch (TraxInvoiceError $e) {
+                trax_fail('INVOICE', $e->getMessage(), 502, ['remoteCode' => $e->remoteCode]);
+            }
+        }
+
+        case 'invoice.customerCreate': {
+            try {
+                $invoice = trax_invoice_enabled_or_fail();
+                $customer = trax_invoice_customer_payload(is_array($payload['customer'] ?? null) ? $payload['customer'] : []);
+                trax_ok(['customer' => trax_invoice_request($invoice, 'customers.create', ['customer' => $customer])]);
+            } catch (TraxInvoiceError $e) {
+                trax_fail('INVOICE', $e->getMessage(), $e->remoteCode === 'invalid' ? 400 : 502, ['remoteCode' => $e->remoteCode]);
+            }
+        }
+
+        case 'invoice.create': {
+            // One booking → one invoice DRAFT in Invoice. Invoice refuses a
+            // second live document for the same booking unless `force` is set
+            // (it answers with the existing one instead), so a double click or
+            // a retry cannot bill twice.
+            $bookingId  = req_int($payload, 'bookingId');
+            $customerId = req_int($payload, 'customerId');
+            $data = trax_read_data();
+
+            $booking = null;
+            foreach ($data['bookings'] as $row) {
+                if ((int)$row['id'] === $bookingId) {
+                    $booking = $row;
+                    break;
+                }
+            }
+            if ($booking === null) {
+                trax_fail('BAD_REQUEST', "Booking #{$bookingId} not found.", 404);
+            }
+
+            try {
+                $invoice = trax_invoice_enabled_or_fail($data);
+                $items = trax_invoice_items_payload($payload['items'] ?? null, $invoice['vatRate']);
+                if ($items === []) {
+                    trax_fail('BAD_REQUEST', 'The invoice has no lines.');
+                }
+                $dateOf = static function (mixed $value): ?string {
+                    $s = trax_str($value, 10);
+                    return preg_match('/^\d{4}-\d{2}-\d{2}$/', $s) === 1 ? $s : null;
+                };
+                $answer = trax_invoice_request($invoice, 'invoices.create', [
+                    'ref'             => trax_invoice_ref($bookingId),
+                    'customer_id'     => $customerId,
+                    'items'           => $items,
+                    'subject'         => trax_str($payload['subject'] ?? '', 300),
+                    'service_from'    => $dateOf($payload['serviceFrom'] ?? null),
+                    'service_to'      => $dateOf($payload['serviceTo'] ?? null),
+                    'order_reference' => trax_str($payload['orderReference'] ?? '', 200),
+                    'notes_internal'  => trax_str($payload['notes'] ?? '', 2000),
+                    'force'           => trax_bool($payload['force'] ?? null, false),
+                ], 30);
+            } catch (TraxInvoiceError $e) {
+                trax_fail('INVOICE', $e->getMessage(), $e->remoteCode === 'invalid' ? 400 : 502, ['remoteCode' => $e->remoteCode]);
+            }
+
+            $doc = is_array($answer['document'] ?? null) ? $answer['document'] : null;
+            if ($doc === null) {
+                trax_fail('INVOICE', 'Invoice did not return the document.', 502);
+            }
+
+            $result = trax_mutate(null, function (array &$data, array &$checkouts) use ($bookingId, $doc, $actor): array {
+                foreach ($data['bookings'] as &$row) {
+                    if ((int)$row['id'] === $bookingId) {
+                        $row['invoice'] = trax_invoice_link_from_doc($doc, null, $actor);
+                    }
+                }
+                unset($row);
+                return [];
+            });
+
+            trax_ok(array_merge(trax_snapshot($result['data'], $result['checkouts']), [
+                'invoiceResult' => [
+                    'created'   => (bool)($answer['created'] ?? false),
+                    'duplicate' => (bool)($answer['duplicate'] ?? false),
+                    'document'  => $doc,
+                ],
+            ]), $result['rev']);
+        }
+
+        case 'invoice.sync': {
+            // Refreshes number/status/total of linked bookings from Invoice. A
+            // draft deleted (or cancelled) there unlinks the booking here, so
+            // it can be invoiced again.
+            $ids = array_values(array_unique(array_filter(array_map(
+                static fn($v) => trax_int($v) ?? 0,
+                is_array($payload['bookingIds'] ?? null) ? array_slice($payload['bookingIds'], 0, 500) : []
+            ))));
+            $data = trax_read_data();
+            $refs = [];
+            foreach ($data['bookings'] as $row) {
+                if (($row['invoice'] ?? null) !== null && ($ids === [] || in_array((int)$row['id'], $ids, true))) {
+                    $refs[] = trax_invoice_ref((int)$row['id']);
+                }
+            }
+            if ($refs === []) {
+                trax_ok(['changed' => 0]);
+            }
+            try {
+                $status = trax_invoice_request(trax_invoice_enabled_or_fail($data), 'invoices.status', ['refs' => $refs]);
+            } catch (TraxInvoiceError $e) {
+                trax_fail('INVOICE', $e->getMessage(), 502, ['remoteCode' => $e->remoteCode]);
+            }
+            $status = is_array($status) ? $status : [];
+
+            // Nothing moved in Invoice → no write, no new rev.
+            $differs = static function (array $row, array $status): bool {
+                $ref = trax_invoice_ref((int)$row['id']);
+                if (($row['invoice'] ?? null) === null || !array_key_exists($ref, $status)) {
+                    return false;
+                }
+                $doc = $status[$ref];
+                if (!is_array($doc)) {
+                    return true;
+                }
+                return (int)($doc['id'] ?? 0) !== $row['invoice']['docId']
+                    || (($doc['number'] ?? null) ?: null) !== $row['invoice']['number']
+                    || (string)($doc['status'] ?? '') !== $row['invoice']['status']
+                    || round((float)($doc['gross'] ?? 0), 2) !== (float)$row['invoice']['gross'];
+            };
+            $pending = array_filter($data['bookings'], static fn($row) => $differs($row, $status));
+            if ($pending === []) {
+                trax_ok(['changed' => 0]);
+            }
+
+            $result = trax_mutate(null, function (array &$data, array &$checkouts) use ($status, $actor): array {
+                $changed = 0;
+                foreach ($data['bookings'] as &$row) {
+                    $ref = trax_invoice_ref((int)$row['id']);
+                    if (($row['invoice'] ?? null) === null || !array_key_exists($ref, $status)) {
+                        continue;
+                    }
+                    $doc  = $status[$ref];
+                    $next = is_array($doc) ? trax_invoice_link_from_doc($doc, $row['invoice'], $actor) : null;
+                    $same = $next !== null
+                        && $next['docId'] === $row['invoice']['docId']
+                        && $next['number'] === $row['invoice']['number']
+                        && $next['status'] === $row['invoice']['status']
+                        && $next['gross'] === $row['invoice']['gross'];
+                    if (!$same) {
+                        $row['invoice'] = $next;
+                        $changed++;
+                    }
+                }
+                unset($row);
+                return ['changed' => $changed];
+            });
+
+            trax_ok(array_merge(trax_snapshot($result['data'], $result['checkouts']), [
+                'changed' => $result['result']['changed'] ?? 0,
+            ]), $result['rev']);
+        }
+
+        case 'invoice.unlink': {
+            // Forget the link here only (nothing is deleted in Invoice).
+            $bookingId = req_int($payload, 'bookingId');
+            $result = trax_mutate(null, function (array &$data, array &$checkouts) use ($bookingId): array {
+                foreach ($data['bookings'] as &$row) {
+                    if ((int)$row['id'] === $bookingId) {
+                        $row['invoice'] = null;
+                    }
+                }
+                unset($row);
+                return [];
+            });
+            trax_ok(trax_snapshot($result['data'], $result['checkouts']), $result['rev']);
         }
 
         // --- Account -------------------------------------------------------

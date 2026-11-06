@@ -6,6 +6,22 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-11-06 — branch `claude/vigilant-allen-50a6i2`
+
+### Added
+
+- **Invoicing via the Invoice app (optional, off by default).** Settings → Invoicing connects to
+  the Invoice app (URL + API key, *Test*, rates net/gross, VAT rate, one line per item or a summary
+  line). Switched on, a new **Invoicing** view lists every booking — returned ones too — with
+  *To invoice / Invoiced / All*, the estimated amount and the status from Invoice. **Create
+  invoice** (there, in the checkout detail menu and on a reservation) picks the customer from
+  Invoice's list (exact e-mail match pre-selected) or creates one, shows the lines priced like the
+  rental quote PDF for editing, and creates a **draft** in Invoice. One invoice per booking:
+  Invoice answers a second request with the existing document. A draft deleted in Invoice puts the
+  booking back under *To invoice*. New: `lib/invoicing.php`, `app/lib/invoice-lines.js`,
+  `app/components/InvoiceSheet.js`, `app/components/BillingView.js`; `booking.invoice`,
+  `settings.invoice`; actions `invoice.ping|customers|customerCreate|create|sync|unlink`.
+
 ## 2026-10-15 — branch `UI-test`
 
 ### Added

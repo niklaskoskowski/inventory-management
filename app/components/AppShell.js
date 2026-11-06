@@ -1,7 +1,7 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import {
   state, load, setView, clearSelection, overdueCheckouts, activeReservations,
-  selectedItemIds, selectedUnitCount, sets, toast,
+  selectedItemIds, selectedUnitCount, sets, toast, invoicingEnabled,
 } from '../store.js';
 import * as api from '../api.js';
 import { theme, setThemePref, THEME_OPTIONS } from '../lib/theme.js';
@@ -28,6 +28,8 @@ import LabelDrawer from './LabelDrawer.js';
 import ScanDrawer from './ScanDrawer.js';
 import BulkEditDrawer from './BulkEditDrawer.js';
 import SignatureSheet from './SignatureSheet.js';
+import InvoiceSheet from './InvoiceSheet.js';
+import BillingView from './BillingView.js';
 
 const NAV = [
   { id: 'dashboard', label: 'Overview', icon: 'bi-house', section: '' },
@@ -38,6 +40,8 @@ const NAV = [
   { id: 'events', label: 'Events', icon: 'bi-flag', section: 'Rentals' },
   { id: 'calendar', label: 'Calendar', icon: 'bi-calendar3', section: 'Rentals' },
   { id: 'insights', label: 'Insights', icon: 'bi-bar-chart', section: 'Rentals' },
+  // Only while Settings → Invoicing is switched on (`needs`).
+  { id: 'billing', label: 'Invoicing', icon: 'bi-receipt', section: 'Rentals', needs: 'invoice' },
   { id: 'settings', label: 'Settings', icon: 'bi-gear', section: 'end' },
 ];
 
@@ -56,7 +60,7 @@ const TABS = [
   { id: 'reservations', label: 'Reservations', icon: 'bi-calendar-check', active: 'bi-calendar-check-fill' },
   { id: 'more', label: 'More', icon: 'bi-three-dots', active: 'bi-three-dots' },
 ];
-const MORE = ['dashboard', 'kits', 'events', 'calendar', 'insights', 'settings'];
+const MORE_ALL = ['dashboard', 'kits', 'events', 'calendar', 'insights', 'billing', 'settings'];
 
 export default {
   name: 'AppShell',
@@ -65,6 +69,7 @@ export default {
     DashboardView, CheckoutsView, ReservationsView, EventsView, EventSheet,
     CalendarView, InsightsView,
     SettingsView, SetEditor, BasketDrawer, LabelDrawer, ScanDrawer, BulkEditDrawer, SignatureSheet,
+    InvoiceSheet, BillingView,
   },
   setup() {
     // Open drawers. Only one asset sheet at a time; `sheetId === 0` means "new".
@@ -88,9 +93,19 @@ export default {
     const scrolled = ref(false);
     const onScroll = () => { scrolled.value = window.scrollY > 24; };
 
+    // Optional views drop out of the menus while their feature is off.
+    const featureOn = (item) => !item?.needs || (item.needs === 'invoice' && invoicingEnabled.value);
+    const navSections = computed(() => NAV_SECTIONS.map((section) => ({
+      ...section,
+      items: section.items.filter(featureOn),
+    })));
+    const MORE = computed(() => MORE_ALL.filter((id) => featureOn(NAV.find((item) => item.id === id))));
+    // Switched off while on the view → back to the checkouts.
+    watch(invoicingEnabled, (on) => { if (!on && state.view === 'billing') setView('checkouts'); });
+
     const tabActive = (id) => {
       if (id === 'scan') return showScanner.value;
-      if (id === 'more') return showMore.value || MORE.includes(state.view);
+      if (id === 'more') return showMore.value || MORE.value.includes(state.view);
       return state.view === id;
     };
 
@@ -313,7 +328,7 @@ export default {
     });
 
     return {
-      state, NAV, NAV_SECTIONS, TABS, MORE, setView, load, clearSelection,
+      state, NAV, NAV_SECTIONS, navSections, invoicingEnabled, TABS, MORE, setView, load, clearSelection,
       showMore, scrolled, tabActive, onTab, go, navItem, subtitle,
       theme, setThemePref, THEME_OPTIONS,
       sheetId, sheetOpen, labelId, showBasket, showScanner, showBulk,
@@ -343,7 +358,7 @@ export default {
           </template>
         </a>
 
-        <template v-for="section in NAV_SECTIONS" :key="section.title">
+        <template v-for="section in navSections" :key="section.title">
           <div v-if="section.title" class="trax-nav-section">{{ section.title }}</div>
           <button v-for="item in section.items" :key="item.id" type="button"
                   class="trax-nav-link" :class="{ active: state.view === item.id }"
@@ -514,6 +529,7 @@ export default {
                         @open="openAsset" @edit="openEvent" />
             <CalendarView v-else-if="state.view === 'calendar'" @open="openAsset" />
             <InsightsView v-else-if="state.view === 'insights'" @open="openAsset" />
+            <BillingView v-else-if="state.view === 'billing' && invoicingEnabled" />
             <SettingsView v-else-if="state.view === 'settings'" />
           </template>
         </main>
@@ -591,6 +607,9 @@ export default {
 
     <!-- The hand-over signature: asked for right after a checkout. -->
     <SignatureSheet v-if="state.signPrompt" :key="state.signPrompt" />
+
+    <!-- "Create invoice" for one booking (optional Invoice connection). -->
+    <InvoiceSheet v-if="state.invoicePrompt" :key="'inv' + state.invoicePrompt" />
 
     <ToastHost />
 

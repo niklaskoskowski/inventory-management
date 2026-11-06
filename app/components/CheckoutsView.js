@@ -1,7 +1,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import {
   state, mutate, toast, getAsset, load, eventById, openPreview,
-  signBooking, unsignBooking, termsUrl, privacyUrl, askSignature,
+  signBooking, unsignBooking, termsUrl, privacyUrl, askSignature, invoicingEnabled, openInvoice,
 } from '../store.js';
 import * as api from '../api.js';
 import {
@@ -734,7 +734,7 @@ export default {
       detailKey, detail, openDetail, closeDetail, showBooking,
       detailLines, detailUnits, detailCheckIn, detailExtend,
       formatDateTime, daysOverdue, isOverdue, formatTotals, emit,
-      rentalPdf, daysLabel, HIRE_LABEL,
+      rentalPdf, daysLabel, HIRE_LABEL, invoicingEnabled, openInvoice,
       signing, signName, signBusy, unsigning, signTerms, signLocked, termsUrl,
       openSignature, closeSignature, saveSignature, removeSignature, openSignatureImage,
     };
@@ -1012,6 +1012,14 @@ export default {
                   :aria-label="'Rental quote PDF for ' + detail.customerName">
             <i class="bi bi-receipt"></i> Rental quote PDF
           </button>
+          <template v-if="invoicingEnabled && bookingOf(detail)">
+            <div class="trax-menu-sep"></div>
+            <button class="trax-menu-item" @click="openInvoice(bookingOf(detail).id)"
+                    :aria-label="'Create an invoice for ' + detail.customerName">
+              <i class="bi bi-receipt-cutoff"></i>
+              {{ bookingOf(detail).invoice ? 'Invoice ' + (bookingOf(detail).invoice.number || 'draft') + '…' : 'Create invoice…' }}
+            </button>
+          </template>
           <template v-if="bookingOf(detail)">
             <div class="trax-menu-sep"></div>
             <button class="trax-menu-item" @click="copyLink(detail)"

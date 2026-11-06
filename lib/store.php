@@ -1023,6 +1023,64 @@ function trax_normalize_booking(mixed $raw): array
         'notified'      => trax_normalize_notified($raw['notified'] ?? null),
         // Condition photos taken at hand-over or check-in.
         'photos'        => $photos,
+        // The invoice draft created for this booking in the Invoice app, or
+        // null. Optional feature (settings.invoice); see lib/invoicing.php.
+        'invoice'       => trax_normalize_booking_invoice($raw['invoice'] ?? null),
+    ];
+}
+
+/**
+ * Link to a document in the Invoice app: {docId, number, status, gross,
+ * currency, url, createdAt, actor, syncedAt} or null. `number` is null while
+ * the document is still a draft there.
+ */
+function trax_normalize_booking_invoice(mixed $raw): ?array
+{
+    if (!is_array($raw)) {
+        return null;
+    }
+    $docId = trax_int($raw['docId'] ?? null);
+    if ($docId === null || $docId <= 0) {
+        return null;
+    }
+    $url    = trax_str($raw['url'] ?? '', 500);
+    $gross  = trax_float($raw['gross'] ?? null);
+    $number = trax_str($raw['number'] ?? '', 60);
+
+    return [
+        'docId'     => $docId,
+        'number'    => $number === '' ? null : $number,
+        'status'    => trax_enum($raw['status'] ?? null, TRAX_INVOICE_DOC_STATUSES, 'draft'),
+        'gross'     => $gross === null ? null : round($gross, 2),
+        'currency'  => strtoupper(trax_str($raw['currency'] ?? 'EUR', 3)) ?: 'EUR',
+        'url'       => preg_match('~^https?://~i', $url) === 1 ? $url : '',
+        'createdAt' => trax_iso($raw['createdAt'] ?? null) ?? gmdate('Y-m-d\TH:i:s.000\Z'),
+        'actor'     => trax_str($raw['actor'] ?? '', 120),
+        'syncedAt'  => trax_iso($raw['syncedAt'] ?? null),
+    ];
+}
+
+/**
+ * settings.invoice — the optional connection to the Invoice app. Off by
+ * default. The key rides in the admin snapshot like printer.token: the
+ * snapshot only ever goes to a signed-in operator, and the browser never
+ * talks to Invoice itself (api.php forwards).
+ */
+function trax_normalize_invoice_settings(mixed $raw): array
+{
+    $raw  = is_array($raw) ? $raw : [];
+    $rate = trax_float($raw['vatRate'] ?? null);
+    $mode = (string)($raw['lineMode'] ?? '');
+
+    return [
+        'enabled'          => trax_bool($raw['enabled'] ?? null, false),
+        'url'              => trax_printer_url($raw['url'] ?? '') ?? '',
+        'key'              => trax_printer_secret($raw['key'] ?? ''),
+        // Are the hire rates gross (VAT included)? Invoice wants net prices.
+        'pricesIncludeVat' => trax_bool($raw['pricesIncludeVat'] ?? null, false),
+        'vatRate'          => $rate === null ? 19.0 : round(max(0.0, min(100.0, $rate)), 2),
+        // item = one invoice line per asset line, summary = one line per booking.
+        'lineMode'         => in_array($mode, ['item', 'summary'], true) ? $mode : 'item',
     ];
 }
 
@@ -2530,6 +2588,8 @@ function trax_normalize_settings(mixed $raw): array
         ],
         // The network label printer. Off by default; see trax_normalize_printer().
         'printer' => trax_normalize_printer($raw['printer'] ?? null),
+        // The Invoice app connection. Off by default; see trax_normalize_invoice_settings().
+        'invoice' => trax_normalize_invoice_settings($raw['invoice'] ?? null),
         'cron' => [
             // Shared secret for triggering cron.php over HTTP. Empty means the
             // HTTP trigger is refused outright; CLI never needs it.

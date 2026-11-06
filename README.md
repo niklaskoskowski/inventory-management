@@ -227,6 +227,34 @@ Your web host has to be allowed to make outgoing HTTPS requests (it uses
 `curl`, or PHP streams without it). The browser never talks to the bridge: the
 token stays on the server.
 
+## Invoicing with the Invoice app (optional)
+
+Off by default. If you also run the **Invoice** app (`niklaskoskowski/invoice`),
+a booking can become an invoice **draft** there with one click — numbering,
+finalising and sending stay in Invoice.
+
+1. In Invoice: **Einstellungen → Integrationen → API-Key erzeugen**, copy the
+   key (shown once), tick **Verbindung aktivieren**, **Speichern**.
+2. Here: **Settings → Invoicing** — switch it on, enter the **Invoice URL**
+   (`https://example.com/invoice`) and the **API key**, choose whether your
+   rental rates include VAT, **Save**, then **Test**.
+
+Then:
+
+- **Invoicing** (menu) lists every booking — also ones returned long ago —
+  with *To invoice / Invoiced / All*, the estimated amount and the status from
+  Invoice (Draft, number, Paid …). **Refresh status** pulls numbers and payments.
+- **Create invoice** opens a sheet: pick the customer from Invoice's customer
+  list (an exact e-mail match is pre-selected) or create one there, check or edit
+  the lines (priced exactly like the rental quote PDF), and create the draft.
+  It is also in the checkout detail (⋯ menu) and on a reservation's menu.
+- A booking can only be invoiced once; Invoice answers with the existing
+  document instead. Delete the draft in Invoice and the booking shows up under
+  *To invoice* again.
+
+The browser never talks to Invoice: the key stays on this server, which needs
+outgoing HTTPS (`curl` or PHP streams).
+
 ---
 
 ## Where your data lives
