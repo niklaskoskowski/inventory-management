@@ -1449,7 +1449,49 @@ function trax_normalize_event(mixed $raw): array
         'status'    => trax_slug($raw['status'] ?? '', 40),
         'notes'     => trax_str($raw['notes'] ?? ''),
         'createdAt' => trax_iso($raw['createdAt'] ?? null) ?? $now,
+        // The gear list: what this job needs, planned before anything goes out.
+        // A planning list only — it blocks nothing; availability is still
+        // decided by checkouts and reservations. One entry per addition, so a
+        // late addition ("nachgeordert") stays visible with when and who.
+        'gear'      => trax_normalize_event_gear($raw['gear'] ?? null),
+        // Highest gear entry id handed out; only ever up.
+        'gearSeq'   => max(
+            trax_clamp_int($raw['gearSeq'] ?? null, 0, PHP_INT_MAX, 0),
+            ...array_map(static fn($g) => (int)$g['id'], trax_normalize_event_gear($raw['gear'] ?? null) ?: [['id' => 0]])
+        ),
     ];
+}
+
+/** An event's gear list, normalised (see trax_normalize_event()). */
+function trax_normalize_event_gear(mixed $raw): array
+{
+    $out = [];
+    foreach (is_array($raw) ? $raw : [] as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        [$assetId, $qty, $unitNos] = trax_item_pair($entry);
+        $id = trax_int($entry['id'] ?? null);
+        if ($assetId === null || $assetId <= 0 || $id === null || $id <= 0) {
+            continue;
+        }
+        $out[] = [
+            'id'      => $id,
+            'assetId' => $assetId,
+            'qty'     => $qty,
+            'unitNos' => $unitNos,
+            // The kit it was added as, for the label only.
+            'setId'   => trax_int($entry['setId'] ?? null),
+            'addedAt' => trax_iso($entry['addedAt'] ?? null) ?? gmdate('Y-m-d\TH:i:s.000\Z'),
+            'addedBy' => trax_str($entry['addedBy'] ?? '', 120),
+            // Added after gear had already gone out on this event.
+            'late'    => trax_bool($entry['late'] ?? null, false),
+        ];
+        if (count($out) >= 2000) {
+            break;
+        }
+    }
+    return $out;
 }
 
 /** Next unused event id. Monotonic, so a deleted event's id is never reissued. */

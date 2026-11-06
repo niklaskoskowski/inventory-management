@@ -245,6 +245,10 @@ export const state = reactive({
   signPrompt: null,
   // The booking whose "Create invoice" sheet is open (InvoiceSheet.js), or null.
   invoicePrompt: null,
+  // Opening the Selection drawer from an event: {eventId, hire} pre-set there.
+  basketPreset: null,
+  // The scanner in "add to event" mode: the event id, or null.
+  scanEvent: null,
   view: 'inventory',
   filters: loadViewState(),
   expandedSets: {},
@@ -1307,6 +1311,32 @@ export async function unsignBooking(bookingId) {
 // Plain records. Nothing here touches availability: an event is a label that
 // checkout lines and reservations carry, and what is booked against one is
 // worked out from them.
+
+/** Adds items ([{id, qty, unitNos?}], kits allowed) to an event's gear list. */
+export async function eventGearAdd(eventId, items) {
+  return mutate('event.gearAdd', { eventId, items });
+}
+
+/** Removes planned gear from an event: by entry ids, or every entry of one asset. */
+export async function eventGearRemove(eventId, { entryIds = [], assetId = null } = {}) {
+  return mutate('event.gearRemove', { eventId, entryIds, assetId });
+}
+
+/**
+ * Loads gear into the Selection for a checkout on an event and pre-sets the
+ * event (and hire type) in the drawer. `rows`: [{assetId, qty, unitNos}].
+ */
+export function selectForEvent(eventId, rows, hire = null) {
+  clearSelection();
+  for (const r of rows) {
+    const id = Number(r.assetId);
+    if (!id || state.selected.includes(id)) continue;
+    state.selected.push(id);
+    state.quantities[id] = Math.max(1, Number(r.qty) || 1);
+    if (r.unitNos?.length) state.unitChoice[id] = [...r.unitNos];
+  }
+  state.basketPreset = { eventId: Number(eventId), hire };
+}
 
 export async function saveEvent(event) {
   const action = event?.id ? 'event.update' : 'event.create';

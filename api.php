@@ -2926,6 +2926,82 @@ try {
         // booked against one is the checkout lines and reservations that name
         // it, which is why nothing here touches availability.
 
+        // --- Event gear list (planning only, blocks nothing) --------------
+
+        case 'event.gearAdd': {
+            // items: [{id, qty, unitNos?}] — kits are expanded into their members.
+            $eventId = req_int($payload, 'eventId');
+            $items   = req_items($payload, 'items');
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($eventId, $items, $actor): array {
+                $index = null;
+                foreach ($data['events'] as $i => $event) {
+                    if ((int)$event['id'] === $eventId) {
+                        $index = $i;
+                    }
+                }
+                if ($index === null) {
+                    throw new TraxInvalid("Event #{$eventId} not found.");
+                }
+                $byId = trax_index_assets($data['assets']);
+                // Late = something has already gone out on this event.
+                $late = false;
+                foreach ($data['bookings'] as $booking) {
+                    if ((int)($booking['eventId'] ?? 0) === $eventId && $booking['kind'] === 'checkout' && $booking['status'] !== 'CANCELLED') {
+                        $late = true;
+                    }
+                }
+                $event = $data['events'][$index];
+                $seq   = (int)$event['gearSeq'];
+                $now   = gmdate('Y-m-d\TH:i:s.000\Z');
+                $added = 0;
+                foreach ($items as $item) {
+                    $asset = $byId[$item['assetId']] ?? null;
+                    if ($asset === null) {
+                        continue;
+                    }
+                    $setId = $asset['kind'] === 'SET' ? (int)$asset['id'] : null;
+                    foreach (trax_expand_items([$item], $byId) as $line) {
+                        $event['gear'][] = [
+                            'id' => ++$seq, 'assetId' => $line['assetId'], 'qty' => $line['qty'], 'unitNos' => $line['unitNos'],
+                            'setId' => $setId, 'addedAt' => $now, 'addedBy' => $actor, 'late' => $late,
+                        ];
+                        $added += $line['qty'];
+                    }
+                }
+                if ($added === 0) {
+                    throw new TraxInvalid('Nothing to add.');
+                }
+                $event['gearSeq'] = $seq;
+                $data['events'][$index] = trax_normalize_event($event);
+                trax_append_history($data, 'event_gear_added', ['note' => $event['name'] . ': +' . $added, 'actor' => $actor]);
+                return ['added' => $added, 'late' => $late];
+            });
+            trax_ok(array_merge(trax_snapshot($result['data'], $result['checkouts']), $result['result']), $result['rev']);
+        }
+
+        case 'event.gearRemove': {
+            // Removes planned entries (by entry id, or every entry of one asset).
+            // Nothing that is out is touched — that is returned, not removed.
+            $eventId  = req_int($payload, 'eventId');
+            $entryIds = isset($payload['entryIds']) ? req_ids($payload, 'entryIds') : [];
+            $assetId  = trax_int($payload['assetId'] ?? null);
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($eventId, $entryIds, $assetId, $actor): array {
+                foreach ($data['events'] as $i => $event) {
+                    if ((int)$event['id'] !== $eventId) {
+                        continue;
+                    }
+                    $before = count($event['gear']);
+                    $event['gear'] = array_values(array_filter($event['gear'], static fn($g) =>
+                        !in_array((int)$g['id'], $entryIds, true) && ($assetId === null || (int)$g['assetId'] !== $assetId)));
+                    $data['events'][$i] = trax_normalize_event($event);
+                    trax_append_history($data, 'event_gear_removed', ['note' => $event['name'], 'actor' => $actor]);
+                    return ['removed' => $before - count($event['gear'])];
+                }
+                throw new TraxInvalid("Event #{$eventId} not found.");
+            });
+            trax_ok(array_merge(trax_snapshot($result['data'], $result['checkouts']), $result['result']), $result['rev']);
+        }
+
         case 'event.create':
         case 'event.update': {
             $creating = $action === 'event.create';

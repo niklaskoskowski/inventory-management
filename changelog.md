@@ -6,6 +6,24 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-11-09 — branch `claude/vigilant-allen-50a6i2`
+
+### Added
+
+- **Event gear list.** An event now has its own list of what the job needs (`event.gear`,
+  planning only — it blocks nothing; availability is still decided by checkouts and reservations).
+  Add gear in the event (search by name, ID or unit code like `161.2`, with quantity; kits are
+  expanded), by *Scan* (scanner mode *Event*: every scan goes on the list), or from the inventory
+  Selection with *Only add to the event's gear list (no checkout)*. Additions made after gear has
+  gone out are marked *added later* with when and who. New actions `event.gearAdd`,
+  `event.gearRemove`.
+- **One line per item** in the event: *planned* (still to check out), *out* (with due date,
+  red when overdue), *back*, plus unit codes; gear that went out without being planned shows as
+  *not on the list*. Converted reservations no longer show up next to their checkout.
+- **Check out / Return from the event**: *Check out* loads what is still to go (ticked rows, or
+  all) into the Selection with the event pre-set (customer and return date from the event, hire
+  type of earlier lines); *Return* checks in the ticked rows' lines (or everything out).
+
 ## 2026-11-08 — branch `claude/vigilant-allen-50a6i2`
 
 ### Changed
