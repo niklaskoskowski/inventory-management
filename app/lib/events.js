@@ -159,7 +159,7 @@ export function gearOf(event, { checkouts = [], bookings = [], reservations = []
   for (const g of event.gear || []) {
     const r = row(g.assetId);
     r.planned += Math.max(1, Number(g.qty) || 1);
-    r.unitsPlanned.push(...(g.unitNos || []));
+    for (const no of g.unitNos || []) if (!r.unitsPlanned.includes(no)) r.unitsPlanned.push(no);
     r.entries.push(g);
     if (g.late) r.late.push(g);
   }
@@ -172,7 +172,7 @@ export function gearOf(event, { checkouts = [], bookings = [], reservations = []
     if (Number(line?.eventId) !== id) continue;
     const r = row(line.assetId);
     r.out += Math.max(1, Number(line.qty) || 1);
-    r.unitsOut.push(...(line.unitNos || []));
+    for (const no of line.unitNos || []) if (!r.unitsOut.includes(no)) r.unitsOut.push(no);
     r.lines.push(line);
     r.name = r.name || line.name || '';
     const due = parseDate(line.dueAt || line.returnDate);

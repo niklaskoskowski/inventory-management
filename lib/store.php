@@ -1466,6 +1466,9 @@ function trax_normalize_event(mixed $raw): array
 function trax_normalize_event_gear(mixed $raw): array
 {
     $out = [];
+    // A unit is one physical piece: it can be on the list once. A repeat (an
+    // earlier double scan) is dropped here, so stored data repairs itself.
+    $seenUnits = [];
     foreach (is_array($raw) ? $raw : [] as $entry) {
         if (!is_array($entry)) {
             continue;
@@ -1474,6 +1477,20 @@ function trax_normalize_event_gear(mixed $raw): array
         $id = trax_int($entry['id'] ?? null);
         if ($assetId === null || $assetId <= 0 || $id === null || $id <= 0) {
             continue;
+        }
+        if ($unitNos !== []) {
+            $fresh = [];
+            foreach ($unitNos as $no) {
+                if (!isset($seenUnits[$assetId][$no])) {
+                    $seenUnits[$assetId][$no] = true;
+                    $fresh[] = $no;
+                }
+            }
+            $qty -= count($unitNos) - count($fresh);
+            $unitNos = $fresh;
+            if ($qty <= 0) {
+                continue;
+            }
         }
         $out[] = [
             'id'      => $id,

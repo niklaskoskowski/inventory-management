@@ -2954,6 +2954,15 @@ try {
                 $seq   = (int)$event['gearSeq'];
                 $now   = gmdate('Y-m-d\TH:i:s.000\Z');
                 $added = 0;
+                // What is already planned per asset: units by number, and the count.
+                $plannedUnits = [];
+                $plannedQty   = [];
+                foreach ($event['gear'] as $g) {
+                    $plannedQty[$g['assetId']] = ($plannedQty[$g['assetId']] ?? 0) + (int)$g['qty'];
+                    foreach ($g['unitNos'] as $no) {
+                        $plannedUnits[$g['assetId']][$no] = true;
+                    }
+                }
                 foreach ($items as $item) {
                     $asset = $byId[$item['assetId']] ?? null;
                     if ($asset === null) {
@@ -2961,6 +2970,32 @@ try {
                     }
                     $setId = $asset['kind'] === 'SET' ? (int)$asset['id'] : null;
                     foreach (trax_expand_items([$item], $byId) as $line) {
+                        $target = $byId[$line['assetId']] ?? null;
+                        if ($target === null) {
+                            continue;
+                        }
+                        // A unit is one physical piece: once on the list, and it must exist.
+                        if ($line['unitNos'] !== []) {
+                            $known = array_map(static fn($u) => (int)$u['no'], $target['units'] ?? []);
+                            foreach ($line['unitNos'] as $no) {
+                                $code = trax_unit_code((int)$target['id'], (int)$no);
+                                if (!in_array((int)$no, $known, true)) {
+                                    throw new TraxInvalid("{$code} is not a unit of {$target['name']}.");
+                                }
+                                if (isset($plannedUnits[$target['id']][$no])) {
+                                    throw new TraxInvalid("{$code} is already on the gear list.");
+                                }
+                                $plannedUnits[$target['id']][$no] = true;
+                            }
+                        }
+                        // Never plan more than exist.
+                        $have = trax_asset_has_units($target) ? count($target['units']) : (int)$target['quantity'];
+                        $after = ($plannedQty[$target['id']] ?? 0) + (int)$line['qty'];
+                        if ($after > $have) {
+                            $already = $plannedQty[$target['id']] ?? 0;
+                            throw new TraxInvalid("{$target['name']}: only {$have} exist and {$already} are already on the list.");
+                        }
+                        $plannedQty[$target['id']] = $after;
                         $event['gear'][] = [
                             'id' => ++$seq, 'assetId' => $line['assetId'], 'qty' => $line['qty'], 'unitNos' => $line['unitNos'],
                             'setId' => $setId, 'addedAt' => $now, 'addedBy' => $actor, 'late' => $late,

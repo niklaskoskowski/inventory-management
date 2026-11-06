@@ -23,6 +23,10 @@ only record. There is no git history to mine.
 - **Check out / Return from the event**: *Check out* loads what is still to go (ticked rows, or
   all) into the Selection with the event pre-set (customer and return date from the event, hire
   type of earlier lines); *Return* checks in the ticked rows' lines (or everything out).
+- **Gear list: a unit can be planned only once.** `event.gearAdd` refuses a unit that is already on
+  the list (e.g. a double scan of `72.1`), a unit number the asset does not have, and more pieces
+  than the asset has in total. Duplicates already stored are dropped by the normaliser, so existing
+  lists repair themselves on the next write; the view never lists a unit code twice.
 
 ## 2026-11-08 — branch `claude/vigilant-allen-50a6i2`
 
