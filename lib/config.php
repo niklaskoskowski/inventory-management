@@ -378,6 +378,8 @@ if (!defined('TRAX_RESERVATION_STATUSES')) define('TRAX_RESERVATION_STATUSES', [
 if (!defined('TRAX_BOOKING_KINDS')) define('TRAX_BOOKING_KINDS', ['checkout', 'reservation']);
 
 if (!defined('TRAX_BOOKING_STATUSES')) define('TRAX_BOOKING_STATUSES', ['OPEN', 'RETURNED', 'CANCELLED']);
+if (!defined('TRAX_INVOICE_DOC_STATUSES')) define('TRAX_INVOICE_DOC_STATUSES', ['draft', 'open', 'partial', 'paid', 'cancelled', 'invoiced']);
+if (!defined('TRAX_INVOICE_TIMEOUT')) define('TRAX_INVOICE_TIMEOUT', 20);
 
 // --- Limits ----------------------------------------------------------------
 

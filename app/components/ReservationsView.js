@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue';
 import {
   state, mutate, toast, getAsset, eventById, startReservationEdit, askSignature,
+  invoicingEnabled, openInvoice,
 } from '../store.js';
 import {
   formatDateTime, parseDate, toLocalInput, formatTotals, getUiLocale,
@@ -198,7 +199,11 @@ export default {
     const itemsOf = (r) => r.items || (r.assetIds || []).map((id) => ({ assetId: id, qty: 1 }));
     const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? '' : 's'}`;
 
+    /** The live booking a reservation made (for "Create invoice"). */
+    const bookingFor = (r) => state.bookings.find((b) => Number(b.reservationId) === Number(r.id) && b.status !== 'CANCELLED') || null;
+
     return {
+      invoicingEnabled, openInvoice, bookingFor,
       state, rows, filter, nameOf, STATUS_CLASS, STATUS_LABEL, FILTERS, blockedUnitCodes,
       shortWhen, itemsOf, plural,
       converting, cancelling, convertDue, allowPartial, blocked,
@@ -243,6 +248,12 @@ export default {
                   <button class="trax-menu-item" :disabled="exporting" @click="bookingPdf(r)"
                           :aria-label="'Booking PDF for ' + r.customerName">
                     <i class="bi bi-filetype-pdf"></i> Booking PDF
+                  </button>
+                  <button v-if="invoicingEnabled && bookingFor(r)" class="trax-menu-item"
+                          @click="openInvoice(bookingFor(r).id)"
+                          :aria-label="'Create an invoice for ' + r.customerName">
+                    <i class="bi bi-receipt-cutoff"></i>
+                    {{ bookingFor(r).invoice ? 'Invoice ' + (bookingFor(r).invoice.number || 'draft') + '…' : 'Create invoice…' }}
                   </button>
                   <div class="trax-menu-sep"></div>
                   <button class="trax-menu-item is-danger" @click="cancelling = r">

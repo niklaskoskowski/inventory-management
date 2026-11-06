@@ -2,7 +2,7 @@ import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue';
 import {
   state, settings, taxonomyUsage, mutate, toast, saveLegal, previewTerms, termsUrl, privacyUrl, markLabeled,
   markLabeledMany, assetById, printerEnabled, printerStatus, buildLabelBatch, printLabelBatch, cancelLabelBatch,
-  batchPrefs as loadBatchPrefs, saveBatchPrefs,
+  batchPrefs as loadBatchPrefs, saveBatchPrefs, invoicePing,
 } from '../store.js';
 import * as api from '../api.js';
 import { formatMoney, formatDateTime } from '../lib/format.js';
@@ -45,6 +45,7 @@ const SECTIONS = [
   { id: 'taxonomy', label: 'Taxonomy', icon: 'bi-tags' },
   { id: 'labels', label: 'Labels', icon: 'bi-qr-code' },
   { id: 'printer', label: 'Printer', icon: 'bi-printer' },
+  { id: 'invoicing', label: 'Invoicing', icon: 'bi-receipt' },
   { id: 'terms', label: 'Terms', icon: 'bi-file-earmark-text' },
   { id: 'privacy', label: 'Privacy', icon: 'bi-shield-check' },
   { id: 'account', label: 'Account', icon: 'bi-person-lock' },
@@ -227,6 +228,7 @@ export default {
       next.events.defaultStatus = next.events.defaultStatus || next.events.statuses[0].id;
       next.events.enabled = next.events.enabled !== false;
       next.printer = next.printer || {};
+      next.invoice = { enabled: false, url: '', key: '', pricesIncludeVat: false, vatRate: 19, lineMode: 'item', ...(next.invoice || {}) };
       next.inspection = next.inspection || {};
       next.inspection.categories = Array.isArray(next.inspection.categories)
         ? next.inspection.categories
@@ -864,6 +866,22 @@ export default {
     };
     const printerTestStatus = computed(() => printerTest.value?.data?.printer?.status || null);
 
+    // --- Invoicing (optional Invoice app connection) ---
+    // Same rules as the printer: part of the draft, saved through the save
+    // bar; the test uses what is SAVED.
+    const invoiceDirty = computed(() => Boolean(patch.value.invoice));
+    const showInvoiceKey = ref(false);
+    /** null | {busy} | {data} | {error} — the last "Test connection". */
+    const invoiceTest = ref(null);
+    const testInvoice = async () => {
+      invoiceTest.value = { busy: true };
+      try {
+        invoiceTest.value = { data: await invoicePing() };
+      } catch (error) {
+        invoiceTest.value = { error: error.message };
+      }
+    };
+
     // --- Batch printing (Settings → Labels) ---
     // Tick labels, pick format and orientation, print them as ONE job: the
     // bridge half-cuts between them and cuts once at the end – one strip,
@@ -1356,6 +1374,7 @@ export default {
       CABLE_GAP, cableGapMm, cableGapBusy, saveCableGap,
       PRINTER_FORMATS, PRINTER_TAPES, printerEnabled, printerDirty, showPrinterSecrets,
       printerTest, printerTestStatus, testPrinter,
+      invoiceDirty, showInvoiceKey, invoiceTest, testInvoice,
       batchFormat, batchOrientation, batchCut, batchCopies, batchItems, batchHidden, isPicked, togglePick,
       pickAllShown, clearPicked, batchEstimate, batchBusy, batchPreview, batchPrinted, runBatch,
       markPrintedLabeled,
@@ -2452,6 +2471,104 @@ export default {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Invoicing --------------------------------------------------------- -->
+    <!-- Optional connection to the Invoice app. Part of the settings draft,
+         saved through the save bar; "Test" uses the SAVED values. -->
+    <div v-else-if="section === 'invoicing'" class="trax-set-col">
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-invoice-enabled">
+            Invoicing
+            <span class="trax-set-hint">Create invoice drafts in the Invoice app from a booking</span>
+          </label>
+          <div class="form-check form-switch trax-set-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="set-invoice-enabled"
+                   v-model="draft.invoice.enabled">
+          </div>
+        </div>
+      </div>
+      <p class="trax-set-foot">Adds “Invoicing” to the menu and “Create invoice” to checkouts and reservations. Off: nothing changes.</p>
+
+      <div class="trax-list-header">Connection</div>
+      <div class="trax-list">
+        <div class="trax-row trax-set-stack">
+          <label class="trax-set-label" for="set-invoice-url">Invoice URL</label>
+          <input id="set-invoice-url" class="form-control form-control-sm font-monospace"
+                 type="url" maxlength="300" placeholder="https://example.com/invoice"
+                 autocomplete="off" v-model.trim="draft.invoice.url">
+        </div>
+        <div class="trax-row trax-set-stack">
+          <label class="trax-set-label" for="set-invoice-key">API key</label>
+          <div class="input-group input-group-sm">
+            <input id="set-invoice-key" class="form-control font-monospace"
+                   :type="showInvoiceKey ? 'text' : 'password'" maxlength="300"
+                   autocomplete="new-password" spellcheck="false"
+                   placeholder="inv_… from Invoice → Einstellungen → Integrationen"
+                   v-model.trim="draft.invoice.key">
+            <button class="btn btn-outline-secondary" type="button"
+                    :title="showInvoiceKey ? 'Hide' : 'Show'"
+                    :aria-label="showInvoiceKey ? 'Hide key' : 'Show key'"
+                    @click="showInvoiceKey = !showInvoiceKey">
+              <i class="bi" :class="showInvoiceKey ? 'bi-eye-slash' : 'bi-eye'"></i>
+            </button>
+          </div>
+        </div>
+        <div class="trax-row">
+          <span class="trax-set-label">
+            Connection
+            <span v-if="invoiceDirty" class="trax-set-hint">Save first — the test uses saved values.</span>
+            <span v-else-if="!state.settings.invoice.url || !state.settings.invoice.key" class="trax-set-hint">No URL or key saved yet.</span>
+          </span>
+          <button class="btn btn-sm btn-outline-secondary"
+                  :disabled="invoiceDirty || !state.settings.invoice.url || !state.settings.invoice.key || invoiceTest?.busy"
+                  @click="testInvoice()">
+            <span v-if="invoiceTest?.busy" class="spinner-border spinner-border-sm me-1"></span>
+            <i v-else class="bi bi-plug"></i> Test
+          </button>
+        </div>
+      </div>
+      <p class="trax-set-foot">In Invoice: Einstellungen → Integrationen → generate an API key and switch the connection on. The key stays on this server; the browser never talks to Invoice.</p>
+
+      <div v-if="invoiceTest?.error" class="alert alert-danger py-2 px-3 small mt-2 mb-0">
+        <i class="bi bi-x-circle"></i> {{ invoiceTest.error }}
+      </div>
+      <div v-else-if="invoiceTest?.data" class="alert alert-success py-2 px-3 small mt-2 mb-0">
+        <i class="bi bi-check-circle"></i>
+        Connected to {{ invoiceTest.data.app }} {{ invoiceTest.data.version }}<span v-if="invoiceTest.data.company"> · {{ invoiceTest.data.company }}</span>.
+        <span v-if="invoiceTest.data.smallBusiness" class="d-block">Invoice is set to small business (§ 19 UStG) — invoices carry no VAT.</span>
+      </div>
+
+      <div class="trax-list-header">Prices</div>
+      <div class="trax-list">
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-invoice-gross">
+            Rental rates include VAT
+            <span class="trax-set-hint">On: rates are gross and are converted to net for the invoice</span>
+          </label>
+          <div class="form-check form-switch trax-set-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="set-invoice-gross"
+                   v-model="draft.invoice.pricesIncludeVat">
+          </div>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-invoice-vat">VAT rate</label>
+          <div class="input-group input-group-sm" style="max-width: 8rem">
+            <input id="set-invoice-vat" class="form-control text-end" type="number" min="0" max="100" step="0.1"
+                   v-model.number="draft.invoice.vatRate">
+            <span class="input-group-text">%</span>
+          </div>
+        </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-invoice-lines">Invoice lines</label>
+          <select id="set-invoice-lines" class="form-select form-select-sm" style="max-width: 16rem" v-model="draft.invoice.lineMode">
+            <option value="item">One line per item</option>
+            <option value="summary">One summary line per booking</option>
+          </select>
+        </div>
+      </div>
+      <p class="trax-set-foot">Every line can still be edited before the draft is created.</p>
     </div>
 
     <!-- Terms & conditions ---------------------------------------------- -->
