@@ -1017,7 +1017,7 @@ export default {
             <button class="trax-menu-item" @click="openInvoice(bookingOf(detail).id)"
                     :aria-label="'Create an invoice for ' + detail.customerName">
               <i class="bi bi-receipt-cutoff"></i>
-              {{ bookingOf(detail).invoice ? 'Invoice ' + (bookingOf(detail).invoice.number || 'draft') + '…' : 'Create invoice…' }}
+              {{ bookingOf(detail).invoice ? (bookingOf(detail).invoice.kind === 'project' ? 'In project ' + bookingOf(detail).invoice.projectNumber : 'Invoice ' + (bookingOf(detail).invoice.number || 'draft')) + '…' : 'Create invoice…' }}
             </button>
           </template>
           <template v-if="bookingOf(detail)">

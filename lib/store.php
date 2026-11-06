@@ -1030,27 +1030,42 @@ function trax_normalize_booking(mixed $raw): array
 }
 
 /**
- * Link to a document in the Invoice app: {docId, number, status, gross,
- * currency, url, createdAt, actor, syncedAt} or null. `number` is null while
- * the document is still a draft there.
+ * Link to the Invoice app: {kind, docId, projectId, projectNumber, projectName,
+ * net, number, status, gross, currency, url, createdAt, actor, syncedAt} or null.
+ * kind "project": the rental waits as open posts in an Invoice project (no
+ * document yet); "document": its own invoice, or the project's invoice once
+ * billed. `number` is null while the document is a draft.
  */
 function trax_normalize_booking_invoice(mixed $raw): ?array
 {
     if (!is_array($raw)) {
         return null;
     }
+    $kind  = ($raw['kind'] ?? 'document') === 'project' ? 'project' : 'document';
     $docId = trax_int($raw['docId'] ?? null);
-    if ($docId === null || $docId <= 0) {
+    $projectId = trax_int($raw['projectId'] ?? null);
+    if ($docId !== null && $docId <= 0) {
+        $docId = null;
+    }
+    // A document link needs the document; project posts need the project.
+    if ($docId === null && ($kind !== 'project' || $projectId === null || $projectId <= 0)) {
         return null;
     }
+    $net = trax_float($raw['net'] ?? null);
     $url    = trax_str($raw['url'] ?? '', 500);
     $gross  = trax_float($raw['gross'] ?? null);
     $number = trax_str($raw['number'] ?? '', 60);
 
     return [
+        // document = own invoice (or the project's invoice once billed), project = open posts in an Invoice project
+        'kind'      => $docId !== null ? 'document' : 'project',
         'docId'     => $docId,
+        'projectId'     => $projectId !== null && $projectId > 0 ? $projectId : null,
+        'projectNumber' => trax_str($raw['projectNumber'] ?? '', 60),
+        'projectName'   => trax_str($raw['projectName'] ?? '', 200),
+        'net'       => $net === null ? null : round($net, 2),
         'number'    => $number === '' ? null : $number,
-        'status'    => trax_enum($raw['status'] ?? null, TRAX_INVOICE_DOC_STATUSES, 'draft'),
+        'status'    => $docId === null ? 'project' : trax_enum($raw['status'] ?? null, TRAX_INVOICE_DOC_STATUSES, 'draft'),
         'gross'     => $gross === null ? null : round($gross, 2),
         'currency'  => strtoupper(trax_str($raw['currency'] ?? 'EUR', 3)) ?: 'EUR',
         'url'       => preg_match('~^https?://~i', $url) === 1 ? $url : '',

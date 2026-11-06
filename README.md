@@ -248,6 +248,8 @@ Then:
   list (an exact e-mail match is pre-selected) or create one there, check or edit
   the lines (priced exactly like the rental quote PDF), and create the draft.
   It is also in the checkout detail (⋯ menu) and on a reservation's menu.
+- **Bill as**: its own invoice, or *posts in a project* of that customer in Invoice — the rental
+  is then billed there together with the project's times, trips and material.
 - A booking can only be invoiced once; Invoice answers with the existing
   document instead. Delete the draft in Invoice and the booking shows up under
   *To invoice* again.

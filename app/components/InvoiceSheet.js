@@ -1,6 +1,6 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import {
-  state, toast, invoicePing, invoiceCustomers, invoiceCustomerCreate, invoiceCreate,
+  state, toast, invoicePing, invoiceCustomers, invoiceCustomerCreate, invoiceCreate, invoiceProjects, invoiceToProject,
 } from '../store.js';
 import { formatMoney } from '../lib/format.js';
 import { HIRE_LABEL, isUncharged } from '../lib/rental.js';
@@ -116,6 +116,19 @@ export default {
     const uncharged = computed(() => booking.value && isUncharged(booking.value.hire));
 
     // --- Submit -------------------------------------------------------------
+    // --- Target: own invoice, or open posts in one of the customer's projects
+    const projects = ref([]);
+    const target = ref('invoice');  // 'invoice' | project id
+    const loadingProjects = ref(false);
+    watch(customer, async (c) => {
+      projects.value = [];
+      target.value = 'invoice';
+      if (!c) return;
+      loadingProjects.value = true;
+      try { projects.value = await invoiceProjects(c.id); } catch { /* optional */ } finally { loadingProjects.value = false; }
+    });
+    const targetProject = computed(() => projects.value.find((p) => p.id === target.value) || null);
+
     const busy = ref(false);
     const result = ref(null);       // {created, duplicate, document}
     const existing = computed(() => booking.value?.invoice || null);
@@ -126,17 +139,23 @@ export default {
       if (!canSubmit.value) return;
       busy.value = true;
       try {
+        const items = lines.value
+          .filter((l) => (l.title || '').trim() || (l.description || '').trim())
+          .map(({ missing: _m, ...line }) => ({
+            ...line,
+            quantity: Number(line.quantity) || 0,
+            unit_price: Number(line.unit_price) || 0,
+            vat_rate: Number(line.vat_rate) || 0,
+          }));
+        if (targetProject.value) {
+          result.value = await invoiceToProject({ bookingId: booking.value.id, projectId: targetProject.value.id, items, date: serviceTo.value || serviceFrom.value, force });
+          if (result.value?.created) toast(`Added to project ${targetProject.value.number}.`, 'success');
+          return;
+        }
         result.value = await invoiceCreate({
           bookingId: booking.value.id,
           customerId: customer.value.id,
-          items: lines.value
-            .filter((l) => (l.title || '').trim() || (l.description || '').trim())
-            .map(({ missing: _m, ...line }) => ({
-              ...line,
-              quantity: Number(line.quantity) || 0,
-              unit_price: Number(line.unit_price) || 0,
-              vat_rate: Number(line.vat_rate) || 0,
-            })),
+          items,
           subject: subject.value.trim(),
           serviceFrom: serviceFrom.value,
           serviceTo: serviceTo.value,
@@ -179,7 +198,7 @@ export default {
       query, results, searching, customer, creating, draftCustomer, savingCustomer, createCustomer, newCustomerFromBooking,
       proposal, lines, subject, serviceFrom, serviceTo, notes, addLine, removeLine, rebuild,
       net, gross, currency, mixedCurrency, missing, uncharged,
-      busy, result, existing, canSubmit, submit, openInInvoice,
+      busy, result, existing, canSubmit, submit, openInInvoice, projects, target, targetProject, loadingProjects,
       state, formatMoney, HIRE_LABEL, INVOICE_STATUS,
     };
   },
@@ -198,14 +217,19 @@ export default {
       <!-- Done -->
       <template v-if="result">
         <div class="alert py-2 px-3 small" :class="result.created ? 'alert-success' : 'alert-warning'">
-          <template v-if="result.created">
+          <template v-if="result.created && result.document.kind === 'project'">
+            <i class="bi bi-check-circle"></i> Added as open posts to project
+            <strong>{{ result.document.project_number }}</strong> ({{ formatMoney(result.document.net, result.document.currency) }} net).
+            Bill it there together with times, trips and material.
+          </template>
+          <template v-else-if="result.created">
             <i class="bi bi-check-circle"></i> Draft created in Invoice
             ({{ formatMoney(result.document.gross, result.document.currency) }} gross).
             Finalise, number and send it there.
           </template>
           <template v-else>
-            <i class="bi bi-exclamation-triangle"></i> This booking already has an invoice in Invoice
-            <strong>{{ result.document.number || 'Draft #' + result.document.id }}</strong>
+            <i class="bi bi-exclamation-triangle"></i> This booking is already billed in Invoice
+            <strong>{{ result.document.kind === 'project' ? 'project ' + result.document.project_number : (result.document.number || 'Draft #' + result.document.id) }}</strong>
             ({{ INVOICE_STATUS[result.document.status]?.label || result.document.status }}).
             Nothing new was created.
           </template>
@@ -224,7 +248,7 @@ export default {
       <template v-else-if="!remoteError">
         <div v-if="existing" class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2">
           <i class="bi bi-info-circle"></i>
-          <span class="flex-grow-1">Already invoiced: <strong>{{ existing.number || 'Draft #' + existing.docId }}</strong>
+          <span class="flex-grow-1">Already invoiced: <strong>{{ existing.kind === 'project' ? 'project ' + existing.projectNumber : (existing.number || 'Draft #' + existing.docId) }}</strong>
             · {{ INVOICE_STATUS[existing.status]?.label || existing.status }}</span>
           <button class="btn btn-sm btn-outline-primary" @click="openInInvoice(existing.url)">Open</button>
         </div>
@@ -318,6 +342,23 @@ export default {
           <p class="small text-secondary mt-2 mb-0">The address is needed for a valid invoice; it can also be completed in Invoice later.</p>
         </div>
 
+        <!-- Target -->
+        <template v-if="customer && !creating && (projects.length || loadingProjects)">
+          <div class="trax-list-header mt-3">Bill as</div>
+          <div class="trax-list">
+            <label class="trax-row">
+              <input class="form-check-input me-2" type="radio" value="invoice" v-model="target">
+              <span class="flex-grow-1">Own invoice <span class="d-block small text-secondary">Draft in Invoice for this booking only</span></span>
+            </label>
+            <label v-for="p in projects" :key="p.id" class="trax-row">
+              <input class="form-check-input me-2" type="radio" :value="p.id" v-model="target">
+              <span class="flex-grow-1">Posts in project <strong>{{ p.number }}</strong> · {{ p.name }}
+                <span class="d-block small text-secondary">Billed later with the project's times, trips and material</span></span>
+            </label>
+            <div v-if="loadingProjects" class="trax-row small text-secondary"><span class="spinner-border spinner-border-sm me-2"></span>Loading projects…</div>
+          </div>
+        </template>
+
         <!-- 2. Lines -->
         <div class="trax-list-header mt-3">
           2 · Lines
@@ -359,7 +400,7 @@ export default {
         <div class="trax-list-header mt-3">3 · Document</div>
         <div class="trax-list p-3">
           <div class="row g-2">
-            <div class="col-12">
+            <div v-if="!targetProject" class="col-12">
               <label class="form-label small mb-1">Subject</label>
               <input class="form-control form-control-sm" v-model="subject" maxlength="300">
             </div>
@@ -371,7 +412,7 @@ export default {
               <label class="form-label small mb-1">Service to</label>
               <input class="form-control form-control-sm" type="date" v-model="serviceTo">
             </div>
-            <div class="col-12">
+            <div v-if="!targetProject" class="col-12">
               <label class="form-label small mb-1">Internal note <span class="text-secondary">(not printed)</span></label>
               <input class="form-control form-control-sm" v-model="notes" maxlength="2000">
             </div>
@@ -390,7 +431,7 @@ export default {
         <button class="btn btn-sm btn-outline-secondary" @click="close">Cancel</button>
         <button class="btn btn-sm btn-primary" :disabled="!canSubmit" @click="submit(false)">
           <span v-if="busy" class="spinner-border spinner-border-sm me-1"></span>
-          <i v-else class="bi bi-receipt"></i> Create invoice draft
+          <i v-else class="bi bi-receipt"></i> {{ targetProject ? 'Add to ' + targetProject.number : 'Create invoice draft' }}
         </button>
       </template>
     </Drawer>

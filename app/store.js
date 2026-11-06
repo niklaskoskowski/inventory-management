@@ -1098,6 +1098,18 @@ export async function invoiceCreate(payload) {
   return data.invoiceResult || null;
 }
 
+/** Open projects of an Invoice customer. */
+export async function invoiceProjects(customerId) {
+  const body = await api.post('invoice.projects', { customerId });
+  return body.data?.projects || [];
+}
+
+/** Add a booking as open posts to an Invoice project; stores the link. */
+export async function invoiceToProject(payload) {
+  const data = await mutate('invoice.toProject', payload, { retryOnStale: false });
+  return data.invoiceResult || null;
+}
+
 /** Refresh number/status of linked bookings from Invoice (quiet on failure). */
 export async function invoiceSync(bookingIds = []) {
   try {

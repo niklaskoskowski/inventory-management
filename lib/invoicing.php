@@ -127,7 +127,12 @@ function trax_invoice_ref(int $bookingId): string
 function trax_invoice_link_from_doc(array $doc, ?array $previous, string $actor): array
 {
     return trax_normalize_booking_invoice([
+        'kind'      => $doc['kind'] ?? 'document',
         'docId'     => $doc['id'] ?? null,
+        'projectId'     => $doc['project_id'] ?? null,
+        'projectNumber' => $doc['project_number'] ?? '',
+        'projectName'   => $doc['project_name'] ?? '',
+        'net'       => $doc['net'] ?? null,
         'number'    => $doc['number'] ?? null,
         'status'    => $doc['status'] ?? 'draft',
         'gross'     => $doc['gross'] ?? null,

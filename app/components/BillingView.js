@@ -134,7 +134,8 @@ export default {
             <div class="d-flex align-items-center gap-1 flex-shrink-0">
               <template v-if="r.booking.invoice">
                 <button class="btn btn-sm btn-outline-primary" @click="open(r.booking.invoice.url)" :disabled="!r.booking.invoice.url">
-                  <i class="bi bi-box-arrow-up-right"></i> {{ r.booking.invoice.number || 'Draft' }}
+                  <i class="bi bi-box-arrow-up-right"></i>
+                  {{ r.booking.invoice.kind === 'project' ? r.booking.invoice.projectNumber : (r.booking.invoice.number || 'Draft') }}
                 </button>
                 <Menu :label="'More for booking #' + r.booking.id">
                   <button class="trax-menu-item" @click="openInvoice(r.booking.id)">
@@ -156,11 +157,15 @@ export default {
             <span v-if="r.booking.invoice" class="badge" :class="INVOICE_STATUS[r.booking.invoice.status]?.cls">
               {{ INVOICE_STATUS[r.booking.invoice.status]?.label || r.booking.invoice.status }}
             </span>
+            <span v-if="r.booking.invoice?.projectNumber" class="small text-secondary" :title="r.booking.invoice.projectName">
+              <i class="bi bi-folder2"></i> {{ r.booking.invoice.projectNumber }}
+            </span>
             <span>#{{ r.booking.id }}</span>
             <span>{{ formatDate(r.from) }}<template v-if="r.to && formatDate(r.to) !== formatDate(r.from)"> – {{ formatDate(r.to) }}</template> · {{ r.days }}d</span>
             <span>{{ r.units }} unit{{ r.units === 1 ? '' : 's' }}</span>
             <span>{{ HIRE_LABEL[r.booking.hire] || r.booking.hire }}</span>
             <strong v-if="r.booking.invoice && r.booking.invoice.gross !== null" class="ms-auto">{{ formatMoney(r.booking.invoice.gross, r.booking.invoice.currency) }} gross</strong>
+            <strong v-else-if="r.booking.invoice && r.booking.invoice.net !== null" class="ms-auto">{{ formatMoney(r.booking.invoice.net, r.booking.invoice.currency) }} net</strong>
             <strong v-else class="ms-auto">{{ formatMoney(r.net, r.currency) }} net</strong>
             <span v-if="!r.booking.invoice && r.unpriced" class="text-warning-emphasis small">
               <i class="bi bi-exclamation-triangle"></i> {{ r.unpriced }} without price

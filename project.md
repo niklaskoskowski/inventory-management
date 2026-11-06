@@ -201,7 +201,7 @@ moment the gear came back.
 | `status` | `OPEN` \| `RETURNED` \| `CANCELLED` |
 | `items`, `photos` | snapshot lines; hand-over / check-in photos |
 | `notified` | what the reminder cron has already sent; reset when `dueAt` moves, so the new date is reminded of |
-| `invoice` | `{docId, number, status, gross, currency, url, createdAt, actor, syncedAt}` or `null` — the document created for this booking in the Invoice app (`trax_normalize_booking_invoice()`). `number` is `null` while it is a draft there. See [Invoicing](#invoicing-optional) |
+| `invoice` | `{kind, docId, projectId, projectNumber, projectName, net, number, status, gross, currency, url, createdAt, actor, syncedAt}` or `null` (`kind: project` = open posts in an Invoice project, `docId` null) — the document created for this booking in the Invoice app (`trax_normalize_booking_invoice()`). `number` is `null` while it is a draft there. See [Invoicing](#invoicing-optional) |
 
 ### Settings
 
@@ -578,6 +578,8 @@ without URL + key, before the mutation.
 | `invoice.create` `{bookingId, customerId, items[], subject, serviceFrom, serviceTo, notes, force}` | creates the draft, stores `booking.invoice`; returns the snapshot + `invoiceResult {created, duplicate, document}` |
 | `invoice.sync` `{bookingIds?}` | refreshes `booking.invoice` from Invoice; a deleted/cancelled document unlinks the booking. Writes only when something changed |
 | `invoice.unlink` `{bookingId}` | forgets the link here; nothing changes in Invoice |
+| `invoice.projects` `{customerId}` | the customer's open projects in Invoice |
+| `invoice.toProject` `{bookingId, projectId, items[], date, force}` | adds the rental as open posts to the project; stores `booking.invoice` with `kind: project` |
 
 The booking's ref in Invoice is `booking:<id>`. Invoice keeps one live document per ref and answers
 a second `invoices.create` with the existing one (`duplicate: true`) unless `force` — so a double
