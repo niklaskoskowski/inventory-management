@@ -20,7 +20,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
   `vendor/vue.esm-browser.prod.js` — the full build *with* the runtime compiler, because every
   component ships a `template` string (`app/main.js`).
 - **No database, no composer, no npm, no build step.** Third-party code is vendored under `vendor/`
-  (Bootstrap 5, Bootstrap Icons, Vue, jsPDF + autotable, jsQR, qr.min.js), `phpqrcode/` and `fonts/`.
+  (Bootstrap 5, Bootstrap Icons, Vue, jsPDF + autotable, jsQR, ZXing-C++ WASM reader under `vendor/zxing/` — the scanner's primary decoder, jsQR its fallback —, qr.min.js), `phpqrcode/` and `fonts/`.
 - **Cache busting** is `asset_version()` (`admin.php:39-43`): `?v=<filemtime>` on `app/app.css` and
   `app/main.js`. There is no build hash.
 - Data is JSON files on disk; concurrency is a lock file plus a revision number.

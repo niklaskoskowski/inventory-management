@@ -7,6 +7,12 @@ Options -MultiViews
 
 RewriteEngine On
 
+# The scanner's QR decoder (vendor/zxing) is WebAssembly; browsers compile it
+# fastest when it is served as application/wasm.
+<IfModule mod_mime.c>
+    AddType application/wasm .wasm
+</IfModule>
+
 
 # ============================================================
 # SECURITY: Never expose runtime/user data

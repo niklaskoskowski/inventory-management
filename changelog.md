@@ -6,6 +6,24 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-11-11 — branch `main`
+
+### Changed
+
+- **Scanner reads faster and more forgivingly.** QR decoding now runs on ZXing-C++ (WebAssembly,
+  vendored under `vendor/zxing/`, MIT) with jsQR as the fallback when WebAssembly is unavailable.
+  ~7 ms per frame instead of ~40 ms, so many more attempts per second, and it reads slightly
+  blurred, tilted and curved labels jsQR gives up on (synthetic set: 13 of 30 against 8; a
+  realistic blurred, curved label in a fake camera stream: read in 0.3 s where jsQR never read
+  it). The status line names the engine. `.htaccess` serves `.wasm` as `application/wasm`.
+- **Continuous autofocus** is requested where the camera offers it (Android Chrome); iOS keeps
+  focusing on its own.
+
+### Added
+
+- **Scan feedback:** a short beep and a vibration (where the device supports it) when a code is
+  read. A speaker button next to zoom/torch turns the sound off; the choice is kept per device.
+
 ## 2026-11-10 — branch `main`
 
 ### Added

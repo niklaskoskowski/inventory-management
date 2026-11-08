@@ -506,6 +506,49 @@ export default {
       emit('booking', booking.id);
     };
 
+    // --- Feedback: a short beep and a buzz when a code is read -------------
+    // Sound is a per-device choice (localStorage), on by default. The audio
+    // context is created on the tap that opened the scanner and resumed on any
+    // tap in it — iOS only lets a page make sound after a user gesture.
+    const SOUND_KEY = 'traxScanSound';
+    const soundOn = ref((() => { try { return localStorage.getItem(SOUND_KEY) !== '0'; } catch { return true; } })());
+    let audio = null;
+    const unlockAudio = () => {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audio = audio || new Ctx();
+        if (audio.state === 'suspended') audio.resume();
+      } catch { audio = null; }
+    };
+    unlockAudio();
+    const toggleSound = () => {
+      soundOn.value = !soundOn.value;
+      try { localStorage.setItem(SOUND_KEY, soundOn.value ? '1' : '0'); } catch { /* private mode */ }
+      if (soundOn.value) { unlockAudio(); beep(); }
+    };
+    const beep = () => {
+      if (!soundOn.value || !audio) return;
+      try {
+        if (audio.state === 'suspended') audio.resume();
+        const t = audio.currentTime;
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1800, t);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+        osc.connect(gain).connect(audio.destination);
+        osc.start(t);
+        osc.stop(t + 0.13);
+      } catch { /* no sound is not an error */ }
+    };
+    const feedback = () => {
+      beep();
+      try { if (navigator.vibrate) navigator.vibrate(40); } catch { /* not on iOS */ }
+    };
+
     const onDecoded = (text) => {
       onFrameScanned();
       // The loop reads the same label many times a second; debounce repeats.
@@ -513,6 +556,7 @@ export default {
       if (text === lastCode && now - lastAt < 2500) return;
       lastCode = text;
       lastAt = now;
+      feedback();
 
       // A hand-over sheet's QR code is not a label — it is the booking. Scan
       // the paper, open that hand-over in Checkouts.
@@ -611,6 +655,47 @@ export default {
      * costs one branch to keep, and without it such a page would show a perfect
      * preview that can never read anything.
      */
+    /**
+     * ZXing-C++ (WebAssembly, vendor/zxing): reads slightly blurred, tilted
+     * and curved labels that jsQR gives up on, at ~7 ms a frame instead of
+     * ~40 ms (measured on 30 synthetic blur/curvature cases: 13 read against
+     * 8). Loaded once; if it cannot load (old browser, no WASM, the .wasm not
+     * served) the scanner keeps using jsQR exactly as before.
+     */
+    const ZXING_BASE = (() => {
+      try { return new URL('../../vendor/zxing/', import.meta.url).href; } catch { return 'vendor/zxing/'; }
+    })();
+    const ZXING_OPTIONS = { formats: ['QRCode'], tryHarder: true, tryRotate: true, tryInvert: false, maxNumberOfSymbols: 1 };
+    let zxingPromise = null;
+    const ensureZXing = () => {
+      if (zxingPromise) return zxingPromise;
+      zxingPromise = new Promise((resolve, reject) => {
+        if (typeof WebAssembly !== 'object') { reject(new Error('no WebAssembly')); return; }
+        const ready = () => {
+          const z = window.ZXingWASM;
+          if (!z || typeof z.readBarcodes !== 'function') { reject(new Error('ZXing did not load')); return; }
+          z.prepareZXingModule({
+            overrides: { locateFile: (path, prefix) => (path.endsWith('.wasm') ? ZXING_BASE + 'zxing_reader.wasm' : prefix + path) },
+            fireImmediately: true,
+          });
+          // Warm-up: compiles the module now, not on the first real frame.
+          z.readBarcodes(new ImageData(8, 8), ZXING_OPTIONS).then(() => resolve(z), reject);
+        };
+        if (window.ZXingWASM) { ready(); return; }
+        const script = document.createElement('script');
+        script.src = ZXING_BASE + 'zxing-reader.js';
+        script.async = true;
+        script.onload = ready;
+        script.onerror = () => reject(new Error('zxing-reader.js could not be loaded'));
+        document.head.appendChild(script);
+      });
+      zxingPromise.catch(() => { /* jsQR stays in charge */ });
+      return zxingPromise;
+    };
+    // Which engine the loop uses: 'zxing' once it is ready, 'jsqr' until then.
+    const engine = ref('jsqr');
+    let zxing = null;
+
     let decoderPromise = null;
     const ensureDecoder = () => {
       if (window.jsQR) return Promise.resolve(window.jsQR);
@@ -843,6 +928,21 @@ export default {
               rateMark = now;
             }
             onFrameScanned();
+            if (zxing) {
+              // Async: the next frame is asked for only once this one is done,
+              // so exactly one decode is ever in flight.
+              zxing.readBarcodes(image, ZXING_OPTIONS).then((results) => {
+                const hit = (results || []).find((r) => r && r.isValid && r.text);
+                if (hit && token === runId && looping) onDecoded(hit.text);
+              }).catch(() => { /* a bad frame; the next one usually is not */ }).finally(() => {
+                // A run that was stopped or replaced meanwhile owns frameId now.
+                if (token !== runId) return;
+                if (!looping) { frameId = null; return; }
+                frameId = nextFrame(() => scanFrame(token));
+              });
+              frameId = -1; // in flight
+              return;
+            }
             const found = decode(image.data, pass.width, pass.height, {
               inversionAttempts: 'dontInvert',
             });
@@ -1133,6 +1233,11 @@ export default {
         await applyTrackConstraint({ zoom: value });
       }
       if (caps.torch === true) torchAvailable.value = true;
+      // Keep refocusing while the phone moves between labels (Android Chrome;
+      // iOS focuses continuously on its own and exposes no control).
+      if (Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
+        await applyTrackConstraint({ focusMode: 'continuous' });
+      }
     };
 
     const setZoom = async (value) => {
@@ -1436,6 +1541,7 @@ export default {
         return;
       }
 
+      ensureZXing().then((z) => { zxing = z; engine.value = 'zxing'; }).catch(() => { engine.value = 'jsqr'; });
       try {
         await ensureDecoder();
       } catch (error) {
@@ -1675,9 +1781,10 @@ export default {
      */
     const decodeNote = computed(() => {
       if (!scanNote.value) return '';
+      const name = engine.value === 'zxing' ? 'ZXing' : 'jsQR';
       return scanRate.value
-        ? `${scanNote.value} · ${scanRate.value}/s`
-        : `${scanNote.value} · measuring…`;
+        ? `${scanNote.value} · ${name} · ${scanRate.value}/s`
+        : `${scanNote.value} · ${name} · measuring…`;
     });
 
     /**
@@ -1714,7 +1821,7 @@ export default {
     });
 
     return {
-      scanEventId, scanEventName,
+      scanEventId, scanEventName, soundOn, toggleSound, unlockAudio, engine,
       state, mode, status, errorText, errorDetail, liveText, hits, cameras, cameraId, manualId,
       needsTap, tapText, playError, playNote, decodeAlive, decoderText, decodeNote, scanRate,
       viewfinderStyle, fullscreen, syncFullscreen,
@@ -1736,7 +1843,7 @@ export default {
            two controls the drawer's own chrome provides on desktop and cannot
            provide from underneath a full-screen stage: the close button and
            the footer actions. -->
-      <div class="trax-scan-stage" :class="{ 'is-typing': typing }" :data-bs-theme="fullscreen ? 'dark' : null">
+      <div class="trax-scan-stage" :class="{ 'is-typing': typing }" @pointerdown.passive="unlockAudio" :data-bs-theme="fullscreen ? 'dark' : null">
 
       <div class="trax-scan-bar trax-scan-bar-top">
         <div class="trax-scan-toprow">
@@ -1780,7 +1887,7 @@ export default {
 
       <div class="trax-scan-bar trax-scan-bar-bottom">
 
-        <div v-if="(zoomRange || torchAvailable) && liveText" class="d-flex align-items-center gap-2 mb-2">
+        <div v-if="liveText" class="d-flex align-items-center gap-2 mb-2">
           <template v-if="zoomRange">
             <button class="btn btn-sm btn-outline-secondary" type="button"
                     @click="nudgeZoom(-0.5)" aria-label="Zoom out">−</button>
@@ -1797,6 +1904,11 @@ export default {
                   type="button" @click="toggleTorch()"
                   :aria-label="torchOn ? 'Turn the torch off' : 'Turn the torch on'">
             <i class="bi" :class="torchOn ? 'bi-lightbulb-fill' : 'bi-lightbulb'" aria-hidden="true"></i>
+          </button>
+          <button class="btn btn-sm" :class="soundOn ? 'btn-outline-secondary' : 'btn-outline-secondary opacity-50'"
+                  type="button" @click="toggleSound()"
+                  :aria-label="soundOn ? 'Turn the scan sound off' : 'Turn the scan sound on'" :title="soundOn ? 'Sound on' : 'Sound off'">
+            <i class="bi" :class="soundOn ? 'bi-volume-up' : 'bi-volume-mute'" aria-hidden="true"></i>
           </button>
         </div>
 
