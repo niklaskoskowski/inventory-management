@@ -2545,6 +2545,25 @@ try {
                 $kept     = [];
                 $scanHit  = [];   // which scanned units were found on a line
 
+                // A kit's id returns the kit's ITEMS: their lines carry the kit
+                // as setId. One physical kit is one hand-over, so when the same
+                // kit is out on several bookings only the oldest one comes back.
+                $kitBooking = [];
+                foreach ($assetIds as $kitId) {
+                    $oldest = null;
+                    foreach ($checkouts as $record) {
+                        if ((int)($record['setId'] ?? 0) !== $kitId) {
+                            continue;
+                        }
+                        if ($oldest === null || strcmp((string)$record['checkedOut'], (string)$oldest['checkedOut']) < 0) {
+                            $oldest = $record;
+                        }
+                    }
+                    if ($oldest !== null) {
+                        $kitBooking[$kitId] = [(int)($oldest['bookingId'] ?? 0), (string)$oldest['checkedOut']];
+                    }
+                }
+
                 foreach ($checkouts as $record) {
                     $lineId     = (int)$record['lineId'];
                     $lineNos    = trax_unit_nos($record['unitNos'] ?? null);
@@ -2572,6 +2591,12 @@ try {
                         }
                     } elseif (in_array((int)$record['assetId'], $assetIds, true)) {
                         $take = (int)$record['qty'];
+                    } elseif (isset($kitBooking[(int)($record['setId'] ?? 0)])) {
+                        // An item that went out inside a returned kit.
+                        [$kitBookingId, $kitAt] = $kitBooking[(int)$record['setId']];
+                        if ($kitBookingId > 0 ? (int)($record['bookingId'] ?? 0) === $kitBookingId : (string)$record['checkedOut'] === $kitAt) {
+                            $take = (int)$record['qty'];
+                        }
                     }
 
                     // A scanned unit returns itself, whatever else this line

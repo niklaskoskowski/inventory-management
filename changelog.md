@@ -6,6 +6,22 @@ this project has no released versions, so sections are dated.
 **Every change must add an entry here** — together with [project.md](project.md), this file is the
 only record. There is no git history to mine.
 
+## 2026-11-12 — branch `main`
+
+### Fixed
+
+- **Returning a kit returns its items.** `checkout.checkin` with a kit's id (scanning the kit label
+  in Return mode, or *Check in* on the kit's sheet) now returns the item lines that went out in
+  that kit (they carry it as `setId`); before, only lines with the kit's own id were matched, so
+  the items stayed *Checked out*. When the same kit is out on several bookings, the oldest one
+  comes back. The scanner no longer refuses a kit label as "not checked out".
+
+### Added
+
+- **Visible and audible feedback on silent iPhones.** Every read flashes the viewfinder green. The
+  beep now plays with the silent switch on (iOS 16.4+ `navigator.audioSession = 'playback'`,
+  reset to `auto` when the scanner closes); the speaker button still turns it off.
+
 ## 2026-11-11 — branch `main`
 
 ### Changed

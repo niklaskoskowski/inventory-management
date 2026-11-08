@@ -465,13 +465,16 @@ export default {
           } catch { /* toast already raised */ }
           return;
         }
-        if (!asset.isOut) {
+        // A kit has no line of its own — its items do; the server returns them.
+        if (asset.kind !== 'SET' && !asset.isOut) {
           toast(`${asset.name} is not checked out.`, 'warning');
           return;
         }
         try {
-          await mutate('checkout.checkin', { assetIds: [id], notify: false });
-          toast(`Checked in ${asset.name}.`, 'success', 2000);
+          const data = await mutate('checkout.checkin', { assetIds: [id], notify: false });
+          if (!data?.returned) toast(`${asset.name} is not checked out.`, 'warning');
+          else if (asset.kind === 'SET') toast(`Checked in ${asset.name} — ${data.returned} item(s).`, 'success', 2500);
+          else toast(`Checked in ${asset.name}.`, 'success', 2000);
         } catch { /* toast already raised */ }
       }
     };
@@ -513,8 +516,15 @@ export default {
     const SOUND_KEY = 'traxScanSound';
     const soundOn = ref((() => { try { return localStorage.getItem(SOUND_KEY) !== '0'; } catch { return true; } })());
     let audio = null;
+    // iOS 16.4+: a "playback" audio session plays even with the silent switch
+    // on (the user asked for that); the speaker button still turns it off.
+    // Put back to "auto" when the scanner closes.
+    const setSession = (type) => {
+      try { if (navigator.audioSession) navigator.audioSession.type = type; } catch { /* older Safari */ }
+    };
     const unlockAudio = () => {
       try {
+        if (soundOn.value) setSession('playback');
         const Ctx = window.AudioContext || window.webkitAudioContext;
         if (!Ctx) return;
         audio = audio || new Ctx();
@@ -525,6 +535,7 @@ export default {
     const toggleSound = () => {
       soundOn.value = !soundOn.value;
       try { localStorage.setItem(SOUND_KEY, soundOn.value ? '1' : '0'); } catch { /* private mode */ }
+      setSession(soundOn.value ? 'playback' : 'auto');
       if (soundOn.value) { unlockAudio(); beep(); }
     };
     const beep = () => {
@@ -544,7 +555,10 @@ export default {
         osc.stop(t + 0.13);
       } catch { /* no sound is not an error */ }
     };
+    // A green flash over the picture: visible feedback even when sound is off.
+    const flash = ref(0);
     const feedback = () => {
+      flash.value += 1;
       beep();
       try { if (navigator.vibrate) navigator.vibrate(40); } catch { /* not on iOS */ }
     };
@@ -1938,12 +1952,13 @@ export default {
       unwatchViewport();
       stop();
       stopPool();
+      setSession('auto');
       state.scanEvent = null;
       document.documentElement.classList.remove('trax-scanning');
     });
 
     return {
-      scanEventId, scanEventName, soundOn, toggleSound, unlockAudio, engine,
+      scanEventId, scanEventName, soundOn, toggleSound, unlockAudio, engine, flash,
       state, mode, status, errorText, errorDetail, liveText, hits, cameras, cameraId, manualId,
       needsTap, tapText, playError, playNote, decodeAlive, decoderText, decodeNote, scanRate,
       viewfinderStyle, fullscreen, syncFullscreen,
@@ -1988,6 +2003,7 @@ export default {
       </div>
 
       <div class="trax-scanner" :style="viewfinderStyle">
+        <div v-if="flash" :key="flash" class="trax-scan-flash" aria-hidden="true"></div>
         <div :id="REGION_ID" class="trax-scan-region">
           <video class="trax-scan-video" playsinline webkit-playsinline muted autoplay></video>
           <!-- The corner guides, laid out in pixels from the full-frame pass's
