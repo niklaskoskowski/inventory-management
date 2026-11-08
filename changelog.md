@@ -16,6 +16,15 @@ only record. There is no git history to mine.
   blurred, tilted and curved labels jsQR gives up on (synthetic set: 13 of 30 against 8; a
   realistic blurred, curved label in a fake camera stream: read in 0.3 s where jsQR never read
   it). The status line names the engine. `.htaccess` serves `.wasm` as `application/wasm`.
+- **Decoding pipeline rebuilt for throughput.** ZXing now runs in two Web Workers
+  (`app/lib/scan-worker.js`), one per pass, and every camera frame is read twice — the full view
+  and the native-pixel centre — instead of alternating between them. The main thread only crops
+  and hands the pixels over (transferred, no copy back). Where the browser has a native
+  `BarcodeDetector` (Android Chrome) it reads the raw video beside the workers. Fallbacks: ZXing on
+  the main thread, then jsQR. Measured with CPU throttled to phone speed (6×): 19 frames/s × 2
+  passes against 20 single-pass frames/s before, UI 33 fps instead of 22, main-thread blocking
+  312 ms/s instead of 638 (jsQR: 853). ZXing runs without its own downscaling (`tryDownscale:
+  false`): same reads, ~25 % faster. The status line names the engine.
 - **Continuous autofocus** is requested where the camera offers it (Android Chrome); iOS keeps
   focusing on its own.
 

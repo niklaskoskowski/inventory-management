@@ -665,7 +665,7 @@ export default {
     const ZXING_BASE = (() => {
       try { return new URL('../../vendor/zxing/', import.meta.url).href; } catch { return 'vendor/zxing/'; }
     })();
-    const ZXING_OPTIONS = { formats: ['QRCode'], tryHarder: true, tryRotate: true, tryInvert: false, maxNumberOfSymbols: 1 };
+    const ZXING_OPTIONS = { formats: ['QRCode'], tryHarder: true, tryRotate: true, tryInvert: false, tryDownscale: false, maxNumberOfSymbols: 1 };
     let zxingPromise = null;
     const ensureZXing = () => {
       if (zxingPromise) return zxingPromise;
@@ -692,9 +692,75 @@ export default {
       zxingPromise.catch(() => { /* jsQR stays in charge */ });
       return zxingPromise;
     };
-    // Which engine the loop uses: 'zxing' once it is ready, 'jsqr' until then.
+    // Which engine the loop uses: 'workers' (ZXing in two Web Workers, one
+    // per pass, both passes on every frame), 'zxing' (main thread, passes
+    // alternating), 'jsqr' (the original). Best available wins; the rest are
+    // fallbacks for browsers without workers / WebAssembly.
     const engine = ref('jsqr');
     let zxing = null;
+
+    const WORKER_URL = (() => {
+      try { return new URL('../lib/scan-worker.js', import.meta.url).href; } catch { return 'app/lib/scan-worker.js'; }
+    })();
+    // [{worker, busy, sent}] — one per pass; at most one frame in flight each.
+    let pool = null;
+    let poolPromise = null;
+    let decodedCount = 0;
+    const startPool = (size) => {
+      if (poolPromise) return poolPromise;
+      poolPromise = new Promise((resolve, reject) => {
+        if (typeof Worker !== 'function' || typeof WebAssembly !== 'object') { reject(new Error('no workers')); return; }
+        const slots = [];
+        let ready = 0;
+        let failed = false;
+        const timer = setTimeout(() => { failed = true; slots.forEach((s) => s.worker.terminate()); reject(new Error('worker timeout')); }, 10000);
+        for (let i = 0; i < size; i += 1) {
+          let worker;
+          try { worker = new Worker(WORKER_URL); } catch (error) { clearTimeout(timer); reject(error); return; }
+          const slot = { worker, busy: false, token: 0 };
+          worker.onmessage = (event) => {
+            const msg = event.data || {};
+            if (msg.ready) {
+              ready += 1;
+              if (ready === size && !failed) { clearTimeout(timer); resolve(slots); }
+              return;
+            }
+            if (msg.error) {
+              if (!failed) { failed = true; clearTimeout(timer); slots.forEach((s) => s.worker.terminate()); reject(new Error(msg.error)); }
+              return;
+            }
+            slot.busy = false;
+            decodedCount += 1;
+            if (msg.text && slot.token === runId && looping) onDecoded(msg.text);
+          };
+          worker.onerror = () => {
+            if (!failed && ready < size) { failed = true; clearTimeout(timer); slots.forEach((s) => s.worker.terminate()); reject(new Error('worker failed')); }
+            slot.busy = false;
+          };
+          slots.push(slot);
+        }
+      });
+      poolPromise.then((slots) => { pool = slots; }, () => { poolPromise = null; });
+      return poolPromise;
+    };
+    const stopPool = () => {
+      if (pool) pool.forEach((slot) => slot.worker.terminate());
+      pool = null;
+      poolPromise = null;
+    };
+
+    // Native QR detection where the browser has it (Android Chrome & co.):
+    // reads the <video> directly, no canvas, no copy. Runs beside the
+    // workers, never instead of them — it is fast, but less forgiving.
+    let nativeDetector = null;
+    let nativeBusy = false;
+    (async () => {
+      try {
+        if (typeof window.BarcodeDetector !== 'function') return;
+        const formats = await window.BarcodeDetector.getSupportedFormats();
+        if (formats.includes('qr_code')) nativeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      } catch { nativeDetector = null; }
+    })();
 
     let decoderPromise = null;
     const ensureDecoder = () => {
@@ -895,12 +961,64 @@ export default {
       if (token !== runId || !looping) { frameId = null; return; }
       const element = videoEl;
       const decode = window.jsQR;
-      if (!element || !decode || !passes.length) { frameId = null; return; }
+      if (!element || (!decode && !pool) || !passes.length) { frameId = null; return; }
 
       const stamp = Number(element.currentTime || 0);
       const fresh = stamp !== lastStamp;
       if (fresh && element.readyState >= HAVE_CURRENT_DATA && !element.paused) {
         lastStamp = stamp;
+
+        // Native detector on the raw video, beside everything else.
+        if (nativeDetector && !nativeBusy) {
+          nativeBusy = true;
+          nativeDetector.detect(element).then((codes) => {
+            const hit = (codes || []).find((c) => c && c.rawValue);
+            if (hit && token === runId && looping) onDecoded(hit.rawValue);
+          }).catch(() => {}).finally(() => { nativeBusy = false; });
+        }
+
+        if (pool) {
+          // Every pass on every frame: the full view and the native-pixel
+          // centre each go to their own worker as soon as it is free. The
+          // main thread only crops and copies; decoding never blocks the UI.
+          let posted = false;
+          passes.forEach((pass, i) => {
+            const slot = pool[i % pool.length];
+            if (slot.busy) return;
+            const context = passContext(pass);
+            if (!context) return;
+            let image = null;
+            try {
+              context.drawImage(
+                element,
+                pass.source.x, pass.source.y, pass.source.width, pass.source.height,
+                0, 0, pass.width, pass.height,
+              );
+              image = context.getImageData(0, 0, pass.width, pass.height);
+            } catch {
+              image = null;
+            }
+            if (!image) return;
+            slot.busy = true;
+            slot.token = token;
+            slot.worker.postMessage({ seq: stamp, width: image.width, height: image.height, buffer: image.data.buffer }, [image.data.buffer]);
+            posted = true;
+          });
+          if (posted) onFrameScanned();
+          const now = Date.now();
+          if (!rateMark) rateMark = now;
+          else if (now - rateMark >= 1000) {
+            // Frames read per second: completed decodes across workers,
+            // counted per frame (two passes = one frame).
+            scanRate.value = Math.round((decodedCount * 1000) / (now - rateMark) / Math.max(1, passes.length));
+            decodedCount = 0;
+            rateMark = now;
+          }
+          if (token !== runId || !looping) { frameId = null; return; }
+          frameId = nextFrame(() => scanFrame(token));
+          return;
+        }
+
         const pass = passes[passAt % passes.length];
         passAt += 1;
         const context = passContext(pass);
@@ -1541,7 +1659,9 @@ export default {
         return;
       }
 
-      ensureZXing().then((z) => { zxing = z; engine.value = 'zxing'; }).catch(() => { engine.value = 'jsqr'; });
+      startPool(2)
+        .then(() => { engine.value = 'workers'; })
+        .catch(() => ensureZXing().then((z) => { zxing = z; engine.value = 'zxing'; }).catch(() => { engine.value = 'jsqr'; }));
       try {
         await ensureDecoder();
       } catch (error) {
@@ -1781,7 +1901,8 @@ export default {
      */
     const decodeNote = computed(() => {
       if (!scanNote.value) return '';
-      const name = engine.value === 'zxing' ? 'ZXing' : 'jsQR';
+      const name = (engine.value === 'workers' ? 'ZXing ×2 workers' : engine.value === 'zxing' ? 'ZXing' : 'jsQR')
+        + (nativeDetector ? ' + native' : '');
       return scanRate.value
         ? `${scanNote.value} · ${name} · ${scanRate.value}/s`
         : `${scanNote.value} · ${name} · measuring…`;
@@ -1816,6 +1937,7 @@ export default {
     onBeforeUnmount(() => {
       unwatchViewport();
       stop();
+      stopPool();
       state.scanEvent = null;
       document.documentElement.classList.remove('trax-scanning');
     });
