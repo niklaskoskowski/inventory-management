@@ -1294,6 +1294,126 @@ function trax_normalize_cron_state(mixed $raw): array
 
 
 // ---------------------------------------------------------------------------
+// Return-receipt queue
+//
+// checkout.checkin used to mail every return at once. Scanning a big return
+// item by item made that one "Asset Returned" mail per scan. Now each return
+// is appended here, per customer, inside the same write as the return itself;
+// cron.php sends one mail per customer once nothing more has come back for
+// cron.returnMailDelayMinutes, and removes what it sent.
+// ---------------------------------------------------------------------------
+
+/** One returned slip as the queue keeps it: only what the mail renders. */
+function trax_normalize_mail_queue_record(mixed $raw): ?array
+{
+    if (!is_array($raw)) {
+        return null;
+    }
+    $assetId = trax_int($raw['assetId'] ?? null);
+    if ($assetId === null || $assetId <= 0) {
+        return null;
+    }
+    return [
+        'assetId' => $assetId,
+        'name'    => trax_str($raw['name'] ?? '', TRAX_MAX_NAME),
+        'qty'     => trax_clamp_int($raw['qty'] ?? null, 1, TRAX_MAX_QUANTITY, 1),
+        'unitNos' => trax_unit_nos($raw['unitNos'] ?? null),
+    ];
+}
+
+function trax_normalize_mail_queue(mixed $raw): array
+{
+    $out = [];
+    foreach (is_array($raw) ? $raw : [] as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $records = [];
+        foreach ((array)($entry['records'] ?? []) as $record) {
+            $record = trax_normalize_mail_queue_record($record);
+            if ($record !== null && count($records) < 2000) {
+                $records[] = $record;
+            }
+        }
+        $lastAt = trax_iso($entry['lastAt'] ?? null);
+        if ($records === [] || $lastAt === null) {
+            continue;   // nothing to say, or no way to tell when to say it
+        }
+        $email = trax_str($entry['email'] ?? '', 254);
+        $out[] = [
+            // Case-insensitive, like the grouping in checkout.checkin:
+            // Max@x.y and max@x.y are one customer and get one mail.
+            'key'      => strtolower(trim($email)),
+            'name'     => trax_str($entry['name'] ?? '', TRAX_MAX_NAME),
+            'email'    => $email,
+            'records'  => $records,
+            'firstAt'  => trax_iso($entry['firstAt'] ?? null) ?? $lastAt,
+            'lastAt'   => $lastAt,
+            'attempts' => trax_clamp_int($entry['attempts'] ?? null, 0, 100, 0),
+        ];
+        if (count($out) >= 500) {
+            break;
+        }
+    }
+    return $out;
+}
+
+/**
+ * Appends returned checkout slips to the queue, one entry per customer.
+ * Called inside trax_mutate(), so the return and its pending receipt are one write.
+ */
+function trax_mail_queue_add(array &$data, array $returned, string $nowIso): void
+{
+    $queue = $data['mailQueue'] ?? [];
+    foreach ($returned as $slip) {
+        $record = trax_normalize_mail_queue_record($slip);
+        if ($record === null) {
+            continue;
+        }
+        $email = trim((string)($slip['customerEmail'] ?? ''));
+        $key   = strtolower($email);
+        $index = null;
+        foreach ($queue as $i => $entry) {
+            if ($entry['key'] === $key) {
+                $index = $i;
+                break;
+            }
+        }
+        if ($index === null) {
+            $queue[] = ['key' => $key, 'name' => (string)($slip['customerName'] ?? ''), 'email' => $email,
+                'records' => [], 'firstAt' => $nowIso, 'lastAt' => $nowIso, 'attempts' => 0];
+            $index = array_key_last($queue);
+        }
+        // Appended, never merged: cron.php removes exactly the records it sent,
+        // and anything that arrived while it was sending stays queued.
+        $queue[$index]['records'][] = $record;
+        $queue[$index]['lastAt']    = $nowIso;
+    }
+    $data['mailQueue'] = $queue;
+}
+
+/**
+ * The queued slips merged for the mail: one line per asset, quantities added
+ * and unit numbers combined. Carries `id` because lib/mailer.php renders "[ID n]".
+ */
+function trax_mail_queue_records(array $entry): array
+{
+    $byAsset = [];
+    foreach ($entry['records'] as $record) {
+        $id = (int)$record['assetId'];
+        if (!isset($byAsset[$id])) {
+            $byAsset[$id] = $record + ['id' => $id];
+            continue;
+        }
+        $byAsset[$id]['qty'] += (int)$record['qty'];
+        $nos = array_values(array_unique(array_merge($byAsset[$id]['unitNos'], $record['unitNos'])));
+        sort($nos);
+        $byAsset[$id]['unitNos'] = $nos;
+    }
+    return array_values($byAsset);
+}
+
+// ---------------------------------------------------------------------------
 // Events
 //
 // A job the gear goes out on: a festival, a conference, a shoot. Equipment is
@@ -2672,6 +2792,11 @@ function trax_normalize_settings(mixed $raw): array
             'secret'            => trax_mail_header_safe(trax_str($cron['secret'] ?? '', 200)),
             'dueSoonHours'      => trax_clamp_int($cron['dueSoonHours'] ?? null, 1, 168, 24),
             'overdueRepeatDays' => trax_clamp_int($cron['overdueRepeatDays'] ?? null, 1, 90, 7),
+            // Return receipts are collected per customer and sent by cron.php
+            // once nothing more has come back for this many minutes: a big
+            // return scanned item by item is one mail, not one per item.
+            // 0 sends each return at once, as before.
+            'returnMailDelayMinutes' => trax_clamp_int($cron['returnMailDelayMinutes'] ?? null, 0, 1440, 15),
         ],
     ];
 }
@@ -3001,6 +3126,9 @@ function trax_normalize_data(mixed $raw): array
         // The privacy notice: the same archive shape as the terms.
         'privacy'       => trax_normalize_terms($raw['privacy'] ?? null),
         'cronState'     => trax_normalize_cron_state($raw['cronState'] ?? null),
+        // Return receipts waiting to go out as one mail per customer. See
+        // trax_mail_queue_add() and cron.php.
+        'mailQueue'     => trax_normalize_mail_queue($raw['mailQueue'] ?? null),
     ];
 }
 

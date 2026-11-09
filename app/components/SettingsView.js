@@ -2891,6 +2891,14 @@ export default {
           <input id="set-repeat" type="number" min="1" max="90"
                  class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.cron.overdueRepeatDays">
         </div>
+        <div class="trax-row">
+          <label class="trax-set-label" for="set-returndelay"
+                 title="Returns are collected per customer; one receipt goes out once nothing more has come back for this long. 0 sends every return at once.">
+            Return receipt after (min) <span class="trax-set-hint">one mail per customer · 0 = at once</span>
+          </label>
+          <input id="set-returndelay" type="number" min="0" max="1440"
+                 class="form-control form-control-sm trax-set-ctl is-narrow" v-model.number="draft.cron.returnMailDelayMinutes">
+        </div>
         <div class="trax-row trax-set-stack">
           <label class="trax-set-label" for="set-secret">Shared secret</label>
           <div class="d-flex gap-2">

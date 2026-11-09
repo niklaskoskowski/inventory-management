@@ -10,6 +10,8 @@
  *   - an overdue reminder, once when it goes overdue and then every
  *     cron.overdueRepeatDays for as long as it stays out
  *   - the operator's digest, at most once per calendar day
+ *   - queued return receipts: one mail per customer once nothing more has
+ *     come back for cron.returnMailDelayMinutes (checkout.checkin queues them)
  *
  * It deliberately does NOT include api.php. That file is an HTTP endpoint: it
  * calls trax_require_login() at the top, which under CLI has no session to find
@@ -219,9 +221,75 @@ try {
         }
     }
 
+    // --- Queued return receipts ----------------------------------------------
+    // One mail per customer for everything that came back, sent once the
+    // returns have stopped for the configured delay. What is still out comes
+    // from the checkouts as they are now, so the last line of the mail is true.
+    $wantCheckin  = (bool)trax_setting('email.sendCheckin', true);
+    $returnDelay  = (int)trax_setting('cron.returnMailDelayMinutes', 15);
+    $queueDone    = [];     // key => ['lastAt' => …, 'count' => n]  sent (or switched off): remove
+    $queueFailed  = [];     // key => lastAt                         failed: count the attempt
+    $sentReturns  = 0;
+    $queuePending = 0;
+    $queue        = $data['mailQueue'] ?? [];
+    if ($queue !== []) {
+        $stillOut = [];
+        foreach (trax_read_checkouts() as $line) {
+            $key = strtolower(trim((string)($line['customerEmail'] ?? '')));
+            $stillOut[$key] = ($stillOut[$key] ?? 0) + max(1, (int)($line['qty'] ?? 1));
+        }
+        foreach ($queue as $entry) {
+            $done = ['lastAt' => $entry['lastAt'], 'count' => count($entry['records'])];
+            if (!$wantCheckin) {
+                // Receipts switched off since they were queued: drop them unsent.
+                $queueDone[$entry['key']] = $done;
+                continue;
+            }
+            $lastTs = strtotime($entry['lastAt']) ?: 0;
+            if ($lastTs + $returnDelay * 60 > $now) {
+                $queuePending++;
+                continue;   // still coming back — wait for the quiet period
+            }
+            $records = trax_mail_queue_records($entry);
+            if ($traxDryRun) {
+                $preview[] = "  would send return receipt to {$entry['email']} (" . count($records) . ' item line(s))';
+                continue;
+            }
+            if (trax_mail_checkin($entry['name'], $entry['email'], $records, $stillOut[$entry['key']] ?? 0)) {
+                $queueDone[$entry['key']] = $done;
+                $sentReturns++;
+            } else {
+                $queueFailed[$entry['key']] = $entry['lastAt'];
+                $failed++;
+            }
+        }
+    }
+
     // One write, after all the sending, holding the lock for as short as it takes.
     if (!$traxDryRun) {
-        trax_mutate(null, static function (array &$data, array &$checkouts) use ($stamps, $iso, $today, $digestSent): array {
+        trax_mutate(null, static function (array &$data, array &$checkouts) use ($stamps, $iso, $today, $digestSent, $queueDone, $queueFailed): array {
+            // Remove exactly what was sent. Returns that arrived while this run
+            // was mailing were appended after those records and stay queued.
+            $kept = [];
+            foreach ($data['mailQueue'] as $entry) {
+                if (isset($queueDone[$entry['key']])) {
+                    $entry['records'] = array_slice($entry['records'], $queueDone[$entry['key']]['count']);
+                    if ($entry['records'] === []) {
+                        continue;
+                    }
+                    $entry['attempts'] = 0;
+                } elseif (isset($queueFailed[$entry['key']])) {
+                    // A receipt that keeps failing is given up after 10 runs
+                    // rather than retried forever.
+                    if (++$entry['attempts'] >= 10) {
+                        error_log('[app cron] return receipt to ' . $entry['email'] . ' dropped after 10 failed sends');
+                        continue;
+                    }
+                }
+                $kept[] = $entry;
+            }
+            $data['mailQueue'] = $kept;
+
             foreach ($stamps as $bookingId => $stamp) {
                 trax_update_booking($data, (int)$bookingId, static function (array $booking) use ($stamp): array {
                     if (isset($stamp['dueSoonAt'])) {
@@ -270,6 +338,9 @@ try {
     if ($digestDueToday && $traxDryRun) {
         $preview[] = '  would send the digest to ' . trax_owner_email();
     }
+    $lines[] = $wantCheckin
+        ? "return receipts: sent {$sentReturns}, waiting {$queuePending} (quiet period {$returnDelay} min)"
+        : 'return receipts: disabled (email.sendCheckin off), ' . count($queueDone) . ' queued dropped';
     $lines[] = "failed sends: {$failed}";
 
     echo implode("\n", array_merge($lines, $preview)) . "\n";

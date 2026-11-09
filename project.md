@@ -40,7 +40,7 @@ booking page for their own transaction. Sized for one or two operators. No datab
 | `label.php`, `label-w.php` | GD-rendered PNG labels, portrait 14×30 mm and wide 30×14 mm. |
 | `label-c.php` | Cable flag, 90×14 mm: the portrait label twice (front, and back turned 180°), tops facing a blank 30 mm middle that wraps the cable. Gets the portrait image from `label.php` by defining `TRAX_LABEL_EMBED` before requiring it. |
 | `download.php` | The only read path into `documents/`; that directory denies the web outright. `?inline=1` switches the response to `Content-Disposition: inline` for PDFs and images so the app can preview them. |
-| `cron.php` | Reminder cron. CLI (`php cron.php [--dry-run]`) or `GET ?secret=<cron.secret>`. |
+| `cron.php` | Reminder cron, also sends the queued return receipts. CLI (`php cron.php [--dry-run]`) or `GET ?secret=<cron.secret>`. |
 | `login.php`, `logout.php` | Session in, session out. Both require the CSRF token. |
 | `install.php` + `lib/install.php` | Seven-step wizard; nothing is written until "Install" on step 6. |
 | `backup.php` | The daily backup. `trax_run_backup()` is the whole of it (`backup.php:111`); the CLI runner below it fires only when this file is the script being run, so `restore.php` can include it. A direct HTTP hit is still 403. |
@@ -67,7 +67,7 @@ the `TRAX_DATA_DIR` environment variable when it names a readable directory): `d
 `uploads/`, `documents/`, `.trax.lock`.
 
 `trax_normalize_data()` (`lib/store.php:1329-1376`) **is** the schema: `rev`, `assets`, `events`,
-`reservations`, `rentalHistory`, `bookings`, `settings`, `terms`, `cronState`. (`events` was an unused
+`reservations`, `rentalHistory`, `bookings`, `settings`, `terms`, `cronState`, `mailQueue` (pending return receipts, one entry per customer — `trax_mail_queue_add()` in `checkout.checkin`, sent and removed by `cron.php` after `cron.returnMailDelayMinutes` of quiet). (`events` was an unused
 passthrough that install.php and the demo data both wrote as `[]`; it holds the jobs now — see
 [Events](#events).) A top-level key not in that
 literal is dropped on the next write, because `trax_mutate()` re-normalises the whole tree before

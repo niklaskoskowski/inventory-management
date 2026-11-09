@@ -154,8 +154,11 @@ request, and nothing else in the file has to change.
 ## Reminder emails (cron)
 
 `cron.php` sends the "due soon" and "overdue" reminders and a daily digest to the
-owner address. It does nothing unless something calls it, so give it a schedule.
-Every 15 minutes is plenty.
+owner address. It also sends the **return receipts**: returns are collected per
+customer, and one mail lists everything that came back once nothing more has been
+returned for 15 minutes (Settings → Scheduled run → *Return receipt after*, 0 sends
+each return at once). It does nothing unless something calls it, so give it a
+schedule. Every 15 minutes is plenty; without a cron, queued receipts are never sent.
 
 **If your host offers a web cron** (most shared hosting does), point it at the URL
 the installer showed you on the last step:

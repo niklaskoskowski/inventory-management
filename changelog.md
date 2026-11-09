@@ -8,6 +8,18 @@ only record. There is no git history to mine.
 
 ## 2026-11-12 — branch `main`
 
+### Changed
+
+- **One return receipt per customer, not one per item.** `checkout.checkin` no longer mails at
+  once: the returned lines are queued per customer (`mailQueue` in `data.json`, written in the same
+  `trax_mutate()` as the return) and `cron.php` sends one *Asset Returned* mail listing everything
+  — same asset merged with its quantity and unit numbers, "still out" counted at send time — once
+  nothing more has come back for `cron.returnMailDelayMinutes` (Settings → Scheduled run, default
+  15, `0` = send at once as before). Records that arrive while cron is sending stay queued; a send
+  that keeps failing is dropped after 10 runs. Scanning returns in Return mode now asks for a
+  receipt too while the delay is above 0 (it stays silent at 0). The response carries
+  `mailQueued`; Checkouts says *Return receipt queued.*
+
 ### Fixed
 
 - **Returning a kit returns its items.** `checkout.checkin` with a kit's id (scanning the kit label

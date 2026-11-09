@@ -194,6 +194,10 @@ export default {
      * error string), so there is nothing for reactivity to update.
      */
     const appName = () => state.settings?.branding?.appName || 'Assets';
+    // Scanned returns get a receipt only while receipts are collected: the
+    // server then sends one mail per customer once the scanning stops. With
+    // the delay at 0 every scan would mail on its own, so the scanner stays quiet.
+    const receiptQueued = () => Number(state.settings?.cron?.returnMailDelayMinutes ?? 15) > 0;
 
     // Opened from an event ("Scan to event"): every scan goes on its gear list.
     const scanEventId = state.scanEvent;
@@ -455,7 +459,7 @@ export default {
           try {
             const data = await mutate('checkout.checkin', {
               units: [{ assetId: id, no: wantedNo }],
-              notify: false,
+              notify: receiptQueued(),
             });
             const missed = (data?.notOut || []).some(
               (entry) => Number(entry.assetId) === id && Number(entry.no) === wantedNo,
@@ -471,7 +475,7 @@ export default {
           return;
         }
         try {
-          const data = await mutate('checkout.checkin', { assetIds: [id], notify: false });
+          const data = await mutate('checkout.checkin', { assetIds: [id], notify: receiptQueued() });
           if (!data?.returned) toast(`${asset.name} is not checked out.`, 'warning');
           else if (asset.kind === 'SET') toast(`Checked in ${asset.name} — ${data.returned} item(s).`, 'success', 2500);
           else toast(`Checked in ${asset.name}.`, 'success', 2000);

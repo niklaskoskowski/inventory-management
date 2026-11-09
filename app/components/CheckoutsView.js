@@ -660,7 +660,7 @@ export default {
         });
         toast(
           `Checked in ${data.returned} unit(s) on ${data.lines} line(s).`
-          + (data.mailed ? ' Customer notified.' : ''),
+          + (data.mailed ? ' Customer notified.' : data.mailQueued ? ' Return receipt queued.' : ''),
           'success',
         );
         selected.value = [];

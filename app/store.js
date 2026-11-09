@@ -204,6 +204,7 @@ const DEFAULT_SETTINGS = {
     secret: '',
     dueSoonHours: 24,
     overdueRepeatDays: 7,
+    returnMailDelayMinutes: 15,
   },
 };
 

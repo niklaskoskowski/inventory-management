@@ -2539,8 +2539,13 @@ try {
             $scanOnly = $lineRequests === [] && $assetIds === [];
 
             $notify = !array_key_exists('notify', $payload) || !empty($payload['notify']);
+            // With a delay set (the default), the receipt is queued in the same
+            // write as the return and cron.php sends one mail per customer once
+            // the returns stop coming. 0 keeps the old send-at-once behaviour.
+            $wantReceipt = $notify && trax_setting('email.sendCheckin', true);
+            $queueMail   = $wantReceipt && (int)trax_setting('cron.returnMailDelayMinutes', 15) > 0;
 
-            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($lineRequests, $assetIds, $unitRequests, $scanOnly, $actor): array {
+            $result = trax_mutate($clientRev, function (array &$data, array &$checkouts) use ($lineRequests, $assetIds, $unitRequests, $scanOnly, $actor, $queueMail): array {
                 $returned = [];
                 $kept     = [];
                 $scanHit  = [];   // which scanned units were found on a line
@@ -2733,13 +2738,17 @@ try {
                 }
                 trax_sync_booking_due($data, $checkouts, array_values(array_unique($touchedBookings)));
 
+                if ($queueMail && $returned !== []) {
+                    trax_mail_queue_add($data, $returned, gmdate('Y-m-d\TH:i:s.000\Z'));
+                }
+
                 return ['returned' => $returned, 'closedBookings' => $closed, 'notOut' => $notOut];
             });
 
             // The per-request opt-out wins: "notify": false must not be undone
             // by a settings-level opt-in.
             $mailed = false;
-            if ($notify && trax_setting('email.sendCheckin', true)) {
+            if ($wantReceipt && !$queueMail) {
                 // One mail per customer, not one per line: returning a 5-item
                 // kit used to send five near-identical "Asset Returned" mails.
                 // A single call can span customers (lines are picked by lineId,
@@ -2779,6 +2788,8 @@ try {
 
             trax_ok(array_merge(trax_snapshot($result['data'], $result['checkouts']), [
                 'mailed'         => $mailed,
+                // The receipt waits in the queue; cron.php sends it.
+                'mailQueued'     => $queueMail && $result['result']['returned'] !== [],
                 'returned'       => array_sum(array_column($result['result']['returned'], 'qty')),
                 'lines'          => count($result['result']['returned']),
                 'closedBookings' => $result['result']['closedBookings'],
